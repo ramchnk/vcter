@@ -31,7 +31,9 @@ export const StockView: React.FC = () => {
   // Purchase Form
   const [supplier, setSupplier] = useState('');
   const [purchaseItemName, setPurchaseItemName] = useState('');
-  const [purchaseCategory, setPurchaseCategory] = useState<'Liquor' | 'Food' | 'Cleaning' | 'Laundry' | 'Room Supplies' | 'Kitchen' | 'Housekeeping'>('Room Supplies');
+  const [purchaseCategory, setPurchaseCategory] = useState<string>('Room Supplies');
+  const [isAddingPurchaseCustomCategory, setIsAddingPurchaseCustomCategory] = useState(false);
+  const [purchaseCustomCategoryInput, setPurchaseCustomCategoryInput] = useState('');
   const [qty, setQty] = useState(0);
   const [pricePerUnit, setPricePerUnit] = useState(0);
   const [unit, setUnit] = useState('pcs');
@@ -47,10 +49,66 @@ export const StockView: React.FC = () => {
 
   // New Item Track Form
   const [newItemName, setNewItemName] = useState('');
-  const [newItemCategory, setNewItemCategory] = useState<'Liquor' | 'Food' | 'Cleaning' | 'Laundry' | 'Room Supplies' | 'Kitchen' | 'Housekeeping'>('Room Supplies');
+  const [newItemCategory, setNewItemCategory] = useState<string>('Room Supplies');
+  const [isAddingCustomCategory, setIsAddingCustomCategory] = useState(false);
+  const [customCategoryInput, setCustomCategoryInput] = useState('');
   const [newItemMinStock, setNewItemMinStock] = useState(5);
   const [newItemUnit, setNewItemUnit] = useState('pcs');
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Custom categories state persisted in localStorage
+  const [customCategories, setCustomCategories] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('hv_custom_stock_categories');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const DEFAULT_CATEGORIES = ['Liquor', 'Food', 'Cleaning', 'Laundry', 'Room Supplies', 'Kitchen', 'Housekeeping'];
+
+  // All combined dynamic categories
+  const categories = React.useMemo(() => {
+    const list = [...DEFAULT_CATEGORIES];
+    customCategories.forEach(cat => {
+      if (cat && !list.some(c => c.toLowerCase() === cat.toLowerCase())) {
+        list.push(cat);
+      }
+    });
+    inventory.forEach(item => {
+      if (item.category && !list.some(c => c.toLowerCase() === item.category.toLowerCase())) {
+        list.push(item.category);
+      }
+    });
+    purchaseLogs.forEach(p => {
+      if (p.category && !list.some(c => c.toLowerCase() === p.category.toLowerCase())) {
+        list.push(p.category);
+      }
+    });
+    stockAdjustmentLogs.forEach(a => {
+      if (a.category && !list.some(c => c.toLowerCase() === a.category.toLowerCase())) {
+        list.push(a.category);
+      }
+    });
+    return list;
+  }, [customCategories, inventory, purchaseLogs, stockAdjustmentLogs]);
+
+  const saveCustomCategory = (newCat: string) => {
+    const trimmed = newCat.trim();
+    if (!trimmed) return trimmed;
+    const existing = categories.find(c => c.toLowerCase() === trimmed.toLowerCase());
+    if (existing) return existing;
+
+    const updated = [...customCategories, trimmed];
+    setCustomCategories(updated);
+    try {
+      localStorage.setItem('hv_custom_stock_categories', JSON.stringify(updated));
+    } catch (err) {
+      console.error('Failed saving custom categories to localStorage', err);
+    }
+    return trimmed;
+  };
 
   // Tabs for sub-views (persisted on reload)
   const [activeSubTab, setActiveSubTab] = useState<'ledger' | 'purchases' | 'adjust' | 'reports'>(() => {
@@ -69,8 +127,6 @@ export const StockView: React.FC = () => {
   const [datePreset, setDatePreset] = useState<'all' | 'today' | 'yesterday' | '7days' | 'month' | 'custom'>('all');
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
-
-  const categories = ['Liquor', 'Food', 'Cleaning', 'Laundry', 'Room Supplies', 'Kitchen', 'Housekeeping'];
 
   // Calculate totals for purchases
   const subtotal = qty * pricePerUnit;
@@ -259,12 +315,20 @@ export const StockView: React.FC = () => {
     e.preventDefault();
     if (!supplier || !purchaseItemName || qty <= 0 || pricePerUnit <= 0) return;
 
+    let finalCategory = purchaseCategory;
+    if (isAddingPurchaseCustomCategory && purchaseCustomCategoryInput.trim()) {
+      finalCategory = saveCustomCategory(purchaseCustomCategoryInput.trim());
+      setPurchaseCategory(finalCategory);
+      setIsAddingPurchaseCustomCategory(false);
+      setPurchaseCustomCategoryInput('');
+    }
+
     // Check if item exists in inventory tracker first. If not, automatically add it.
     const exists = inventory.find(i => (i.name || '').toLowerCase() === (purchaseItemName || '').toLowerCase());
     if (!exists) {
       addInventoryItem({
         name: purchaseItemName,
-        category: purchaseCategory,
+        category: finalCategory,
         stock: 0,
         minStock: 5,
         unit: unit,
@@ -275,7 +339,7 @@ export const StockView: React.FC = () => {
 
     recordPurchase({
       itemName: purchaseItemName,
-      category: purchaseCategory,
+      category: finalCategory,
       quantity: qty,
       unit,
       supplier,
@@ -315,17 +379,25 @@ export const StockView: React.FC = () => {
     e.preventDefault();
     if (!newItemName.trim()) return;
 
+    let finalCategory = newItemCategory;
+    if (isAddingCustomCategory && customCategoryInput.trim()) {
+      finalCategory = saveCustomCategory(customCategoryInput.trim());
+      setNewItemCategory(finalCategory);
+      setIsAddingCustomCategory(false);
+      setCustomCategoryInput('');
+    }
+
     const itemName = newItemName.trim();
     await addInventoryItem({
       name: itemName,
-      category: newItemCategory,
+      category: finalCategory,
       stock: 0,
       minStock: Number(newItemMinStock) || 5,
       unit: newItemUnit.trim() || 'pcs',
       barcode: 'BAR-' + Math.floor(100000 + Math.random() * 900000)
     });
 
-    setSuccessMsg(`✓ Successfully tracked SKU: "${itemName}"`);
+    setSuccessMsg(`✓ Successfully tracked SKU: "${itemName}" in category "${finalCategory}"`);
     setTimeout(() => setSuccessMsg(null), 4000);
 
     setNewItemName('');
@@ -452,16 +524,95 @@ export const StockView: React.FC = () => {
               </div>
 
               <div className="space-y-1.5">
-                <label className="font-bold text-slate-500">Category *</label>
-                <select
-                  value={newItemCategory}
-                  onChange={e => setNewItemCategory(e.target.value as any)}
-                  className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-bold"
-                >
-                  {categories.map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-500">Category *</label>
+                  {!isAddingCustomCategory ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAddingCustomCategory(true);
+                        setCustomCategoryInput('');
+                      }}
+                      className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-0.5 hover:underline"
+                    >
+                      <Plus className="w-3 h-3" /> Custom
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingCustomCategory(false)}
+                      className="text-[11px] font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+
+                {!isAddingCustomCategory ? (
+                  <select
+                    value={newItemCategory}
+                    onChange={e => {
+                      if (e.target.value === '__ADD_NEW__') {
+                        setIsAddingCustomCategory(true);
+                        setCustomCategoryInput('');
+                      } else {
+                        setNewItemCategory(e.target.value);
+                      }
+                    }}
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-bold"
+                  >
+                    {categories.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                    <option value="__ADD_NEW__" className="text-indigo-600 font-bold bg-indigo-50 dark:bg-slate-900">
+                      + Add Custom Category...
+                    </option>
+                  </select>
+                ) : (
+                  <div className="space-y-1 animate-in fade-in duration-150">
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={customCategoryInput}
+                        onChange={e => setCustomCategoryInput(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (customCategoryInput.trim()) {
+                              const saved = saveCustomCategory(customCategoryInput.trim());
+                              setNewItemCategory(saved);
+                              setIsAddingCustomCategory(false);
+                              setCustomCategoryInput('');
+                            }
+                          } else if (e.key === 'Escape') {
+                            setIsAddingCustomCategory(false);
+                          }
+                        }}
+                        placeholder="Type custom category..."
+                        className="flex-1 p-2 border border-indigo-400 dark:border-indigo-600 dark:bg-slate-950 rounded-lg font-semibold text-xs focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (customCategoryInput.trim()) {
+                            const saved = saveCustomCategory(customCategoryInput.trim());
+                            setNewItemCategory(saved);
+                            setIsAddingCustomCategory(false);
+                            setCustomCategoryInput('');
+                          }
+                        }}
+                        disabled={!customCategoryInput.trim()}
+                        className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-bold rounded-lg text-xs shrink-0 transition-colors shadow-sm"
+                      >
+                        Add
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-400">
+                      Press Enter to add and select category
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -615,16 +766,89 @@ export const StockView: React.FC = () => {
                   </datalist>
                 </div>
                 <div className="space-y-1">
-                  <label className="font-bold text-slate-500">Category *</label>
-                  <select
-                    value={purchaseCategory}
-                    onChange={e => setPurchaseCategory(e.target.value as any)}
-                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-semibold"
-                  >
-                    {categories.map(cat => (
-                      <option key={cat} value={cat}>{cat}</option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-slate-500">Category *</label>
+                    {!isAddingPurchaseCustomCategory ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAddingPurchaseCustomCategory(true);
+                          setPurchaseCustomCategoryInput('');
+                        }}
+                        className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline flex items-center gap-0.5"
+                      >
+                        <Plus className="w-2.5 h-2.5" /> Custom
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setIsAddingPurchaseCustomCategory(false)}
+                        className="text-[10px] font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                  {!isAddingPurchaseCustomCategory ? (
+                    <select
+                      value={purchaseCategory}
+                      onChange={e => {
+                        if (e.target.value === '__ADD_NEW__') {
+                          setIsAddingPurchaseCustomCategory(true);
+                          setPurchaseCustomCategoryInput('');
+                        } else {
+                          setPurchaseCategory(e.target.value);
+                        }
+                      }}
+                      className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-semibold"
+                    >
+                      {categories.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                      <option value="__ADD_NEW__" className="text-indigo-600 font-bold bg-indigo-50 dark:bg-slate-900">
+                        + Add Custom Category...
+                      </option>
+                    </select>
+                  ) : (
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={purchaseCustomCategoryInput}
+                        onChange={e => setPurchaseCustomCategoryInput(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (purchaseCustomCategoryInput.trim()) {
+                              const saved = saveCustomCategory(purchaseCustomCategoryInput.trim());
+                              setPurchaseCategory(saved);
+                              setIsAddingPurchaseCustomCategory(false);
+                              setPurchaseCustomCategoryInput('');
+                            }
+                          } else if (e.key === 'Escape') {
+                            setIsAddingPurchaseCustomCategory(false);
+                          }
+                        }}
+                        placeholder="Type new category..."
+                        className="flex-1 p-2 border border-indigo-400 dark:border-indigo-600 dark:bg-slate-950 rounded-lg font-semibold text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (purchaseCustomCategoryInput.trim()) {
+                            const saved = saveCustomCategory(purchaseCustomCategoryInput.trim());
+                            setPurchaseCategory(saved);
+                            setIsAddingPurchaseCustomCategory(false);
+                            setPurchaseCustomCategoryInput('');
+                          }
+                        }}
+                        disabled={!purchaseCustomCategoryInput.trim()}
+                        className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-bold rounded-lg text-xs"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -813,7 +1037,7 @@ export const StockView: React.FC = () => {
               </datalist>
             </div>
 
-            {/* Adjustment Type & Quantity Amount */}
+            {/* Adjustment Type & Quantity */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="font-bold text-slate-500">Adjustment Type *</label>
@@ -836,7 +1060,7 @@ export const StockView: React.FC = () => {
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-slate-500">Quantity Amount *</label>
+                <label className="font-bold text-slate-500">Quantity *</label>
                 <input
                   type="number"
                   required

@@ -172,7 +172,7 @@ export interface HallBooking {
 export interface InventoryItem {
   id: string;
   name: string;
-  category: 'Liquor' | 'Food' | 'Cleaning' | 'Laundry' | 'Room Supplies' | 'Kitchen' | 'Housekeeping';
+  category: string;
   stock: number;
   minStock: number; // Low stock threshold
   unit: string; // bottle, kg, pcs, liters, packet
