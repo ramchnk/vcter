@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useApp, UserRole } from '../context/AppContext';
-import { Sun, Moon, Menu, LogOut } from 'lucide-react';
+import { Sun, Moon, Menu, LogOut, Building } from 'lucide-react';
 
 interface RoleHeaderProps {
   onToggleSidebar: () => void;
@@ -15,7 +15,10 @@ export const RoleHeader: React.FC<RoleHeaderProps> = ({ onToggleSidebar }) => {
     logoutUser,
     user,
     logout,
-    settings 
+    settings,
+    tenants,
+    currentTenant,
+    switchTenantContext
   } = useApp();
 
   const roles: { value: UserRole; label: string; icon: string; desc: string }[] = [
@@ -30,7 +33,7 @@ export const RoleHeader: React.FC<RoleHeaderProps> = ({ onToggleSidebar }) => {
   const currentRoleInfo = roles.find(r => r.value === userRole);
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between px-6 py-3 border-b glass bg-white/80 dark:bg-slate-900/80 border-slate-200/50 dark:border-slate-800/50 transition-all duration-300">
+    <header className="sticky top-0 z-30 flex items-center justify-between px-4 sm:px-6 py-3 border-b glass bg-white/80 dark:bg-slate-900/80 border-slate-200/50 dark:border-slate-800/50 transition-all duration-300">
       
       {/* Brand & Toggle & Active Area Indicator */}
       <div className="flex items-center gap-3">
@@ -51,13 +54,32 @@ export const RoleHeader: React.FC<RoleHeaderProps> = ({ onToggleSidebar }) => {
             {settings?.name || 'HotelVista ERP'}
           </h1>
           <p className="text-[10px] text-indigo-500 dark:text-indigo-400 font-semibold flex items-center gap-1">
-            <span>●</span> {currentUser ? currentUser.tenantName : 'Active Property'}: {currentRoleInfo?.label}
+            <span>●</span> {currentUser ? currentUser.tenantName : (currentTenant?.name || 'Active Property')}: {currentRoleInfo?.label}
           </p>
         </div>
       </div>
 
-      {/* Action buttons (Right) */}
-      <div className="flex items-center gap-3">
+      {/* Property Switcher & Action buttons (Right) */}
+      <div className="flex items-center gap-2 sm:gap-3">
+        
+        {/* Multi-Property Switcher Dropdown */}
+        {tenants.length > 0 && (
+          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-sm">
+            <Building className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+            <select
+              value={currentTenant?.id || ''}
+              onChange={e => switchTenantContext(e.target.value)}
+              className="bg-transparent text-xs font-bold text-slate-800 dark:text-slate-100 outline-none cursor-pointer max-w-[150px] sm:max-w-[180px] truncate"
+              title="Switch Active Hotel / Resort Property Context"
+            >
+              {tenants.map(t => (
+                <option key={t.id} value={t.id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         
         {/* DARK MODE TOGGLE */}
         <button

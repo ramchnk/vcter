@@ -767,13 +767,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (matched) {
       setCurrentUser(matched);
       setUserRole(matched.role);
-      const tenantMatch = (tenants || []).find(t => (t.name || '').toLowerCase() === (matched.tenantName || '').toLowerCase()) || tenants[0];
-      const targetTId = tenantMatch ? tenantMatch.id : activeTenantId;
+      const tenantMatch = (tenants || []).find(t => 
+        (matched.tenantId && t.id === matched.tenantId) ||
+        (t.name || '').toLowerCase() === (matched.tenantName || '').toLowerCase()
+      );
+      const targetTId = matched.tenantId || (tenantMatch ? tenantMatch.id : (tenants[0]?.id || activeTenantId));
       setActiveTenantId(targetTId);
       setTenantId(targetTId);
       localStorage.setItem('hv_active_tenant_id', targetTId);
       localStorage.setItem('hv_current_user', JSON.stringify(matched));
       localStorage.setItem('hv_user_role', matched.role);
+      fetchTenantData(targetTId);
       addAudit('User Login', `User ${matched.email} (${matched.name}) logged in successfully as ${matched.role}`);
       return { success: true };
     }
