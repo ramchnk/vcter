@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useApp, Room, RoomStatus, RoomCategory } from '../context/AppContext';
+import { useApp, Room, RoomStatus, RoomCategory, PreBooking } from '../context/AppContext';
 import { 
   Plus, 
   ArrowRightLeft, 
@@ -99,33 +99,70 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     return matchesCat && matchesStat && matchesSearch;
   });
 
+  const [selectedPreBookingId, setSelectedPreBookingId] = useState<string>('');
+
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  const applyPreBookingData = (booking: PreBooking | null) => {
+    if (booking) {
+      setSelectedPreBookingId(booking.id);
+      setGuestName(booking.guestName || '');
+      setGuestPhone(booking.phone || '');
+      setGuestEmail(booking.email || '');
+      setGuestAddress(booking.address || '');
+      setGuestIdProof(booking.idProof || '');
+      setGuestGst(booking.gstNumber || '');
+      setNoOfGuests(booking.noOfGuests || 1);
+      setAdvancePaid(booking.advancePaid || 0);
+    } else {
+      setSelectedPreBookingId('');
+      setGuestName('');
+      setGuestPhone('');
+      setGuestEmail('');
+      setGuestAddress('');
+      setGuestIdProof('');
+      setGuestGst('');
+      setNoOfGuests(1);
+      setAdvancePaid(0);
+    }
+  };
+
   const handleOpenCheckIn = (room: Room) => {
     setSelectedRoom(room);
-    setGuestName('');
-    setGuestPhone('');
-    setGuestIdProof('');
-    setGuestEmail('');
-    setGuestAddress('');
-    setGuestGst('');
-    setNoOfGuests(1);
-    setAdvancePaid(0);
+
+    // Look for a matching prebooking for this exact room number or category for today
+    const matchingPre = preBookings.find(pb => 
+      (pb.status === 'Confirmed' || pb.status === 'Pending') &&
+      ((pb.roomNumber && pb.roomNumber === room.roomNumber) || (pb.roomCategory === room.category && pb.checkInDate === todayStr))
+    );
+
+    if (matchingPre) {
+      applyPreBookingData(matchingPre);
+    } else {
+      applyPreBookingData(null);
+    }
+
     setShowCheckInModal(true);
   };
 
-  const handleCheckInSubmit = (e: React.FormEvent) => {
+  const handleCheckInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRoom || !guestName || !guestPhone || !guestIdProof) return;
 
-    checkInRoom(selectedRoom.id, {
-      name: guestName,
-      phone: guestPhone,
-      email: guestEmail,
-      address: guestAddress,
-      idProof: guestIdProof,
-      gstNumber: guestGst,
-      noOfGuests: noOfGuests,
-      advancePaid: Number(advancePaid)
-    });
+    if (selectedPreBookingId) {
+      await confirmPreBookingCheckIn(selectedPreBookingId, selectedRoom.id);
+    } else {
+      await checkInRoom(selectedRoom.id, {
+        name: guestName,
+        phone: guestPhone,
+        email: guestEmail,
+        address: guestAddress,
+        idProof: guestIdProof,
+        gstNumber: guestGst,
+        noOfGuests: noOfGuests,
+        advancePaid: Number(advancePaid)
+      });
+    }
     
     setShowCheckInModal(false);
   };
@@ -295,13 +332,37 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                 )}
 
                 {!isOccupied && !isReserved && (
-                  <div className="py-6 flex flex-col items-center justify-center text-center opacity-60">
-                    <span className="text-2xl mb-1">
-                      {room.status === 'Cleaning' ? '🧹' : room.status === 'Maintenance' ? '🔧' : '✨'}
-                    </span>
-                    <p className="text-[10px] font-semibold text-slate-500 uppercase">
-                      Room Rent: ₹{room.price}/day
-                    </p>
+                  <div className="py-4 flex flex-col items-center justify-center text-center">
+                    {(() => {
+                      const matchingTodayPre = preBookings.find(pb => 
+                        (pb.status === 'Confirmed' || pb.status === 'Pending') &&
+                        ((pb.roomNumber && pb.roomNumber === room.roomNumber) || (pb.roomCategory === room.category && pb.checkInDate === todayStr))
+                      );
+
+                      if (matchingTodayPre) {
+                        return (
+                          <div className="w-full p-2 bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200/60 dark:border-indigo-800/60 rounded-xl space-y-1">
+                            <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 flex items-center justify-center gap-1">
+                              ⚡ Arrival Today: {matchingTodayPre.guestName}
+                            </span>
+                            <p className="text-[9px] text-slate-400 font-mono">
+                              Adv Paid: ₹{matchingTodayPre.advancePaid || 0}
+                            </p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="opacity-60 space-y-1">
+                          <span className="text-2xl inline-block">
+                            {room.status === 'Cleaning' ? '🧹' : room.status === 'Maintenance' ? '🔧' : '✨'}
+                          </span>
+                          <p className="text-[10px] font-semibold text-slate-500 uppercase">
+                            Room Rent: ₹{room.price}/day
+                          </p>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
@@ -418,6 +479,56 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
             </div>
             
             <form onSubmit={handleCheckInSubmit} className="space-y-4 text-xs">
+              
+              {/* Pre-Booking Quick Autofill Selector */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 text-xs">
+                    <span className="p-1 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400">⚡</span>
+                    Autofill from Pre-Booking:
+                  </label>
+                  {selectedPreBookingId && (
+                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded">
+                      Linked & Autofilled
+                    </span>
+                  )}
+                </div>
+
+                <select
+                  value={selectedPreBookingId}
+                  onChange={e => {
+                    const found = preBookings.find(pb => pb.id === e.target.value);
+                    applyPreBookingData(found || null);
+                  }}
+                  className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg font-medium text-slate-800 dark:text-slate-200"
+                >
+                  <option value="">-- Walk-in Guest (Manual Entry) --</option>
+                  {preBookings
+                    .filter(b => b.status === 'Confirmed' || b.status === 'Pending')
+                    .map(b => {
+                      const isToday = b.checkInDate === todayStr;
+                      const isCatMatch = b.roomCategory === selectedRoom.category;
+                      const isRoomMatch = b.roomNumber === selectedRoom.roomNumber;
+                      
+                      return (
+                        <option key={b.id} value={b.id}>
+                          {isToday ? '🔥 [TODAY] ' : ''}
+                          {b.guestName} ({b.phone}) — {b.roomCategory}
+                          {isRoomMatch ? ` [Room ${b.roomNumber}]` : ''} 
+                          {b.advancePaid ? ` • Adv: ₹${b.advancePaid}` : ''}
+                          {isCatMatch ? ' ✓' : ''}
+                        </option>
+                      );
+                    })}
+                </select>
+
+                {selectedPreBookingId && (
+                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+                    ✓ All guest details, ID proof, contact & ₹{advancePaid} advance deposit auto-fetched!
+                  </p>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="font-bold text-slate-500">Guest Name *</label>

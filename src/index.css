@@ -57,3 +57,45 @@
 .receipt-print {
   font-family: 'Courier New', Courier, monospace;
 }
+
+/* Standard A4 Printable Invoice Styles */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm 12mm;
+  }
+  
+  body {
+    background: white !important;
+    color: black !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide everything on the page except the printable A4 invoice container */
+  body * {
+    visibility: hidden;
+  }
+
+  #printable-invoice-a4,
+  #printable-invoice-a4 * {
+    visibility: visible;
+  }
+
+  #printable-invoice-a4 {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: white !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}

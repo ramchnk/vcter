@@ -22,7 +22,48 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
 
   // Print Invoice details
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [printFormat, setPrintFormat] = useState<'a4' | 'thermal'>('a4');
+  const [invoiceNumber, setInvoiceNumber] = useState('');
   const [successAction, setSuccessAction] = useState('');
+
+  const numberToWords = (num: number): string => {
+    if (num === 0) return 'Zero Rupees Only';
+    const a = ['', 'One ', 'Two ', 'Three ', 'Four ', 'Five ', 'Six ', 'Seven ', 'Eight ', 'Nine ', 'Ten ', 'Eleven ', 'Twelve ', 'Thirteen ', 'Fourteen ', 'Fifteen ', 'Sixteen ', 'Seventeen ', 'Eighteen ', 'Nineteen '];
+    const b = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+    
+    const inWords = (n: number): string => {
+      let str = '';
+      if (n > 99) {
+        str += a[Math.floor(n / 100)] + 'Hundred ';
+        n %= 100;
+      }
+      if (n > 19) {
+        str += b[Math.floor(n / 10)] + (n % 10 ? ' ' + a[n % 10] : ' ');
+      } else if (n > 0) {
+        str += a[n];
+      }
+      return str;
+    };
+
+    let n = Math.floor(num);
+    let output = '';
+    if (n >= 10000000) {
+      output += inWords(Math.floor(n / 10000000)) + 'Crore ';
+      n %= 10000000;
+    }
+    if (n >= 100000) {
+      output += inWords(Math.floor(n / 100000)) + 'Lakh ';
+      n %= 100000;
+    }
+    if (n >= 1000) {
+      output += inWords(Math.floor(n / 1000)) + 'Thousand ';
+      n %= 1000;
+    }
+    if (n > 0) {
+      output += inWords(n);
+    }
+    return ('Rupees ' + output.trim() + ' Only');
+  };
 
   // Sync inputs
   useEffect(() => {
@@ -86,6 +127,9 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
 
   const handlePrintTrigger = () => {
     if (!summary) return;
+    if (!invoiceNumber) {
+      setInvoiceNumber(`${settings.invoicePrefix || 'INV-'}${Math.floor(100000 + Math.random() * 900000)}`);
+    }
     setShowPrintModal(true);
   };
 
@@ -483,175 +527,437 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
       )}
 
       {/* ==========================================
-          INVOICE PRINT DIALOG (SIMULATED TICKET)
+          INVOICE PRINT DIALOG (A4 & THERMAL ENGINE)
           ========================================== */}
       {showPrintModal && summary && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white text-slate-900 w-full max-w-sm rounded-lg shadow-2xl p-5 border border-slate-200 space-y-4 receipt-print animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-2 sm:p-6 overflow-y-auto animate-in fade-in duration-200">
+          <div className="w-full max-w-4xl space-y-4 my-auto">
             
-            {/* Ticket header */}
-            <div className="text-center border-b border-dashed border-slate-400 pb-3">
-              <h3 className="font-extrabold text-sm uppercase tracking-wider">
-                INVOICE / BILL OF CHARGES
-              </h3>
-              <p className="text-[11px] font-extrabold mt-0.5">{settings.name}</p>
-              <p className="text-[9px] text-slate-500 leading-normal">{settings.address}</p>
-              <p className="text-[9px] text-slate-500">Phone: {settings.phone}</p>
-              <p className="text-[9px] text-slate-500 font-bold">GSTIN: {settings.gstNumber}</p>
-              <p className="text-[10px] font-bold mt-2 bg-slate-100 inline-block px-2 py-0.5 rounded">
-                Invoice No: {settings.invoicePrefix}{Math.floor(100000 + Math.random() * 900000)}
-              </p>
-            </div>
-
-            {/* Guest Info */}
-            <div className="text-[9px] space-y-0.5 font-mono border-b border-dashed border-slate-400 pb-2">
-              <div className="flex justify-between">
-                <span>Guest Name:</span>
-                <span className="font-bold">{summary.guestName}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Room Check In:</span>
-                <span>{summary.checkInDate}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Room Check Out:</span>
-                <span>{summary.checkOutDate}</span>
-              </div>
-              <div className="flex justify-between font-bold">
-                <span>Stay Room:</span>
-                <span>Room {searchRoomInput}</span>
-              </div>
-            </div>
-
-            {/* Itemized Charges list */}
-            <div className="border-b border-dashed border-slate-400 py-2 font-mono text-[9px] space-y-2">
-              <div className="flex justify-between font-bold border-b border-dashed border-slate-300 pb-1">
-                <span>Description</span>
-                <span>Amount</span>
-              </div>
-              
-              {/* Room Rent */}
-              <div className="flex justify-between">
-                <span>ROOM RENT ({summary.stayDuration} NIGHTS @ ₹{matchedRoom?.price})</span>
-                <span>₹{roomRentTotal}</span>
-              </div>
-
-              {/* Restaurant Items */}
-              {roomOrders.filter(o => !o.isBar).length > 0 && (
-                <div className="space-y-0.5 border-t border-dashed border-slate-200 pt-1">
-                  <span className="font-bold text-[8px] uppercase tracking-wide block text-slate-500">Restaurant Orders:</span>
-                  {roomOrders.filter(o => !o.isBar).map(order => (
-                    <div key={order.id} className="pl-1">
-                      <div className="flex justify-between text-slate-600">
-                        <span>Order {order.orderNumber}</span>
-                        <span>₹{order.total}</span>
-                      </div>
-                      <div className="pl-2 text-[8px] text-slate-500">
-                        {order.items.map((it, i) => `${it.name} x${it.quantity}`).join(', ')}
-                      </div>
-                    </div>
-                  ))}
+            {/* Top Control Bar (Hidden during printing) */}
+            <div className="no-print bg-slate-900/90 text-white p-3 rounded-2xl shadow-xl flex flex-wrap items-center justify-between gap-3 border border-slate-700/60 backdrop-blur-sm">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-indigo-600 rounded-lg">
+                  <Printer className="w-4 h-4 text-white" />
+                </span>
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider">Invoice Print Preview</h4>
+                  <p className="text-[10px] text-slate-400">Standard A4 Tax Invoice & Guest Folio</p>
                 </div>
-              )}
-
-              {/* Bar Items */}
-              {roomOrders.filter(o => o.isBar).length > 0 && (
-                <div className="space-y-0.5 border-t border-dashed border-slate-200 pt-1">
-                  <span className="font-bold text-[8px] uppercase tracking-wide block text-slate-500">Bar Drinks:</span>
-                  {roomOrders.filter(o => o.isBar).map(order => (
-                    <div key={order.id} className="pl-1">
-                      <div className="flex justify-between text-slate-600">
-                        <span>Order {order.orderNumber}</span>
-                        <span>₹{order.total}</span>
-                      </div>
-                      <div className="pl-2 text-[8px] text-slate-500">
-                        {order.items.map((it, i) => `${it.name} x${it.quantity}`).join(', ')}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Laundry Items */}
-              {roomLaundry.length > 0 && (
-                <div className="space-y-0.5 border-t border-dashed border-slate-200 pt-1">
-                  <span className="font-bold text-[8px] uppercase tracking-wide block text-slate-500">Laundry Services:</span>
-                  {roomLaundry.map(order => (
-                    <div key={order.id} className="flex justify-between pl-1 text-slate-600">
-                      <span>
-                        {order.orderNumber} ({order.items.map(it => `${it.itemType} x${it.quantity}`).join(', ')})
-                      </span>
-                      <span>₹{order.totalPrice}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Hall Bookings */}
-              {roomHalls.length > 0 && (
-                <div className="space-y-0.5 border-t border-dashed border-slate-200 pt-1">
-                  <span className="font-bold text-[8px] uppercase tracking-wide block text-slate-500">Hall Events:</span>
-                  {roomHalls.map(booking => (
-                    <div key={booking.id} className="pl-1">
-                      <div className="flex justify-between text-slate-600">
-                        <span>{booking.bookingNumber} ({booking.hallType})</span>
-                        <span>₹{booking.totalPrice}</span>
-                      </div>
-                      <div className="pl-2 text-[8px] text-slate-500 grid grid-cols-2">
-                        <span>Base Rent: ₹{booking.hallRent}</span>
-                        {booking.foodPrice > 0 && <span>Catering: ₹{booking.foodPrice}</span>}
-                        {booking.decorationPrice > 0 && <span>Decor: ₹{booking.decorationPrice}</span>}
-                        {booking.soundSystemPrice > 0 && <span>Sound: ₹{booking.soundSystemPrice}</span>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              
-            </div>
-
-            {/* Calculations summaries */}
-            <div className="text-[9px] font-mono space-y-1">
-              <div className="flex justify-between font-bold text-[10px]">
-                <span>SUBTOTAL</span>
-                <span>₹{subtotal}</span>
               </div>
-              <div className="flex justify-between text-slate-500">
-                <span>GST Tax (18%)</span>
-                <span>₹{taxAmount}</span>
-              </div>
-              <div className="flex justify-between text-slate-500">
-                <span>Pre-Paid Advance</span>
-                <span>-₹{summary.advancePaid}</span>
-              </div>
-              {discount > 0 && (
-                <div className="flex justify-between text-emerald-600 font-bold">
-                  <span>Cashier Discount</span>
-                  <span>-₹{discount}</span>
+
+              {/* Format Toggle & Action Buttons */}
+              <div className="flex items-center gap-2">
+                <div className="bg-slate-800 p-0.5 rounded-lg border border-slate-700 flex text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setPrintFormat('a4')}
+                    className={`px-3 py-1 rounded-md font-bold text-[11px] transition-all ${
+                      printFormat === 'a4' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    📄 Standard A4 Size
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPrintFormat('thermal')}
+                    className={`px-3 py-1 rounded-md font-bold text-[11px] transition-all ${
+                      printFormat === 'thermal' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    🧾 80mm Thermal Slip
+                  </button>
                 </div>
-              )}
-              <div className="flex justify-between font-extrabold text-xs border-t-2 border-dashed border-slate-400 pt-2 text-slate-900 mt-2">
-                <span>TOTAL SETTLEMENT</span>
-                <span>₹{outstandingAmount}</span>
+
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-all"
+                >
+                  <Printer className="w-3.5 h-3.5" /> Print / Save as PDF
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowPrintModal(false)}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs border border-slate-700 transition-all"
+                >
+                  ✕ Close
+                </button>
               </div>
             </div>
 
-            {/* Print Footer */}
-            <div className="text-center text-[9px] text-slate-500 italic font-mono border-t border-slate-200 pt-3">
-              Thank you for staying with us!
-              <br />
-              Please visit again.
-            </div>
-
-            <div className="flex gap-2 pt-2 font-sans border-t">
-              <button
-                onClick={() => setShowPrintModal(false)}
-                className="w-full py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded text-[10px] font-bold text-center"
+            {/* =========================================================================
+                A4 SIZE TAX INVOICE SHEET (Standard 210mm x 297mm)
+                ========================================================================= */}
+            {printFormat === 'a4' ? (
+              <div 
+                id="printable-invoice-a4" 
+                className="bg-white text-slate-900 w-full max-w-[210mm] mx-auto p-8 sm:p-10 rounded-xl shadow-2xl border border-slate-200 space-y-6 font-sans text-xs leading-normal"
               >
-                Close Print View
-              </button>
-            </div>
-            
+                {/* 1. Header: Property Info & Tax Invoice Title */}
+                <div className="flex justify-between items-start border-b-2 border-slate-900 pb-5">
+                  <div className="space-y-1 max-w-[60%]">
+                    <h1 className="text-xl font-black tracking-tight text-slate-950 uppercase">
+                      {settings.name || 'HotelVista Luxury Suites & Resorts'}
+                    </h1>
+                    <p className="text-[11px] text-slate-600 font-medium leading-relaxed">
+                      {settings.address || 'Beach Road, Hospitality Enclave, Coastal Zone'}
+                    </p>
+                    <div className="flex flex-wrap gap-x-4 text-[10px] text-slate-500 font-medium pt-1">
+                      <span><strong>Phone:</strong> {settings.phone || '+91 98765 43210'}</span>
+                      <span><strong>Email:</strong> {settings.email || 'billing@hotelvista.com'}</span>
+                    </div>
+                    <div className="text-[10px] text-slate-800 font-mono font-bold pt-0.5">
+                      GSTIN: {settings.gstNumber || '29AAAAA0000A1Z5'} • State Code: 29
+                    </div>
+                  </div>
+
+                  {/* Invoice Meta Box */}
+                  <div className="text-right space-y-1">
+                    <div className="bg-slate-950 text-white px-3 py-1 rounded inline-block text-xs font-black uppercase tracking-wider">
+                      TAX INVOICE / GUEST FOLIO
+                    </div>
+                    <p className="font-mono font-bold text-sm text-slate-900 pt-1">
+                      Invoice No: {invoiceNumber || `${settings.invoicePrefix || 'INV-'}984210`}
+                    </p>
+                    <p className="text-[10px] text-slate-500 font-mono">
+                      Date of Issue: {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </p>
+                    <p className="text-[10px] text-slate-500 font-mono">
+                      SAC Code: 996311 (Hotel) / 996331 (F&B)
+                    </p>
+                  </div>
+                </div>
+
+                {/* 2. Guest Info & Stay Summary Cards (2 Columns) */}
+                <div className="grid grid-cols-2 gap-4 border border-slate-300 rounded-lg p-3.5 bg-slate-50/60 text-xs">
+                  {/* Left: Guest Details */}
+                  <div className="space-y-1 pr-2 border-r border-slate-200">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Billed To (Guest Details)</p>
+                    <p className="text-sm font-bold text-slate-950">{summary.guestName}</p>
+                    <p className="text-slate-600 font-mono text-[11px]">Phone: {matchedRoom?.guestPhone || 'Not provided'}</p>
+                    {matchedRoom?.guestEmail && <p className="text-slate-600 text-[10px]">Email: {matchedRoom.guestEmail}</p>}
+                    {matchedRoom?.guestAddress && <p className="text-slate-600 text-[10px]">Address: {matchedRoom.guestAddress}</p>}
+                    {matchedRoom?.guestIdProof && (
+                      <p className="text-[10px] text-slate-500 font-mono">ID Proof: {matchedRoom.guestIdProof}</p>
+                    )}
+                    {matchedRoom?.gstNumber && (
+                      <p className="text-[10px] font-bold text-indigo-700 font-mono">Corporate GSTIN: {matchedRoom.gstNumber}</p>
+                    )}
+                  </div>
+
+                  {/* Right: Stay Details */}
+                  <div className="space-y-1 pl-2 font-mono text-[11px]">
+                    <p className="text-[10px] font-bold text-slate-400 font-sans uppercase tracking-wider">Stay & Room Details</p>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Room Number:</span>
+                      <strong className="text-slate-900 text-xs font-sans">Room {searchRoomInput} ({matchedRoom?.category})</strong>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Check-In:</span>
+                      <span className="font-semibold text-slate-800">{summary.checkInDate}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Check-Out:</span>
+                      <span className="font-semibold text-slate-800">{summary.checkOutDate}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Duration:</span>
+                      <span className="font-bold text-indigo-700">{summary.stayDuration} Night(s)</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Payment Mode:</span>
+                      <span className="font-bold uppercase text-slate-900 font-sans">{paymentMethod}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Itemized Departmental Charges Table */}
+                <div className="space-y-2">
+                  <table className="w-full border-collapse border border-slate-300 text-xs">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-300">
+                        <th className="p-2 text-center w-10 border-r border-slate-300">#</th>
+                        <th className="p-2 text-left border-r border-slate-300">Description & Department</th>
+                        <th className="p-2 text-center w-20 border-r border-slate-300">SAC/HSN</th>
+                        <th className="p-2 text-center w-16 border-r border-slate-300">Qty/Nights</th>
+                        <th className="p-2 text-right w-24 border-r border-slate-300 font-mono">Rate (₹)</th>
+                        <th className="p-2 text-right w-28 font-mono">Amount (₹)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      
+                      {/* Row 1: Room Rent */}
+                      <tr>
+                        <td className="p-2 text-center text-slate-400 border-r border-slate-200">1</td>
+                        <td className="p-2 border-r border-slate-200">
+                          <p className="font-bold text-slate-900">Room Accommodation Charges</p>
+                          <p className="text-[10px] text-slate-500">Room {searchRoomInput} ({matchedRoom?.category}) • {summary.stayDuration} Night Stay</p>
+                        </td>
+                        <td className="p-2 text-center font-mono text-slate-500 border-r border-slate-200">996311</td>
+                        <td className="p-2 text-center font-mono border-r border-slate-200">{summary.stayDuration}</td>
+                        <td className="p-2 text-right font-mono border-r border-slate-200">₹{(matchedRoom?.price || 0).toLocaleString()}</td>
+                        <td className="p-2 text-right font-mono font-bold text-slate-900">₹{roomRentTotal.toLocaleString()}</td>
+                      </tr>
+
+                      {/* Row 2: Restaurant Orders */}
+                      {roomOrders.filter(o => !o.isBar).length > 0 && (
+                        <tr>
+                          <td className="p-2 text-center text-slate-400 border-r border-slate-200">2</td>
+                          <td className="p-2 border-r border-slate-200">
+                            <p className="font-bold text-slate-900">Restaurant & In-Room Dining (F&B)</p>
+                            <div className="text-[10px] text-slate-500 space-y-0.5 pt-0.5">
+                              {roomOrders.filter(o => !o.isBar).map(o => (
+                                <div key={o.id}>
+                                  <span>{o.orderNumber}: </span>
+                                  <span>{o.items.map(it => `${it.name} (${it.quantity})`).join(', ')}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="p-2 text-center font-mono text-slate-500 border-r border-slate-200">996331</td>
+                          <td className="p-2 text-center font-mono border-r border-slate-200">
+                            {roomOrders.filter(o => !o.isBar).reduce((sum, o) => sum + o.items.reduce((s, it) => s + it.quantity, 0), 0)}
+                          </td>
+                          <td className="p-2 text-right font-mono border-r border-slate-200 text-slate-400">—</td>
+                          <td className="p-2 text-right font-mono font-bold text-slate-900">₹{restaurantTotal.toLocaleString()}</td>
+                        </tr>
+                      )}
+
+                      {/* Row 3: Bar Orders */}
+                      {roomOrders.filter(o => o.isBar).length > 0 && (
+                        <tr>
+                          <td className="p-2 text-center text-slate-400 border-r border-slate-200">3</td>
+                          <td className="p-2 border-r border-slate-200">
+                            <p className="font-bold text-slate-900">Bar & Lounge Beverage Orders</p>
+                            <div className="text-[10px] text-slate-500 space-y-0.5 pt-0.5">
+                              {roomOrders.filter(o => o.isBar).map(o => (
+                                <div key={o.id}>
+                                  <span>{o.orderNumber}: </span>
+                                  <span>{o.items.map(it => `${it.name} (${it.quantity})`).join(', ')}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="p-2 text-center font-mono text-slate-500 border-r border-slate-200">996331</td>
+                          <td className="p-2 text-center font-mono border-r border-slate-200">
+                            {roomOrders.filter(o => o.isBar).reduce((sum, o) => sum + o.items.reduce((s, it) => s + it.quantity, 0), 0)}
+                          </td>
+                          <td className="p-2 text-right font-mono border-r border-slate-200 text-slate-400">—</td>
+                          <td className="p-2 text-right font-mono font-bold text-slate-900">₹{barTotal.toLocaleString()}</td>
+                        </tr>
+                      )}
+
+                      {/* Row 4: Laundry Orders */}
+                      {roomLaundry.length > 0 && (
+                        <tr>
+                          <td className="p-2 text-center text-slate-400 border-r border-slate-200">4</td>
+                          <td className="p-2 border-r border-slate-200">
+                            <p className="font-bold text-slate-900">Laundry & Dry Cleaning Services</p>
+                            <p className="text-[10px] text-slate-500">
+                              {roomLaundry.map(l => `${l.orderNumber} (${l.items.map(it => `${it.itemType} x${it.quantity}`).join(', ')})`).join(' • ')}
+                            </p>
+                          </td>
+                          <td className="p-2 text-center font-mono text-slate-500 border-r border-slate-200">999799</td>
+                          <td className="p-2 text-center font-mono border-r border-slate-200">{roomLaundry.length}</td>
+                          <td className="p-2 text-right font-mono border-r border-slate-200 text-slate-400">—</td>
+                          <td className="p-2 text-right font-mono font-bold text-slate-900">₹{laundryTotal.toLocaleString()}</td>
+                        </tr>
+                      )}
+
+                      {/* Row 5: Hall Bookings */}
+                      {roomHalls.length > 0 && (
+                        <tr>
+                          <td className="p-2 text-center text-slate-400 border-r border-slate-200">5</td>
+                          <td className="p-2 border-r border-slate-200">
+                            <p className="font-bold text-slate-900">Banquet & Party Hall Bookings</p>
+                            <p className="text-[10px] text-slate-500">
+                              {roomHalls.map(h => `${h.bookingNumber} (${h.hallType} on ${h.date})`).join(' • ')}
+                            </p>
+                          </td>
+                          <td className="p-2 text-center font-mono text-slate-500 border-r border-slate-200">997212</td>
+                          <td className="p-2 text-center font-mono border-r border-slate-200">{roomHalls.length}</td>
+                          <td className="p-2 text-right font-mono border-r border-slate-200 text-slate-400">—</td>
+                          <td className="p-2 text-right font-mono font-bold text-slate-900">₹{hallTotal.toLocaleString()}</td>
+                        </tr>
+                      )}
+
+                      {/* Row 6: Misc / Mini-bar if any */}
+                      {otherCharges > 0 && (
+                        <tr>
+                          <td className="p-2 text-center text-slate-400 border-r border-slate-200">6</td>
+                          <td className="p-2 border-r border-slate-200">
+                            <p className="font-bold text-slate-900">Mini-Bar / Miscellaneous Services</p>
+                          </td>
+                          <td className="p-2 text-center font-mono text-slate-500 border-r border-slate-200">999799</td>
+                          <td className="p-2 text-center font-mono border-r border-slate-200">1</td>
+                          <td className="p-2 text-right font-mono border-r border-slate-200">₹{otherCharges}</td>
+                          <td className="p-2 text-right font-mono font-bold text-slate-900">₹{otherCharges}</td>
+                        </tr>
+                      )}
+
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* 4. Financial Calculations & Bank / Tax Breakdown Grid */}
+                <div className="grid grid-cols-12 gap-6 pt-2">
+                  
+                  {/* Left Column (7 Cols): Amount in Words, Bank Info, Terms */}
+                  <div className="col-span-7 space-y-3">
+                    
+                    {/* Amount in words */}
+                    <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Settlement in Words:</p>
+                      <p className="font-bold text-slate-900 text-xs italic mt-0.5">
+                        {numberToWords(Math.round(outstandingAmount))}
+                      </p>
+                    </div>
+
+                    {/* Payment Mode & Settlement Stamp */}
+                    <div className="flex items-center gap-3 p-2.5 border border-emerald-300 bg-emerald-50/50 rounded-lg">
+                      <div className="p-1 bg-emerald-500 text-white rounded font-bold text-[10px]">
+                        ✓ SETTLED
+                      </div>
+                      <div className="text-[11px] font-mono">
+                        <span>Payment Method: <strong>{paymentMethod}</strong></span>
+                        {paymentMethod === 'Split' && (
+                          <p className="text-[10px] text-slate-500">Cash: ₹{splitCash}, Card: ₹{splitCard}, UPI: ₹{splitUpi}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Terms & Conditions */}
+                    <div className="text-[9px] text-slate-500 space-y-0.5">
+                      <p className="font-bold text-slate-700 uppercase">Terms & Conditions:</p>
+                      <p>1. Check-out time is 11:00 AM. Late check-out is subject to room availability and extra charges.</p>
+                      <p>2. Goods once sold or services rendered will not be refunded.</p>
+                      <p>3. This invoice is computer generated and valid for all GST input tax credit purposes.</p>
+                    </div>
+                  </div>
+
+                  {/* Right Column (5 Cols): Math Breakdown & Tax Ledger */}
+                  <div className="col-span-5 border border-slate-300 rounded-lg p-3 bg-slate-50/40 space-y-1.5 font-mono text-xs">
+                    <div className="flex justify-between text-slate-600">
+                      <span>Subtotal (Taxable Value):</span>
+                      <span className="font-bold text-slate-900">₹{subtotal.toLocaleString()}</span>
+                    </div>
+
+                    <div className="flex justify-between text-[11px] text-slate-500">
+                      <span>CGST @ {(summary.taxRate / 2).toFixed(1)}%:</span>
+                      <span>₹{(taxAmount / 2).toFixed(2)}</span>
+                    </div>
+
+                    <div className="flex justify-between text-[11px] text-slate-500">
+                      <span>SGST @ {(summary.taxRate / 2).toFixed(1)}%:</span>
+                      <span>₹{(taxAmount / 2).toFixed(2)}</span>
+                    </div>
+
+                    <div className="flex justify-between text-slate-600 border-t border-slate-200 pt-1">
+                      <span>Gross Amount:</span>
+                      <span className="font-bold">₹{grandTotal.toLocaleString()}</span>
+                    </div>
+
+                    {advancePaid > 0 && (
+                      <div className="flex justify-between text-emerald-700 font-bold">
+                        <span>Less Advance Paid:</span>
+                        <span>-₹{advancePaid.toLocaleString()}</span>
+                      </div>
+                    )}
+
+                    {discount > 0 && (
+                      <div className="flex justify-between text-emerald-700 font-bold">
+                        <span>Less Discount:</span>
+                        <span>-₹{discount.toLocaleString()}</span>
+                      </div>
+                    )}
+
+                    <div className="border-t-2 border-slate-900 my-1 pt-1.5 flex justify-between items-center text-sm font-black text-slate-950">
+                      <span className="font-sans">NET PAYABLE:</span>
+                      <span className="text-base text-indigo-900">₹{outstandingAmount.toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* 5. Signatures Block */}
+                <div className="pt-8 grid grid-cols-2 gap-12 text-center text-xs">
+                  <div className="border-t border-slate-400 pt-1.5">
+                    <p className="font-bold text-slate-800">Guest Signature</p>
+                    <p className="text-[10px] text-slate-400">Acknowledged receipt of services</p>
+                  </div>
+                  <div className="border-t border-slate-400 pt-1.5">
+                    <p className="font-bold text-slate-800">Authorized Signatory</p>
+                    <p className="text-[10px] text-slate-400">For {settings.name || 'HotelVista'}</p>
+                  </div>
+                </div>
+
+                {/* Footer Greeting */}
+                <div className="text-center text-[10px] text-slate-400 italic pt-2 border-t border-slate-200">
+                  Thank you for staying with us! We look forward to welcoming you back soon.
+                </div>
+
+              </div>
+            ) : (
+              /* =========================================================================
+                  80MM THERMAL SLIP VIEW (For POS Printers)
+                  ========================================================================= */
+              <div 
+                id="printable-invoice-a4" 
+                className="bg-white text-slate-900 w-full max-w-sm mx-auto rounded-lg shadow-2xl p-5 border border-slate-200 space-y-4 receipt-print font-mono text-xs"
+              >
+                <div className="text-center border-b border-dashed border-slate-400 pb-3 space-y-0.5">
+                  <h3 className="font-extrabold text-sm uppercase tracking-wider">{settings.name}</h3>
+                  <p className="text-[9px] text-slate-500">{settings.address}</p>
+                  <p className="text-[9px] text-slate-500">Phone: {settings.phone}</p>
+                  <p className="text-[9px] text-slate-500 font-bold">GSTIN: {settings.gstNumber}</p>
+                  <p className="text-[10px] font-bold mt-1 bg-slate-100 inline-block px-2 py-0.5 rounded">
+                    Invoice: {invoiceNumber || `${settings.invoicePrefix}984210`}
+                  </p>
+                </div>
+
+                <div className="text-[9px] space-y-0.5 border-b border-dashed border-slate-400 pb-2">
+                  <div className="flex justify-between"><span>Guest:</span><strong className="font-bold">{summary.guestName}</strong></div>
+                  <div className="flex justify-between"><span>Room:</span><strong>Room {searchRoomInput} ({matchedRoom?.category})</strong></div>
+                  <div className="flex justify-between"><span>Stay:</span><span>{summary.checkInDate} to {summary.checkOutDate} ({summary.stayDuration}N)</span></div>
+                </div>
+
+                <div className="border-b border-dashed border-slate-400 py-2 text-[9px] space-y-1.5">
+                  <div className="flex justify-between">
+                    <span>ROOM RENT ({summary.stayDuration}N @ ₹{matchedRoom?.price})</span>
+                    <span className="font-bold">₹{roomRentTotal}</span>
+                  </div>
+                  {restaurantTotal > 0 && (
+                    <div className="flex justify-between"><span>RESTAURANT (F&B)</span><span className="font-bold">₹{restaurantTotal}</span></div>
+                  )}
+                  {barTotal > 0 && (
+                    <div className="flex justify-between"><span>BAR BEVERAGES</span><span className="font-bold">₹{barTotal}</span></div>
+                  )}
+                  {laundryTotal > 0 && (
+                    <div className="flex justify-between"><span>LAUNDRY</span><span className="font-bold">₹{laundryTotal}</span></div>
+                  )}
+                  {hallTotal > 0 && (
+                    <div className="flex justify-between"><span>HALL / BANQUET</span><span className="font-bold">₹{hallTotal}</span></div>
+                  )}
+                </div>
+
+                <div className="text-[9px] space-y-1">
+                  <div className="flex justify-between"><span>SUBTOTAL</span><span>₹{subtotal}</span></div>
+                  <div className="flex justify-between text-slate-500"><span>GST Tax ({summary.taxRate}%)</span><span>₹{taxAmount}</span></div>
+                  {advancePaid > 0 && <div className="flex justify-between text-emerald-600"><span>Pre-Paid Advance</span><span>-₹{advancePaid}</span></div>}
+                  {discount > 0 && <div className="flex justify-between text-emerald-600"><span>Discount</span><span>-₹{discount}</span></div>}
+                  <div className="flex justify-between font-extrabold text-sm border-t border-dashed border-slate-400 pt-1 text-slate-950">
+                    <span>TOTAL SETTLED</span>
+                    <span>₹{outstandingAmount}</span>
+                  </div>
+                </div>
+
+                <div className="text-center text-[9px] text-slate-500 italic border-t border-slate-200 pt-2">
+                  Thank you for visiting!
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       )}

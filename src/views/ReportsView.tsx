@@ -85,8 +85,16 @@ export const ReportsView: React.FC = () => {
     if (!dateStr) return true;
     if (!startDate && !endDate) return true;
     
-    // Extract YYYY-MM-DD format
-    const formatted = dateStr.split('T')[0].split(' ')[0];
+    let formatted = '';
+    const parsedDate = new Date(dateStr);
+    if (!isNaN(parsedDate.getTime())) {
+      const y = parsedDate.getFullYear();
+      const m = String(parsedDate.getMonth() + 1).padStart(2, '0');
+      const d = String(parsedDate.getDate()).padStart(2, '0');
+      formatted = `${y}-${m}-${d}`;
+    } else {
+      formatted = dateStr.split('T')[0].split(' ')[0].replace(/,/g, '');
+    }
     
     if (startDate && formatted < startDate) return false;
     if (endDate && formatted > endDate) return false;

@@ -7,6 +7,7 @@ import { SuperAdminView } from './views/SuperAdminView';
 import { DashboardView } from './views/DashboardView';
 import { RoomsView } from './views/RoomsView';
 import { PreBookingView } from './views/PreBookingView';
+import { MenuView } from './views/MenuView';
 import { RestaurantBarView } from './views/RestaurantBarView';
 import { LaundryView } from './views/LaundryView';
 import { PartyHallView } from './views/PartyHallView';
@@ -15,7 +16,6 @@ import { UnifiedBillingView } from './views/UnifiedBillingView';
 import { ReportsView } from './views/ReportsView';
 import { SettingsView } from './views/SettingsView';
 import { AuditLogView } from './views/AuditLogView';
-import { Auth } from './components/Auth';
 
 const AppContent: React.FC = () => {
   const { userRole, currentUser, user, loadingAuth, currentTenant } = useApp();
@@ -56,25 +56,25 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     const roleRoutes: Record<string, string[]> = {
       super_admin: [
-        'superadmin', 'dashboard', 'rooms', 'prebookings', 'restaurant', 'bar', 
+        'superadmin', 'dashboard', 'rooms', 'prebookings', 'menu_items', 'restaurant', 'bar', 
         'laundry', 'hall', 'stock', 'billing', 'reports', 'settings', 'audit'
       ],
       admin: [
-        'dashboard', 'rooms', 'prebookings', 'restaurant', 'bar', 
+        'dashboard', 'rooms', 'prebookings', 'menu_items', 'restaurant', 'bar', 
         'laundry', 'hall', 'stock', 'billing', 'reports', 'settings', 'audit'
       ],
       reception: [
         'dashboard', 'rooms', 'prebookings', 'laundry', 'hall', 'billing', 'reports'
       ],
-      restaurant: ['restaurant'],
-      bar: ['bar'],
+      restaurant: ['restaurant', 'menu_items'],
+      bar: ['bar', 'menu_items'],
       store_manager: ['laundry', 'stock']
     };
 
     let allowed = roleRoutes[userRole] || [];
     
-    // If not super_admin, filter by tenant's enabled menus
-    if (userRole !== 'super_admin' && currentTenant?.enabledMenus && Array.isArray(currentTenant.enabledMenus)) {
+    // If not super_admin, filter by tenant's enabled menus (only if configured with at least 1 menu)
+    if (userRole !== 'super_admin' && currentTenant?.enabledMenus && Array.isArray(currentTenant.enabledMenus) && currentTenant.enabledMenus.length > 0) {
       allowed = allowed.filter(tab => currentTenant.enabledMenus!.includes(tab));
     }
 
@@ -131,6 +131,10 @@ const AppContent: React.FC = () => {
 
           {currentTab === 'prebookings' && (
             <PreBookingView />
+          )}
+
+          {currentTab === 'menu_items' && (
+            <MenuView />
           )}
 
           {currentTab === 'restaurant' && (

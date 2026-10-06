@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp, UserRole } from '../context/AppContext';
-import { Bell, Sun, Moon, Menu, LogOut } from 'lucide-react';
+import { Sun, Moon, Menu, LogOut } from 'lucide-react';
 
 interface RoleHeaderProps {
   onToggleSidebar: () => void;
@@ -11,17 +11,12 @@ export const RoleHeader: React.FC<RoleHeaderProps> = ({ onToggleSidebar }) => {
     userRole, 
     darkMode, 
     toggleDarkMode, 
-    notifications, 
-    clearNotification, 
     currentUser, 
     logoutUser,
     user,
     logout,
     settings 
   } = useApp();
-  const [showNotifications, setShowNotifications] = useState(false);
-
-  const activeNotifications = notifications.filter(n => !n.read);
 
   const roles: { value: UserRole; label: string; icon: string; desc: string }[] = [
     { value: 'super_admin', label: 'Super Admin', icon: '👑', desc: 'Global multi-tenant SaaS management & property onboarding' },
@@ -72,76 +67,6 @@ export const RoleHeader: React.FC<RoleHeaderProps> = ({ onToggleSidebar }) => {
         >
           {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
         </button>
-
-        {/* NOTIFICATIONS BELL */}
-        <div className="relative">
-          <button
-            onClick={() => setShowNotifications(!showNotifications)}
-            className="relative p-2 text-slate-600 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
-          >
-            <Bell className="w-5 h-5" />
-            {activeNotifications.length > 0 && (
-              <span className="absolute top-1.5 right-1.5 flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
-              </span>
-            )}
-          </button>
-
-          {showNotifications && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowNotifications(false)} />
-              <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xl z-50 py-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 dark:border-slate-800">
-                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Alerts & Notifications</h3>
-                  <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
-                    {activeNotifications.length} Active
-                  </span>
-                </div>
-                <div className="max-h-[300px] overflow-y-auto px-2 py-1">
-                  {notifications.length === 0 ? (
-                    <div className="py-6 text-center text-xs text-slate-400">
-                      No notifications or warnings.
-                    </div>
-                  ) : (
-                    notifications.map(n => (
-                      <div
-                        key={n.id}
-                        className={`flex gap-3 p-2.5 rounded-lg border border-transparent mb-1 transition-all ${
-                          n.read 
-                            ? 'opacity-60 bg-transparent' 
-                            : 'bg-indigo-50/20 dark:bg-indigo-950/10 border-indigo-500/10'
-                        }`}
-                      >
-                        <div className="mt-0.5">
-                          {n.type === 'stock' && <span className="text-amber-500 text-sm">⚠️</span>}
-                          {n.type === 'checkout' && <span className="text-indigo-500 text-sm">🔑</span>}
-                          {n.type === 'booking' && <span className="text-emerald-500 text-sm">📅</span>}
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-xs text-slate-700 dark:text-slate-350 font-medium leading-relaxed">
-                            {n.message}
-                          </p>
-                          <div className="flex items-center justify-between mt-1">
-                            <span className="text-[9px] text-slate-400">{n.timestamp}</span>
-                            {!n.read && (
-                              <button
-                                onClick={() => clearNotification(n.id)}
-                                className="text-[9px] text-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 font-semibold"
-                              >
-                                Mark Read
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
 
         {/* STAFF SIGNATURE PROFILE / CURRENT USER */}
         <div className="flex items-center gap-2 pl-2 border-l border-slate-200/50 dark:border-slate-800/50">

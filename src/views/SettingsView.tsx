@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useApp, MenuItem, UserRole, HotelSettings, RoomCategory } from '../context/AppContext';
+import React, { useState, useMemo } from 'react';
+import { useApp, MenuItem, UserRole, HotelSettings, RoomCategory, DEFAULT_ENABLED_MENUS } from '../context/AppContext';
 import { 
   Settings, 
   Plus, 
@@ -38,9 +38,11 @@ export interface TenantAccount {
 
 export const SettingsView: React.FC = () => {
   const { 
+    userRole,
+    currentTenant,
     settings, 
     menuItems, 
-    userAccounts, 
+    userAccounts,  
     addUserAccount, 
     deleteUserAccount, 
     switchRole, 
@@ -72,14 +74,23 @@ export const SettingsView: React.FC = () => {
   const [barTaxRate, setBarTaxRate] = useState(settings.barTaxRate);
   const [invoicePrefix, setInvoicePrefix] = useState(settings.invoicePrefix);
 
-  // New Menu Item Form
-  const [newMenuName, setNewMenuName] = useState('');
-  const [newMenuPrice, setNewMenuPrice] = useState(0);
-  const [newMenuCategory, setNewMenuCategory] = useState('Breakfast');
-  const [isBarItem, setIsBarItem] = useState(false);
-
   // Settings Sub-Tabs
-  const [activeSettingsTab, setActiveSettingsTab] = useState<'hotel' | 'tenants' | 'users' | 'menu' | 'rooms'>('hotel');
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'hotel' | 'tenants' | 'users' | 'rooms'>('hotel');
+
+  const isSuperAdmin = userRole === 'super_admin';
+
+  // Strict Multi-Tenant User Account Isolation:
+  // - Super Admin sees all user accounts across all properties.
+  // - Property Admin only sees staff accounts for their own property, excluding super_admin.
+  const visibleUserAccounts = useMemo(() => {
+    if (isSuperAdmin) return userAccounts;
+    return (userAccounts || []).filter(u => {
+      if (u.role === 'super_admin') return false;
+      const matchesTenantId = u.tenantId && u.tenantId === activeTenantId;
+      const matchesTenantName = u.tenantName && currentTenant && u.tenantName.toLowerCase() === currentTenant.name.toLowerCase();
+      return matchesTenantId || matchesTenantName;
+    });
+  }, [userAccounts, isSuperAdmin, activeTenantId, currentTenant]);
 
   // New Tenant Registration Form State
   const [tenantName, setTenantName] = useState('');
@@ -138,36 +149,6 @@ export const SettingsView: React.FC = () => {
     alert('Hotel settings updated successfully!');
   };
 
-  const handleAddMenuSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newMenuName || newMenuPrice <= 0) return;
-
-    const newItem: MenuItem = {
-      id: 'menu_' + Date.now(),
-      name: newMenuName,
-      price: newMenuPrice,
-      category: newMenuCategory,
-      isBar: isBarItem,
-      isAvailable: true
-    };
-
-    addMenuItem(newItem);
-
-    addInventoryItem({
-      name: newMenuName,
-      category: isBarItem ? 'Liquor' : 'Food',
-      stock: 10,
-      minStock: 3,
-      unit: isBarItem ? 'bottle' : 'packet',
-      barcode: 'BAR-' + Math.floor(100000 + Math.random() * 900000)
-    });
-
-    addAudit('Create Menu Item', `Added ${newMenuName} (₹${newMenuPrice}) to ${newMenuCategory} menu.`);
-
-    setNewMenuName('');
-    setNewMenuPrice(0);
-  };
-
   // Create New Multi-Tenant Account
   const handleCreateTenant = (e: React.FormEvent) => {
     e.preventDefault();
@@ -187,7 +168,8 @@ export const SettingsView: React.FC = () => {
       tier: tenantTier,
       status: 'Active',
       maxRooms: 100,
-      adminEmail: tenantEmail
+      adminEmail: tenantEmail,
+      enabledMenus: DEFAULT_ENABLED_MENUS
     }, '123456');
 
     setTenantName('');
@@ -216,24 +198,30 @@ export const SettingsView: React.FC = () => {
     addAudit('Tenant Switch', `Switched active property account context to ${tenant.name}`);
   };
 
-  // Create New Client User Credentials
+  // Create New Client / Staff User Credentials
   const handleCreateUserAccount = (e: React.FormEvent) => {
     e.preventDefault();
     if (!clientEmail || !clientPassword) return;
+
+    const assignedTenantName = isSuperAdmin ? (clientTenantName || currentTenant?.name || 'HotelVista Property') : (currentTenant?.name || 'Hotel Property');
+    const assignedTenantId = isSuperAdmin 
+      ? (tenants.find(t => t.name.toLowerCase() === assignedTenantName.toLowerCase())?.id || activeTenantId) 
+      : activeTenantId;
 
     addUserAccount({
       name: clientName || `${clientRole.toUpperCase()} User`,
       email: clientEmail,
       password: clientPassword,
       role: clientRole,
-      tenantName: clientTenantName,
+      tenantName: assignedTenantName,
+      tenantId: assignedTenantId,
       status: 'Active'
     });
 
     setClientName('');
     setClientEmail('');
     setClientPassword('');
-    alert(`Client user credentials for ${clientEmail} created successfully!`);
+    alert(`User credentials for ${clientEmail} created successfully!`);
   };
 
   const toggleShowPassword = (id: string) => {
@@ -283,19 +271,21 @@ export const SettingsView: React.FC = () => {
             Hotel Details & Taxation Settings
           </button>
 
-          <button
-            onClick={() => setActiveSettingsTab('tenants')}
-            className={`w-full px-4 py-2.5 rounded-xl text-left text-xs font-semibold transition-all flex items-center justify-between ${
-              activeSettingsTab === 'tenants' 
-                ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/20 dark:text-indigo-400 font-bold' 
-                : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/40'
-            }`}
-          >
-            <span>Multi-Tenant Organizations</span>
-            <span className="px-2 py-0.5 bg-indigo-600 text-white rounded-full text-[10px] font-mono">
-              {tenants.length}
-            </span>
-          </button>
+          {isSuperAdmin && (
+            <button
+              onClick={() => setActiveSettingsTab('tenants')}
+              className={`w-full px-4 py-2.5 rounded-xl text-left text-xs font-semibold transition-all flex items-center justify-between ${
+                activeSettingsTab === 'tenants' 
+                  ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/20 dark:text-indigo-400 font-bold' 
+                  : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/40'
+              }`}
+            >
+              <span>Multi-Tenant Organizations</span>
+              <span className="px-2 py-0.5 bg-indigo-600 text-white rounded-full text-[10px] font-mono">
+                {tenants.length}
+              </span>
+            </button>
+          )}
 
           <button
             onClick={() => setActiveSettingsTab('users')}
@@ -305,29 +295,15 @@ export const SettingsView: React.FC = () => {
                 : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/40'
             }`}
           >
-            <span>User Accounts & Credentials</span>
+            <span>{isSuperAdmin ? 'User Accounts & Credentials' : 'Staff Accounts & Logins'}</span>
             <span className="px-2 py-0.5 bg-emerald-600 text-white rounded-full text-[10px] font-mono">
-              {userAccounts.length}
+              {visibleUserAccounts.length}
             </span>
           </button>
           
           <button
-            onClick={() => {
-              setActiveSettingsTab('menu');
-              setNewMenuCategory(isBarItem ? 'Beer' : 'Breakfast');
-            }}
-            className={`w-full px-4 py-2.5 rounded-xl text-left text-xs font-semibold transition-all ${
-              activeSettingsTab === 'menu' 
-                ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/20 dark:text-indigo-400 font-bold' 
-                : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/40'
-            }`}
-          >
-            Manage Restaurant & Bar Menu List
-          </button>
-
-          <button
             onClick={() => setActiveSettingsTab('rooms')}
-            className={`w-full px-4 py-2.5 rounded-xl text-left text-xs font-semibold transition-all ${
+            className={`w-full px-4 py-2.5 rounded-xl text-left text-xs font-semibold transition-all flex items-center justify-between ${
               activeSettingsTab === 'rooms' 
                 ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/20 dark:text-indigo-400 font-bold' 
                 : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/40'
@@ -339,40 +315,18 @@ export const SettingsView: React.FC = () => {
 
         {/* Active Property Account Card */}
         {(() => {
-          const currentTenant = tenants.find(t => t.id === activeTenantId) || tenants[0];
+          const activeTenant = (tenants || []).find(t => t.id === activeTenantId) || tenants[0];
           return (
             <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border dark:border-slate-800 space-y-1.5 text-xs">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Active Property Context</span>
               <p className="font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
                 <Building2 className="w-3.5 h-3.5" />
-                {currentTenant.name}
+                {activeTenant?.name || 'HotelVista Property'}
               </p>
-              <p className="text-[10px] text-slate-400 font-mono">{currentTenant.subdomain}</p>
+              <p className="text-[10px] text-slate-400 font-mono">{activeTenant?.subdomain || 'hotelvista.com'}</p>
             </div>
           );
         })()}
-
-        {/* Live Cloud DB Connection Card */}
-        <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border dark:border-slate-800 space-y-2 text-xs">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Database Infrastructure</span>
-          <div className="flex items-center justify-between">
-            <span className="flex items-center gap-1.5 font-bold text-slate-700 dark:text-slate-300">
-              <Database className="w-3.5 h-3.5 text-indigo-500" />
-              Firestore Cloud
-            </span>
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${
-              cloudDbConnected 
-                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' 
-                : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-            }`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${cloudDbConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-              {cloudDbConnected ? 'Live Connected' : 'Local Fallback'}
-            </span>
-          </div>
-          <div className="text-[10px] font-mono text-slate-500 bg-white dark:bg-slate-900 p-1.5 rounded border dark:border-slate-800 break-all">
-            Project: <span className="text-indigo-600 dark:text-indigo-400 font-bold">{cloudDbName || 'vctor-e91b9'}</span>
-          </div>
-        </div>
 
       </div>
 
@@ -701,25 +655,27 @@ export const SettingsView: React.FC = () => {
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
                   <Users className="w-4 h-4 text-emerald-500" />
-                  Client User Accounts & Login Credentials Management
+                  {isSuperAdmin ? 'Client User Accounts & Login Credentials Management' : `${currentTenant?.name || 'Property'} Staff Accounts & Login Credentials`}
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Create and manage client email IDs, passwords, roles, and assigned property tenants
+                  {isSuperAdmin 
+                    ? 'Create and manage client email IDs, passwords, roles, and assigned property tenants across the SaaS'
+                    : `Create and manage receptionist, restaurant, bar, and store staff logins for ${currentTenant?.name || 'your property'}`}
                 </p>
               </div>
             </div>
 
-            {/* List of Client User Accounts */}
+            {/* List of User Accounts (Isolated per Tenant) */}
             <div className="space-y-3">
               <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                Active Client Accounts ({userAccounts.length})
+                {isSuperAdmin ? `All Client Accounts (${visibleUserAccounts.length})` : `Active Staff Accounts for ${currentTenant?.name || 'This Property'} (${visibleUserAccounts.length})`}
               </h4>
 
               <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-2xl">
                 <table className="w-full text-xs text-left">
                   <thead>
                     <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 border-b border-slate-200 dark:border-slate-800">
-                      <th className="py-2.5 px-3">Client / User Name</th>
+                      <th className="py-2.5 px-3">Staff / User Name</th>
                       <th className="py-2.5 px-3">Email ID (Username)</th>
                       <th className="py-2.5 px-3 font-mono">Password</th>
                       <th className="py-2.5 px-3">Assigned Role</th>
@@ -728,84 +684,92 @@ export const SettingsView: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                    {userAccounts.map(u => {
-                      const isShown = showPasswords[u.id];
-                      return (
-                        <tr key={u.id} className="text-slate-700 dark:text-slate-300 hover:bg-slate-50/50 dark:hover:bg-slate-850/40">
-                          <td className="py-3 px-3 font-bold text-slate-900 dark:text-white">
-                            {u.name}
-                          </td>
-                          <td className="py-3 px-3 font-mono font-semibold text-indigo-600 dark:text-indigo-400">
-                            {u.email}
-                          </td>
-                          <td className="py-3 px-3 font-mono">
-                            <div className="flex items-center gap-1.5">
-                              <span>{isShown ? u.password : '••••••••'}</span>
-                              <button
-                                onClick={() => toggleShowPassword(u.id)}
-                                className="text-[10px] text-slate-400 hover:text-slate-600 underline"
-                              >
-                                {isShown ? 'Hide' : 'Show'}
-                              </button>
-                            </div>
-                          </td>
-                          <td className="py-3 px-3 font-semibold">
-                            <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] uppercase font-mono">
-                              {u.role}
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 font-medium text-slate-500">
-                            {u.tenantName}
-                          </td>
-                          <td className="py-3 px-3 text-center">
-                            <div className="flex items-center justify-center gap-2">
-                              <button
-                                onClick={() => {
-                                  switchRole(u.role);
-                                  alert(`Switched context to ${u.name} (${u.email})!`);
-                                }}
-                                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[10px] font-bold transition-all flex items-center gap-1"
-                              >
-                                <UserCheck className="w-3 h-3" />
-                                Switch Role
-                              </button>
-
-                              {u.email !== 'admin@hotelvista.com' && (
+                    {visibleUserAccounts.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-400 font-medium">
+                          No staff accounts created for this property yet. Use the form below to create one.
+                        </td>
+                      </tr>
+                    ) : (
+                      visibleUserAccounts.map(u => {
+                        const isShown = showPasswords[u.id];
+                        return (
+                          <tr key={u.id} className="text-slate-700 dark:text-slate-300 hover:bg-slate-50/50 dark:hover:bg-slate-850/40">
+                            <td className="py-3 px-3 font-bold text-slate-900 dark:text-white">
+                              {u.name}
+                            </td>
+                            <td className="py-3 px-3 font-mono font-semibold text-indigo-600 dark:text-indigo-400">
+                              {u.email}
+                            </td>
+                            <td className="py-3 px-3 font-mono">
+                              <div className="flex items-center gap-1.5">
+                                <span>{isShown ? u.password : '••••••••'}</span>
                                 <button
-                                  onClick={() => deleteUserAccount(u.id)}
-                                  className="p-1 text-slate-400 hover:text-rose-500 transition-colors"
-                                  title="Delete User"
+                                  onClick={() => toggleShowPassword(u.id)}
+                                  className="text-[10px] text-slate-400 hover:text-slate-600 underline"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  {isShown ? 'Hide' : 'Show'}
                                 </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                              </div>
+                            </td>
+                            <td className="py-3 px-3 font-semibold">
+                              <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] uppercase font-mono">
+                                {u.role}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 font-medium text-slate-500">
+                              {u.tenantName}
+                            </td>
+                            <td className="py-3 px-3 text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  onClick={() => {
+                                    switchRole(u.role);
+                                    alert(`Switched context to ${u.name} (${u.email})!`);
+                                  }}
+                                  className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[10px] font-bold transition-all flex items-center gap-1"
+                                >
+                                  <UserCheck className="w-3 h-3" />
+                                  Switch Role
+                                </button>
+
+                                {u.role !== 'super_admin' && u.email !== 'admin@hotelvista.com' && (
+                                  <button
+                                    onClick={() => deleteUserAccount(u.id)}
+                                    className="p-1 text-slate-400 hover:text-rose-500 transition-colors"
+                                    title="Delete User"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
               </div>
             </div>
 
-            {/* Create New Client User Account Form */}
+            {/* Create New Staff User Account Form */}
             <div className="p-4 bg-slate-50 dark:bg-slate-950 rounded-2xl border dark:border-slate-800 space-y-4">
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <Plus className="w-4 h-4 text-emerald-500" /> Create New Client Credentials & User Account
+                <Plus className="w-4 h-4 text-emerald-500" /> {isSuperAdmin ? 'Create New Client Credentials & User Account' : `Add Staff User Account (${currentTenant?.name || 'This Property'})`}
               </h4>
 
               <form onSubmit={handleCreateUserAccount} className="space-y-3.5 text-xs">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <label className="font-bold text-slate-500">Client / Full Name *</label>
+                    <label className="font-bold text-slate-500">Staff / Full Name *</label>
                     <input
                       type="text"
                       required
                       value={clientName}
                       onChange={e => setClientName(e.target.value)}
                       className="w-full p-2 border dark:border-slate-800 dark:bg-slate-900 rounded-xl"
-                      placeholder="e.g. Le Merridien Manager"
+                      placeholder={isSuperAdmin ? 'e.g. Le Merridien Manager' : 'e.g. Front Desk Staff'}
                     />
                   </div>
                   <div className="space-y-1">
@@ -816,7 +780,7 @@ export const SettingsView: React.FC = () => {
                       value={clientEmail}
                       onChange={e => setClientEmail(e.target.value)}
                       className="w-full p-2 border dark:border-slate-800 dark:bg-slate-900 rounded-xl font-mono text-xs"
-                      placeholder="merridien@hotel.com"
+                      placeholder="staff@hotel.com"
                     />
                   </div>
                 </div>
@@ -840,22 +804,24 @@ export const SettingsView: React.FC = () => {
                       onChange={e => setClientRole(e.target.value as UserRole)}
                       className="w-full p-2 border dark:border-slate-800 dark:bg-slate-900 rounded-xl font-semibold"
                     >
-                      <option value="admin">Administrator</option>
-                      <option value="reception">Receptionist</option>
-                      <option value="restaurant">Restaurant Staff</option>
-                      <option value="bar">Bar Staff</option>
-                      <option value="store_manager">Store Manager</option>
+                      {isSuperAdmin && <option value="admin">Property Administrator</option>}
+                      <option value="reception">Receptionist / Front Desk</option>
+                      <option value="restaurant">Restaurant Staff / Captain</option>
+                      <option value="bar">Bar Staff / Bartender</option>
+                      <option value="store_manager">Store & Inventory Manager</option>
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="font-bold text-slate-500">Property / Tenant *</label>
+                    <label className="font-bold text-slate-500">Property / Tenant</label>
                     <input
                       type="text"
-                      required
-                      value={clientTenantName}
+                      disabled={!isSuperAdmin}
+                      value={isSuperAdmin ? clientTenantName : (currentTenant?.name || 'Active Property')}
                       onChange={e => setClientTenantName(e.target.value)}
-                      className="w-full p-2 border dark:border-slate-800 dark:bg-slate-900 rounded-xl font-semibold"
-                      placeholder="Hotel Le Merridien"
+                      className={`w-full p-2 border dark:border-slate-800 rounded-xl font-semibold ${
+                        !isSuperAdmin ? 'bg-slate-100 dark:bg-slate-850 text-slate-400 cursor-not-allowed' : 'dark:bg-slate-900'
+                      }`}
+                      placeholder="Hotel Property"
                     />
                   </div>
                 </div>
@@ -864,101 +830,9 @@ export const SettingsView: React.FC = () => {
                   type="submit"
                   className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md transition-all"
                 >
-                  Create & Provision Client Account
+                  {isSuperAdmin ? 'Create & Provision Client Account' : 'Create Staff Login Account'}
                 </button>
               </form>
-            </div>
-
-          </div>
-        )}
-
-        {/* Manage Restaurant & Bar Menu List */}
-        {activeSettingsTab === 'menu' && (
-          <div className="space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-455 border-b pb-2 border-slate-100 dark:border-slate-800">
-              Master Food & Beverage Menu Items
-            </h3>
-
-            <form onSubmit={handleAddMenuSubmit} className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-500">Item Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={newMenuName}
-                    onChange={e => setNewMenuName(e.target.value)}
-                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg"
-                    placeholder="e.g. Chicken Biryani"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-500">Unit Price (₹) *</label>
-                  <input
-                    type="number"
-                    required
-                    min={1}
-                    value={newMenuPrice}
-                    onChange={e => setNewMenuPrice(Number(e.target.value))}
-                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-mono font-bold"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-500">Category *</label>
-                  <select
-                    value={newMenuCategory}
-                    onChange={e => setNewMenuCategory(e.target.value)}
-                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-semibold"
-                  >
-                    {(isBarItem ? barCategories : foodCategories).map(cat => (
-                      <option key={cat} value={cat}>{cat}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Bar vs Food Toggle */}
-                <div className="flex items-center justify-between p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-900">
-                  <span className="font-semibold text-slate-550 pl-1">Is this Liquor / Bar?</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nextMode = !isBarItem;
-                      setIsBarItem(nextMode);
-                      setNewMenuCategory(nextMode ? 'Beer' : 'Breakfast');
-                    }}
-                    className="p-1 rounded text-indigo-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-                  >
-                    {isBarItem ? <ToggleRight className="w-7 h-7 text-violet-500" /> : <ToggleLeft className="w-7 h-7 text-slate-400" />}
-                  </button>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-sm transition-colors mt-2"
-              >
-                Create Menu Entry
-              </button>
-
-            </form>
-
-            {/* Menu List Preview */}
-            <div className="space-y-3">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Existing Menu Items Preview</span>
-              <div className="max-h-[300px] overflow-y-auto border border-slate-100 dark:border-slate-800/80 rounded-xl divide-y divide-slate-100 dark:divide-slate-800/50">
-                {menuItems.map(item => (
-                  <div key={item.id} className="flex justify-between items-center p-3 text-xs">
-                    <div>
-                      <p className="font-bold text-slate-850 dark:text-slate-150">{item.name}</p>
-                      <span className="text-[9px] text-slate-400 font-semibold uppercase">{item.category} ● {item.isBar ? 'Bar Liquor' : 'Restaurant Food'}</span>
-                    </div>
-                    <span className="font-bold font-mono text-indigo-500">₹{item.price}</span>
-                  </div>
-                ))}
-              </div>
             </div>
 
           </div>

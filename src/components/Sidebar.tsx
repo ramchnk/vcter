@@ -13,7 +13,8 @@ import {
   BarChart3, 
   Settings, 
   History,
-  Crown
+  Crown,
+  BookOpen
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -31,6 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setTab, collapsed 
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['super_admin', 'admin', 'reception'] },
     { id: 'rooms', label: 'Room Management', icon: BedDouble, roles: ['super_admin', 'admin', 'reception'] },
     { id: 'prebookings', label: 'Pre Bookings', icon: CalendarDays, roles: ['super_admin', 'admin', 'reception'] },
+    { id: 'menu_items', label: 'Menu Items', icon: BookOpen, roles: ['super_admin', 'admin', 'restaurant', 'bar'] },
     { id: 'restaurant', label: 'Restaurant POS', icon: UtensilsCrossed, roles: ['super_admin', 'admin', 'restaurant'] },
     { id: 'bar', label: 'Bar POS', icon: Wine, roles: ['super_admin', 'admin', 'bar'] },
     { id: 'laundry', label: 'Laundry Service', icon: Shirt, roles: ['super_admin', 'admin', 'reception', 'store_manager'] },
@@ -50,7 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setTab, collapsed 
     if (userRole === 'super_admin') return true;
     // 3. For client accounts, check if module is enabled for this tenant
     const enabledMenus = currentTenant?.enabledMenus;
-    if (enabledMenus && Array.isArray(enabledMenus)) {
+    if (enabledMenus && Array.isArray(enabledMenus) && enabledMenus.length > 0) {
       return enabledMenus.includes(item.id);
     }
     return true;
