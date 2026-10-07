@@ -347,6 +347,7 @@ interface AppContextType {
   deleteRoom: (roomId: string) => Promise<void>;
   resetTenantData: () => Promise<void>;
   isMenuEnabled: (menuId: string) => boolean;
+  refreshData: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -1316,6 +1317,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   };
 
+  const refreshData = async () => {
+    await fetchGlobalData();
+    if (tenantId) {
+      await fetchTenantData(tenantId);
+    }
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -1393,7 +1401,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addRoom,
         deleteRoom,
         resetTenantData,
-        isMenuEnabled
+        isMenuEnabled,
+        refreshData
       }}
     >
       {children}

@@ -19,6 +19,13 @@ import {
   CheckCircle2
 } from 'lucide-react';
 
+import { 
+  getLocalTodayString, 
+  getMonthStartString, 
+  isDateInRange, 
+  isStayInRange 
+} from '../utils/dateUtils';
+
 export const ReportsView: React.FC = () => {
   const { 
     rooms, 
@@ -27,11 +34,15 @@ export const ReportsView: React.FC = () => {
     hallBookings, 
     purchaseLogs, 
     inventory, 
-    preBookings,
+    preBookings, 
     auditLogs, 
-    getBillSummary,
-    settings 
+    getBillSummary, 
+    settings,
+    refreshData 
   } = useApp();
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   // Active Sub Tab (persisted on reload)
   const [activeReportTab, setActiveReportTab] = useState<
@@ -53,8 +64,7 @@ export const ReportsView: React.FC = () => {
   // Handle Preset selection
   const applyDatePreset = (preset: 'all' | 'today' | 'yesterday' | '7days' | 'month' | 'custom') => {
     setDatePreset(preset);
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+    const todayStr = getLocalTodayString();
 
     if (preset === 'all') {
       setStartDate('');
@@ -63,50 +73,50 @@ export const ReportsView: React.FC = () => {
       setStartDate(todayStr);
       setEndDate(todayStr);
     } else if (preset === 'yesterday') {
-      const y = new Date();
-      y.setDate(y.getDate() - 1);
-      const yStr = y.toISOString().split('T')[0];
+      const yStr = getLocalTodayString(-1);
       setStartDate(yStr);
       setEndDate(yStr);
     } else if (preset === '7days') {
-      const d7 = new Date();
-      d7.setDate(d7.getDate() - 7);
-      setStartDate(d7.toISOString().split('T')[0]);
+      const d7Str = getLocalTodayString(-6);
+      setStartDate(d7Str);
       setEndDate(todayStr);
     } else if (preset === 'month') {
-      const mStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+      const mStart = getMonthStartString();
       setStartDate(mStart);
       setEndDate(todayStr);
     }
   };
 
-  // Helper to check if a date string falls in range
-  const isDateInRange = (dateStr: string | undefined) => {
-    if (!dateStr) return true;
-    if (!startDate && !endDate) return true;
-    
-    let formatted = '';
-    const parsedDate = new Date(dateStr);
-    if (!isNaN(parsedDate.getTime())) {
-      const y = parsedDate.getFullYear();
-      const m = String(parsedDate.getMonth() + 1).padStart(2, '0');
-      const d = String(parsedDate.getDate()).padStart(2, '0');
-      formatted = `${y}-${m}-${d}`;
-    } else {
-      formatted = dateStr.split('T')[0].split(' ')[0].replace(/,/g, '');
+  // Live Refresh Handler
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refreshData();
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
     }
-    
-    if (startDate && formatted < startDate) return false;
-    if (endDate && formatted > endDate) return false;
-    return true;
   };
 
   // Filtered Datasets based on Date Range
-  const filteredOrders = useMemo(() => orders.filter(o => isDateInRange(o.timestamp)), [orders, startDate, endDate]);
-  const filteredLaundry = useMemo(() => laundryOrders.filter(l => isDateInRange(l.timestamp)), [laundryOrders, startDate, endDate]);
-  const filteredHall = useMemo(() => hallBookings.filter(h => isDateInRange(h.date)), [hallBookings, startDate, endDate]);
-  const filteredPurchases = useMemo(() => purchaseLogs.filter(p => isDateInRange(p.date)), [purchaseLogs, startDate, endDate]);
-  const filteredRooms = useMemo(() => rooms.filter(r => isDateInRange(r.checkInDate)), [rooms, startDate, endDate]);
+  const filteredOrders = useMemo(() => {
+    return orders.filter(o => isDateInRange(o.timestamp, startDate, endDate));
+  }, [orders, startDate, endDate]);
+
+  const filteredLaundry = useMemo(() => {
+    return laundryOrders.filter(l => isDateInRange(l.timestamp, startDate, endDate));
+  }, [laundryOrders, startDate, endDate]);
+
+  const filteredHall = useMemo(() => {
+    return hallBookings.filter(h => isDateInRange(h.date, startDate, endDate));
+  }, [hallBookings, startDate, endDate]);
+
+  const filteredPurchases = useMemo(() => {
+    return purchaseLogs.filter(p => isDateInRange(p.date, startDate, endDate));
+  }, [purchaseLogs, startDate, endDate]);
+
+  const filteredRooms = useMemo(() => {
+    return rooms.filter(r => isStayInRange(r.checkInDate, r.checkOutDate, startDate, endDate));
+  }, [rooms, startDate, endDate]);
 
   // Calculations for Reports
   // 1. Departmental sales (date filtered)
@@ -434,14 +444,27 @@ export const ReportsView: React.FC = () => {
           </div>
         </div>
 
-        {/* Master Excel Export Button */}
-        <button
-          onClick={handleExportFullMasterReport}
-          className="flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0"
-        >
-          <FileSpreadsheet className="w-4 h-4" />
-          <span>Export Master Excel Report</span>
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Live Data Refresh Button */}
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0"
+            title="Fetch latest data from MongoDB"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span>{isRefreshing ? 'Syncing...' : 'Refresh Data'}</span>
+          </button>
+
+          {/* Master Excel Export Button */}
+          <button
+            onClick={handleExportFullMasterReport}
+            className="flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Export Master Excel Report</span>
+          </button>
+        </div>
       </div>
 
       {/* Date Range & Custom Filter Controls Bar */}
