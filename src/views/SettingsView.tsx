@@ -18,7 +18,6 @@ import {
   Lock,
   UserCheck,
   Save,
-  AlertTriangle,
   Database
 } from 'lucide-react';
 
@@ -59,7 +58,6 @@ export const SettingsView: React.FC = () => {
     rooms,
     addRoom,
     deleteRoom,
-    resetTenantData,
     cloudDbConnected,
     cloudDbName
   } = useApp();
@@ -106,9 +104,16 @@ export const SettingsView: React.FC = () => {
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
   const [clientPassword, setClientPassword] = useState('');
-  const [clientRole, setClientRole] = useState<UserRole>('admin');
+  const [clientRole, setClientRole] = useState<UserRole>(isSuperAdmin ? 'admin' : 'reception');
   const [clientTenantName, setClientTenantName] = useState('Hotel Le Merridien');
   const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
+
+  // Sync clientRole if isSuperAdmin state changes
+  React.useEffect(() => {
+    if (!isSuperAdmin && clientRole === 'admin') {
+      setClientRole('reception');
+    }
+  }, [isSuperAdmin, clientRole]);
 
   // New Room States
   const [newRoomNumber, setNewRoomNumber] = useState('');
@@ -208,11 +213,13 @@ export const SettingsView: React.FC = () => {
       ? (tenants.find(t => t.name.toLowerCase() === assignedTenantName.toLowerCase())?.id || activeTenantId) 
       : activeTenantId;
 
+    const targetRole = (!isSuperAdmin && clientRole === 'admin') ? 'reception' : clientRole;
+
     addUserAccount({
-      name: clientName || `${clientRole.toUpperCase()} User`,
+      name: clientName || `${targetRole.toUpperCase()} User`,
       email: clientEmail,
       password: clientPassword,
-      role: clientRole,
+      role: targetRole,
       tenantName: assignedTenantName,
       tenantId: assignedTenantId,
       status: 'Active'
@@ -221,6 +228,7 @@ export const SettingsView: React.FC = () => {
     setClientName('');
     setClientEmail('');
     setClientPassword('');
+    setClientRole(isSuperAdmin ? 'admin' : 'reception');
     alert(`User credentials for ${clientEmail} created successfully!`);
   };
 
@@ -438,32 +446,6 @@ export const SettingsView: React.FC = () => {
                 Save Hotel Settings
               </button>
             </form>
-
-            {/* Danger Zone */}
-            <div className="mt-8 p-5 border border-rose-200/60 dark:border-rose-950/40 rounded-2xl bg-rose-50/10 dark:bg-rose-950/5 space-y-4">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-rose-500 flex items-center gap-1.5 font-semibold">
-                <AlertTriangle className="w-4 h-4 text-rose-500 animate-pulse" /> Danger Zone
-              </h4>
-              <p className="text-[11px] text-slate-550 dark:text-slate-400 leading-relaxed">
-                Clearing all records will permanently wipe all guest logs, booking records, menu item catalogs, sales logs, laundry details, stock levels, and audit logs. Your rooms will be reset to a clean, vacant list. This action cannot be undone.
-              </p>
-              <button
-                type="button"
-                onClick={async () => {
-                  if (confirm("WARNING: Are you sure you want to WIPE all records? This will delete all history and reset rooms to vacant. This cannot be undone!")) {
-                    const confirmText = prompt("Type 'RESET' to confirm database deletion:");
-                    if (confirmText === 'RESET') {
-                      await resetTenantData();
-                    } else {
-                      alert('Reset aborted.');
-                    }
-                  }
-                }}
-                className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-md transition-colors text-xs flex items-center gap-1.5 active:scale-[0.99]"
-              >
-                <Trash2 className="w-4 h-4" /> Reset Database to Fresh State
-              </button>
-            </div>
           </div>
         )}
 

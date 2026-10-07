@@ -198,7 +198,30 @@ export const ReportsView: React.FC = () => {
   const purchaseExpenses = useMemo(() => filteredPurchases.reduce((acc, p) => acc + p.totalAmount, 0), [filteredPurchases]);
   const operationalExpenses = useMemo(() => filteredExpenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0), [filteredExpenses]);
 
-  const totalSales = roomRev + restSales + barSales + laundrySales + hallSales;
+  const tenantAuditLogs = useMemo(() => {
+    return (auditLogs || []).filter(a => !effectiveTenantId || !a.tenantId || a.tenantId === effectiveTenantId);
+  }, [auditLogs, effectiveTenantId]);
+
+  const filteredAuditLogs = useMemo(() => {
+    return tenantAuditLogs.filter(a => isDateInRange(a.timestamp, startDate, endDate));
+  }, [tenantAuditLogs, startDate, endDate]);
+
+  const totalDiscounts = useMemo(() => {
+    let sum = 0;
+    filteredAuditLogs.forEach(a => {
+      if (a.action === 'Check-Out' || a.details?.includes('Discount:')) {
+        const match = a.details?.match(/Discount:\s*₹?([0-9]+(?:\.[0-9]+)?)/i);
+        if (match && match[1]) {
+          sum += parseFloat(match[1]);
+        }
+      }
+    });
+    return sum;
+  }, [filteredAuditLogs]);
+
+  const grossSales = roomRev + restSales + barSales + laundrySales + hallSales;
+  const netSales = Math.max(0, grossSales - totalDiscounts);
+  const totalSales = netSales;
   const totalOutflow = purchaseExpenses + operationalExpenses;
   const netOperatingIncome = totalSales - totalOutflow;
 
@@ -313,9 +336,29 @@ export const ReportsView: React.FC = () => {
       });
     });
 
+    // Room Check-Out Settlements & Discounts
+    filteredAuditLogs.filter(a => a.action === 'Check-Out').forEach(a => {
+      const roomMatch = a.details?.match(/Room\s+([A-Za-z0-9\-]+)/i);
+      const guestMatch = a.details?.match(/Guest\s+(.+?)\s+checked out/i);
+      const discMatch = a.details?.match(/Discount:\s*₹?([0-9]+(?:\.[0-9]+)?)/i);
+      const discountVal = discMatch ? parseFloat(discMatch[1]) : 0;
+      
+      list.push({
+        id: a.id,
+        date: a.timestamp || 'N/A',
+        source: 'Room Settlement',
+        reference: roomMatch ? `Room ${roomMatch[1]}` : 'Room Checkout',
+        customer: guestMatch ? guestMatch[1] : 'In-House Guest',
+        category: discountVal > 0 ? `Checkout (Discount: ₹${discountVal})` : 'Checkout Settle',
+        amount: 0,
+        tax: 0,
+        status: 'Settled'
+      });
+    });
+
     // Sort descending by date
     return list.sort((a, b) => (b.date > a.date ? 1 : -1));
-  }, [filteredOrders, filteredLaundry, filteredHall]);
+  }, [filteredOrders, filteredLaundry, filteredHall, filteredAuditLogs]);
 
   // Generic Excel CSV Exporter Helper
   const downloadExcel = (filename: string, rows: (string | number)[][]) => {
@@ -348,15 +391,18 @@ export const ReportsView: React.FC = () => {
         ['Generated Date', new Date().toLocaleString()],
         [],
         ['Department Category', 'Revenue (INR)', 'Percentage Share (%)'],
-        ['Room Rent Sales', roomRev, totalSales > 0 ? ((roomRev / totalSales) * 100).toFixed(2) : 0],
-        ['Restaurant POS', restSales, totalSales > 0 ? ((restSales / totalSales) * 100).toFixed(2) : 0],
-        ['Bar POS Terminal', barSales, totalSales > 0 ? ((barSales / totalSales) * 100).toFixed(2) : 0],
-        ['Laundry Service', laundrySales, totalSales > 0 ? ((laundrySales / totalSales) * 100).toFixed(2) : 0],
-        ['Party & Banquet Hall', hallSales, totalSales > 0 ? ((hallSales / totalSales) * 100).toFixed(2) : 0],
+        ['Room Rent Sales', roomRev, grossSales > 0 ? ((roomRev / grossSales) * 100).toFixed(2) : 0],
+        ['Restaurant POS', restSales, grossSales > 0 ? ((restSales / grossSales) * 100).toFixed(2) : 0],
+        ['Bar POS Terminal', barSales, grossSales > 0 ? ((barSales / grossSales) * 100).toFixed(2) : 0],
+        ['Laundry Service', laundrySales, grossSales > 0 ? ((laundrySales / grossSales) * 100).toFixed(2) : 0],
+        ['Party & Banquet Hall', hallSales, grossSales > 0 ? ((hallSales / grossSales) * 100).toFixed(2) : 0],
         [],
-        ['TOTAL GROSS SALES', totalSales, '100%'],
+        ['TOTAL GROSS SALES', grossSales, '100%'],
+        ...(totalDiscounts > 0 ? [['Less: Cashier Discounts Allowed', -totalDiscounts, 'Discounts at Checkout']] : []),
+        ['NET REALIZED SALES', totalSales, 'Net Operating'],
         ['Less: Stock Purchase Expenses', purchaseExpenses, ''],
-        ['NET OPERATING REVENUE', netOperatingIncome, '']
+        ['Less: Direct Operational Expenses', operationalExpenses, ''],
+        ['NET OPERATING INCOME', netOperatingIncome, '']
       ];
       downloadExcel(`Sales_Report${dateTag}`, rows);
     } else if (activeReportTab === 'transactions') {
@@ -612,10 +658,15 @@ export const ReportsView: React.FC = () => {
         {/* Total Sales */}
         <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/50 rounded-2xl shadow-sm flex items-center justify-between">
           <div className="space-y-1">
-            <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block">Total Booked Sales</span>
+            <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block">Net Realized Sales</span>
             <span className="text-xl font-bold font-mono text-slate-800 dark:text-slate-200">
               ₹{totalSales.toLocaleString()}
             </span>
+            {totalDiscounts > 0 && (
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 block font-mono">
+                Gross: ₹{grossSales.toLocaleString()} | Disc: -₹{totalDiscounts.toLocaleString()}
+              </span>
+            )}
           </div>
           <div className="p-3 bg-indigo-50 dark:bg-indigo-950 text-indigo-500 rounded-xl">
             <TrendingUp className="w-5 h-5" />
@@ -793,9 +844,16 @@ export const ReportsView: React.FC = () => {
                   <span className="text-slate-500 uppercase font-semibold">5. Banquet / Party Hall</span>
                   <span className="font-bold text-slate-800 dark:text-white">₹{hallSales.toLocaleString()}</span>
                 </div>
+
+                {totalDiscounts > 0 && (
+                  <div className="flex justify-between p-3 bg-rose-50/50 dark:bg-rose-950/20 rounded-xl border border-rose-200/50 dark:border-rose-900/30 text-rose-600 dark:text-rose-400">
+                    <span className="uppercase font-semibold">Less: Cashier Discounts Allowed</span>
+                    <span className="font-bold font-mono">-₹{totalDiscounts.toLocaleString()}</span>
+                  </div>
+                )}
                 
                 <div className="border-t-2 border-slate-300 dark:border-slate-800 my-2 pt-3 flex justify-between font-extrabold text-sm text-indigo-600 dark:text-indigo-400">
-                  <span className="font-sans uppercase">Combined Revenues</span>
+                  <span className="font-sans uppercase">{totalDiscounts > 0 ? 'Net Realized Revenue' : 'Combined Revenues'}</span>
                   <span>₹{totalSales.toLocaleString()}</span>
                 </div>
               </div>

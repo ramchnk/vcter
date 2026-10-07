@@ -34,6 +34,7 @@ export const PnLStatementReport: React.FC<PnLStatementReportProps> = ({ startDat
     expenses, 
     inventory, 
     preBookings, 
+    auditLogs,
     currentTenant, 
     activeTenantId,
     tenantId,
@@ -139,11 +140,34 @@ export const PnLStatementReport: React.FC<PnLStatementReportProps> = ({ startDat
     return inventory.filter(i => !effectiveTenantId || !(i as any).tenantId || (i as any).tenantId === effectiveTenantId);
   }, [inventory, effectiveTenantId]);
 
+  const tenantAuditLogs = useMemo(() => {
+    return (auditLogs || []).filter(a => !effectiveTenantId || !a.tenantId || a.tenantId === effectiveTenantId);
+  }, [auditLogs, effectiveTenantId]);
+
+  const filteredAuditLogs = useMemo(() => {
+    return tenantAuditLogs.filter(a => isDateInRange(a.timestamp, startDate, endDate));
+  }, [tenantAuditLogs, startDate, endDate]);
+
+  const totalDiscounts = useMemo(() => {
+    let sum = 0;
+    filteredAuditLogs.forEach(a => {
+      if (a.action === 'Check-Out' || a.details?.includes('Discount:')) {
+        const match = a.details?.match(/Discount:\s*₹?([0-9]+(?:\.[0-9]+)?)/i);
+        if (match && match[1]) {
+          sum += parseFloat(match[1]);
+        }
+      }
+    });
+    return sum;
+  }, [filteredAuditLogs]);
+
   // ==========================================
   // P&L CALCULATIONS PER DEPARTMENT
   // ==========================================
   const pnlData = useMemo(() => {
     // 1. REVENUE CALCULATIONS
+    let grossSales = 0;
+    let discounts = 0;
     let totalSales = 0;
     let cashSales = 0;
     let bankSales = 0;
@@ -208,7 +232,9 @@ export const PnLStatementReport: React.FC<PnLStatementReportProps> = ({ startDat
 
     // Determine Sales based on selectedDept
     if (selectedDept === 'Rooms') {
-      totalSales = roomTotalSales;
+      grossSales = roomTotalSales;
+      discounts = totalDiscounts;
+      totalSales = Math.max(0, grossSales - discounts);
       // If payment splits aren't explicitly 100% matched, distribute proportionately
       if (cashSales + bankSales + otaAdvanceSales !== totalSales && totalSales > 0) {
         cashSales = Math.round(totalSales * 0.25);
@@ -216,28 +242,38 @@ export const PnLStatementReport: React.FC<PnLStatementReportProps> = ({ startDat
         otaAdvanceSales = totalSales - cashSales - bankSales;
       }
     } else if (selectedDept === 'Restaurant') {
+      grossSales = restTotalSales;
+      discounts = 0;
       totalSales = restTotalSales;
       cashSales = Math.round(totalSales * 0.40);
       bankSales = Math.round(totalSales * 0.50);
       otaAdvanceSales = totalSales - cashSales - bankSales;
     } else if (selectedDept === 'Bar') {
+      grossSales = barTotalSales;
+      discounts = 0;
       totalSales = barTotalSales;
       cashSales = Math.round(totalSales * 0.35);
       bankSales = Math.round(totalSales * 0.60);
       otaAdvanceSales = totalSales - cashSales - bankSales;
     } else if (selectedDept === 'Laundry') {
+      grossSales = laundryTotalSales;
+      discounts = 0;
       totalSales = laundryTotalSales;
       cashSales = Math.round(totalSales * 0.50);
       bankSales = totalSales - cashSales;
       otaAdvanceSales = 0;
     } else if (selectedDept === 'Hall') {
+      grossSales = hallTotalSales;
+      discounts = 0;
       totalSales = hallTotalSales;
       cashSales = Math.round(totalSales * 0.20);
       bankSales = Math.round(totalSales * 0.50);
       otaAdvanceSales = totalSales - cashSales - bankSales;
     } else {
       // Master Consolidated
-      totalSales = roomTotalSales + restTotalSales + barTotalSales + laundryTotalSales + hallTotalSales;
+      grossSales = roomTotalSales + restTotalSales + barTotalSales + laundryTotalSales + hallTotalSales;
+      discounts = totalDiscounts;
+      totalSales = Math.max(0, grossSales - discounts);
       cashSales = Math.round(totalSales * 0.30);
       bankSales = Math.round(totalSales * 0.45);
       otaAdvanceSales = totalSales - cashSales - bankSales;
@@ -359,6 +395,8 @@ export const PnLStatementReport: React.FC<PnLStatementReportProps> = ({ startDat
     const avgBarTicket = barOrdersCount > 0 ? Number((barTotalSales / barOrdersCount).toFixed(2)) : 0;
 
     return {
+      grossSales,
+      discounts,
       totalSales,
       cashSales,
       bankSales,
@@ -393,6 +431,7 @@ export const PnLStatementReport: React.FC<PnLStatementReportProps> = ({ startDat
     filteredHall, 
     filteredPurchases, 
     filteredExpenses, 
+    totalDiscounts,
     inventory, 
     rooms, 
     periodDays, 
@@ -410,7 +449,13 @@ export const PnLStatementReport: React.FC<PnLStatementReportProps> = ({ startDat
       ['TRADING ACCOUNT & SALES REVENUE', 'AMOUNT (INR)', 'BREAKDOWN / NOTES'],
       ['Opening Stock', pnlData.openingStock.toFixed(2), ''],
       ['Total Purchase / Procurement', pnlData.purchasesAmount.toFixed(2), ''],
-      ['TOTAL SALES REVENUE', pnlData.totalSales.toFixed(2), 'Gross Revenue'],
+      ['GROSS SALES REVENUE', pnlData.grossSales.toFixed(2), 'Gross Booked Revenue'],
+      ...(pnlData.discounts > 0 ? [
+        ['  - Less: Cashier Discounts & Allowances', (-pnlData.discounts).toFixed(2), 'Discounts Applied at Checkout'],
+        ['TOTAL NET SALES REVENUE', pnlData.totalSales.toFixed(2), 'Net Realized Revenue']
+      ] : [
+        ['TOTAL SALES REVENUE', pnlData.totalSales.toFixed(2), 'Gross Revenue']
+      ]),
       ['  - Cash Collection', pnlData.cashSales.toFixed(2), 'Direct Cash'],
       ['  - Bank / UPI / Card', pnlData.bankSales.toFixed(2), 'Digital & Bank POS'],
       ['  - OTA (Online) & Advance', pnlData.otaAdvanceSales.toFixed(2), 'Online & Advance Deposits'],
@@ -553,11 +598,29 @@ export const PnLStatementReport: React.FC<PnLStatementReportProps> = ({ startDat
             {/* Total Sales with Breakdown */}
             <div className="grid grid-cols-12 gap-2 font-bold pt-1">
               <span className="col-span-4"></span>
-              <span className="col-span-4 text-slate-900 uppercase">TOTAL SALES</span>
-              <span className="col-span-4 text-right text-slate-900 font-extrabold">{pnlData.totalSales.toFixed(2)}</span>
+              <span className="col-span-4 text-slate-900 uppercase">
+                {pnlData.discounts > 0 ? 'GROSS SALES' : 'TOTAL SALES'}
+              </span>
+              <span className="col-span-4 text-right text-slate-900 font-extrabold">{pnlData.grossSales.toFixed(2)}</span>
             </div>
 
-            <div className="grid grid-cols-12 gap-2 font-medium text-slate-700">
+            {pnlData.discounts > 0 && (
+              <div className="grid grid-cols-12 gap-2 font-bold text-rose-600">
+                <span className="col-span-4"></span>
+                <span className="col-span-4 pl-2 uppercase">LESS: DISCOUNTS & ALLOWANCES</span>
+                <span className="col-span-4 text-right font-mono font-bold">- {pnlData.discounts.toFixed(2)}</span>
+              </div>
+            )}
+
+            {pnlData.discounts > 0 && (
+              <div className="grid grid-cols-12 gap-2 font-bold text-slate-900 border-t border-slate-200 pt-0.5">
+                <span className="col-span-4"></span>
+                <span className="col-span-4 uppercase">NET SALES REVENUE</span>
+                <span className="col-span-4 text-right font-extrabold">{pnlData.totalSales.toFixed(2)}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-12 gap-2 font-medium text-slate-700 pt-1">
               <span className="col-span-4"></span>
               <span className="col-span-4 pl-4 uppercase">CASH</span>
               <span className="col-span-4 text-right">{pnlData.cashSales.toFixed(2)}</span>

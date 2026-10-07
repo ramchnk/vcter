@@ -244,6 +244,7 @@ export interface ClientUserAccount {
 
 export interface AuditLog {
   id: string;
+  tenantId?: string;
   username: string;
   role: UserRole;
   action: string;
