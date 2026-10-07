@@ -389,10 +389,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [activeTenantId, setActiveTenantId] = useState<string>(() => {
-    return localStorage.getItem('hv_active_tenant_id') || 't_1789027079838';
+    return localStorage.getItem('hv_active_tenant_id') || '';
   });
 
-  const [tenantId, setTenantId] = useState<string | null>(activeTenantId);
+  const [tenantId, setTenantId] = useState<string | null>(() => {
+    return localStorage.getItem('hv_active_tenant_id') || null;
+  });
   const [loadingAuth] = useState(false);
 
   const [tenants, setTenants] = useState<TenantAccount[]>([]);
@@ -419,8 +421,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     invoicePrefix: 'HV-INV-'
   });
 
-  const currentTenant = (tenants || []).find(t => t.id === tenantId) || tenants[0] || ({
-    id: activeTenantId,
+  const currentTenant = (tenants || []).find(t => t.id === tenantId) || 
+    (tenants || []).find(t => t.id === activeTenantId) || 
+    tenants[0] || ({
+    id: tenantId || activeTenantId || 't_default',
     name: 'HotelVista Property',
     slug: 'default',
     email: 'contact@hotelvista.com',
@@ -434,6 +438,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     maxRooms: 100,
     adminEmail: 'admin@hotelvista.com'
   } as TenantAccount);
+
+  const effectiveTenantId = currentTenant?.id || tenantId || activeTenantId;
 
   const isMenuEnabled = (menuId: string): boolean => {
     if (userRole === 'super_admin') return true;
@@ -451,21 +457,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveTenantId(newTenantId);
     setTenantId(newTenantId);
     localStorage.setItem('hv_active_tenant_id', newTenantId);
+    fetchTenantData(newTenantId);
   };
-
-  // FETCH DATA FROM MONGODB API
-  const fetchGlobalData = useCallback(async () => {
-    try {
-      const [tenantsRes, usersRes] = await Promise.all([
-        api.get('/tenants'),
-        api.get('/users')
-      ]);
-      setTenants(tenantsRes.data || []);
-      setUserAccounts(usersRes.data || []);
-    } catch (e) {
-      console.error('Error fetching global data from MongoDB:', e);
-    }
-  }, []);
 
   const fetchTenantData = useCallback(async (tId: string) => {
     if (!tId) return;
@@ -514,6 +507,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.error(`Error fetching tenant data for ${tId} from MongoDB:`, e);
     }
   }, []);
+
+  // FETCH DATA FROM MONGODB API
+  const fetchGlobalData = useCallback(async () => {
+    try {
+      const [tenantsRes, usersRes] = await Promise.all([
+        api.get('/tenants'),
+        api.get('/users')
+      ]);
+      const loadedTenants: TenantAccount[] = tenantsRes.data || [];
+      setTenants(loadedTenants);
+      setUserAccounts(usersRes.data || []);
+
+      if (loadedTenants.length > 0) {
+        const savedTenantId = localStorage.getItem('hv_active_tenant_id');
+        const userAssignedTenantId = currentUser?.tenantId;
+        const exists = loadedTenants.find(t => t.id === (userAssignedTenantId || savedTenantId || tenantId));
+        const resolvedId = exists ? exists.id : loadedTenants[0].id;
+
+        setActiveTenantId(resolvedId);
+        setTenantId(resolvedId);
+        localStorage.setItem('hv_active_tenant_id', resolvedId);
+        fetchTenantData(resolvedId);
+      }
+    } catch (e) {
+      console.error('Error fetching global data from MongoDB:', e);
+    }
+  }, [currentUser, tenantId, fetchTenantData]);
 
   useEffect(() => {
     fetchGlobalData();
@@ -802,7 +822,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // ROOMS OPERATIONS
   const addRoom = async (room: Omit<Room, 'status' | 'restaurantCharges' | 'barCharges' | 'laundryCharges' | 'hallCharges' | 'otherCharges'>) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     const newRoom: Room = {
       ...room,
       status: 'Available',
@@ -813,7 +834,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       otherCharges: 0
     };
     try {
-      await api.post('/rooms', { ...newRoom, tenantId });
+      await api.post('/rooms', { ...newRoom, tenantId: tId });
       addAudit('Room Created', `Added room ${room.roomNumber} (${room.category})`);
     } catch (e) {
       console.error(e);
@@ -821,9 +842,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteRoom = async (roomId: string) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     try {
-      await api.delete(`/rooms/${roomId}?tenantId=${tenantId}`);
+      await api.delete(`/rooms/${roomId}?tenantId=${tId}`);
       addAudit('Room Deleted', `Deleted room ${roomId}`);
     } catch (e) {
       console.error(e);
@@ -831,7 +853,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const checkInRoom = async (roomId: string, guestInfo: { name: string; phone: string; email?: string; address?: string; idProof: string; gstNumber?: string; noOfGuests: number; advancePaid: number }) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     try {
       const roomUpdate = {
         status: 'Occupied',
@@ -851,7 +874,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         hallCharges: 0,
         otherCharges: 0
       };
-      await api.put(`/rooms/${roomId}?tenantId=${tenantId}`, roomUpdate);
+      await api.put(`/rooms/${roomId}?tenantId=${tId}`, roomUpdate);
       addAudit('Check-In', `Guest ${guestInfo.name} checked into Room ${rooms.find(r => r.id === roomId)?.roomNumber}`, undefined, 'Occupied');
     } catch (e) {
       console.error(e);
@@ -859,7 +882,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const checkOutRoom = async (roomId: string, paymentDetails: { method: 'Cash' | 'Card' | 'UPI' | 'Split'; discount: number; splitDetails?: string }) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     const room = rooms.find(r => r.id === roomId);
     if (!room) return;
     try {
@@ -881,8 +905,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         hallCharges: 0,
         otherCharges: 0
       };
-      await api.put(`/rooms/${roomId}?tenantId=${tenantId}`, resetData);
-      await api.put('/orders/settle-room', { tenantId, roomNumber: room.roomNumber });
+      await api.put(`/rooms/${roomId}?tenantId=${tId}`, resetData);
+      await api.put('/orders/settle-room', { tenantId: tId, roomNumber: room.roomNumber });
       addAudit('Check-Out', `Guest ${room.guestName} checked out of Room ${room.roomNumber}. Paid via ${paymentDetails.method}. Discount: ₹${paymentDetails.discount}`, 'Occupied', 'Cleaning');
     } catch (e) {
       console.error(e);
@@ -890,12 +914,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const transferRoom = async (fromRoomId: string, toRoomId: string) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     const source = rooms.find(r => r.id === fromRoomId);
     const dest = rooms.find(r => r.id === toRoomId);
     if (!source || !dest) return;
     try {
-      await api.put(`/rooms/${fromRoomId}?tenantId=${tenantId}`, {
+      await api.put(`/rooms/${fromRoomId}?tenantId=${tId}`, {
         status: 'Cleaning',
         guestName: '',
         guestPhone: '',
@@ -914,7 +939,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         otherCharges: 0
       });
 
-      await api.put(`/rooms/${toRoomId}?tenantId=${tenantId}`, {
+      await api.put(`/rooms/${toRoomId}?tenantId=${tId}`, {
         status: 'Occupied',
         guestName: source.guestName || '',
         guestPhone: source.guestPhone || '',
@@ -940,9 +965,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateHousekeeping = async (roomId: string, status: RoomStatus) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     try {
-      await api.put(`/rooms/${roomId}?tenantId=${tenantId}`, { status });
+      await api.put(`/rooms/${roomId}?tenantId=${tId}`, { status });
       addAudit('Housekeeping Update', `Room status updated to ${status}`);
     } catch (e) {
       console.error(e);
@@ -950,14 +976,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const extendStay = async (roomId: string, days: number) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     const room = rooms.find(r => r.id === roomId);
     if (!room || !room.checkOutDate) return;
     const current = new Date(room.checkOutDate);
     current.setDate(current.getDate() + days);
     const newCheckOut = current.toISOString().split('T')[0];
     try {
-      await api.put(`/rooms/${roomId}?tenantId=${tenantId}`, { checkOutDate: newCheckOut });
+      await api.put(`/rooms/${roomId}?tenantId=${tId}`, { checkOutDate: newCheckOut });
       addAudit('Stay Extended', `Extended stay for Room ${room.roomNumber} by ${days} days`);
     } catch (e) {
       console.error(e);
@@ -966,7 +993,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // RESTAURANT & BAR ORDERS
   const addRestaurantBarOrder = async (order: Omit<Order, 'id' | 'orderNumber' | 'timestamp' | 'tax' | 'total' | 'status'>) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     const newId = 'o_' + Date.now();
     const prefix = order.isBar ? 'BAR-' : 'KOT-';
     const orderNo = prefix + Math.floor(1000 + Math.random() * 9000);
@@ -978,7 +1006,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const finalOrder: Order = {
       ...order,
-      tenantId,
+      tenantId: tId,
       subtotal,
       id: newId,
       orderNumber: orderNo,
@@ -1002,12 +1030,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // LAUNDRY ORDERS
   const addLaundryOrder = async (order: Omit<LaundryOrder, 'id' | 'orderNumber' | 'timestamp' | 'status'>) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     const newId = 'lnd_' + Date.now();
     const orderNo = 'LND-' + Math.floor(1000 + Math.random() * 9000);
     const finalOrder: LaundryOrder = {
       ...order,
-      tenantId,
+      tenantId: tId,
       id: newId,
       orderNumber: orderNo,
       timestamp: new Date().toISOString(),
@@ -1023,9 +1052,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateLaundryStatus = async (id: string, status: 'Pending' | 'Delivered' | 'Completed') => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     try {
-      await api.put(`/laundry-orders/${id}?tenantId=${tenantId}`, { status });
+      await api.put(`/laundry-orders/${id}?tenantId=${tId}`, { status });
       addAudit('Laundry Status Update', `Updated laundry order ${id} to ${status}`);
     } catch (e) {
       console.error(e);
@@ -1034,14 +1064,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // HALL BOOKINGS
   const addHallBooking = async (booking: Omit<HallBooking, 'id' | 'bookingNumber' | 'status' | 'totalPrice'>) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     const newId = 'hall_' + Date.now();
     const bookingNo = 'BK-' + Math.floor(1000 + Math.random() * 9000);
     const totalPrice = (booking.hallRent || 0) + (booking.foodPrice || 0) + (booking.decorationPrice || 0) + (booking.soundSystemPrice || 0) + (booking.projectorPrice || 0) + (booking.cleaningCharge || 0);
 
     const finalBooking: HallBooking = {
       ...booking,
-      tenantId,
+      tenantId: tId,
       id: newId,
       bookingNumber: bookingNo,
       totalPrice,
@@ -1057,9 +1088,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const cancelHallBooking = async (id: string) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     try {
-      await api.put(`/hall-bookings/${id}?tenantId=${tenantId}`, { status: 'Cancelled' });
+      await api.put(`/hall-bookings/${id}?tenantId=${tId}`, { status: 'Cancelled' });
       addAudit('Hall Booking Cancelled', `Cancelled hall booking ${id}`);
     } catch (e) {
       console.error(e);
@@ -1068,11 +1100,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // PRE BOOKINGS
   const addPreBooking = async (booking: Omit<PreBooking, 'id' | 'status' | 'bookingDate'>) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     const newId = 'pb_' + Date.now();
     const finalBooking: PreBooking = {
       ...booking,
-      tenantId,
+      tenantId: tId,
       id: newId,
       bookingDate: new Date().toISOString().split('T')[0],
       status: 'Pending'
@@ -1087,9 +1120,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const cancelPreBooking = async (id: string) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     try {
-      await api.put(`/pre-bookings/${id}?tenantId=${tenantId}`, { status: 'Cancelled' });
+      await api.put(`/pre-bookings/${id}?tenantId=${tId}`, { status: 'Cancelled' });
       addAudit('Pre-Booking Cancelled', `Cancelled pre-booking ${id}`);
     } catch (e) {
       console.error(e);
@@ -1097,7 +1131,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const confirmPreBookingCheckIn = async (id: string, roomId: string) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     const pb = preBookings.find(p => p.id === id);
     if (!pb) return;
     const targetRoom = rooms.find(r => r.id === roomId);
@@ -1112,7 +1147,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         noOfGuests: pb.noOfGuests || 1,
         advancePaid: pb.advancePaid || 0
       });
-      await api.put(`/pre-bookings/${id}?tenantId=${tenantId}`, { 
+      await api.put(`/pre-bookings/${id}?tenantId=${tId}`, { 
         status: 'CheckedIn', 
         roomNumber: targetRoom ? targetRoom.roomNumber : undefined 
       });
@@ -1123,11 +1158,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // INVENTORY & PURCHASES
   const addInventoryItem = async (item: Omit<InventoryItem, 'id'>) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     const newId = 'i_' + Date.now();
     const finalItem: InventoryItem = {
       ...item,
-      tenantId,
+      tenantId: tId,
       id: newId
     } as any;
     try {
@@ -1139,9 +1175,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteInventoryItem = async (id: string) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     try {
-      await api.delete(`/inventory/${id}?tenantId=${tenantId}`);
+      await api.delete(`/inventory/${id}?tenantId=${tId}`);
       addAudit('Inventory Deleted', `Deleted SKU ${id}`);
     } catch (e) {
       console.error(e);
@@ -1149,11 +1186,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const recordPurchase = async (purchase: Omit<PurchaseLog, 'id' | 'date'>) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     const newId = 'p_' + Date.now();
     const finalPurchase: PurchaseLog = {
       ...purchase,
-      tenantId,
+      tenantId: tId,
       id: newId,
       date: new Date().toISOString().split('T')[0]
     } as any;
@@ -1171,16 +1209,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateStockLevel = async (itemId: string, amount: number, direction: 'in' | 'out', category?: string, description?: string) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     const item = inventory.find(i => i.id === itemId);
     if (!item) return;
     const newStock = direction === 'in' ? item.stock + amount : Math.max(0, item.stock - amount);
     try {
-      await api.put(`/inventory/${itemId}?tenantId=${tenantId}`, { stock: newStock });
+      await api.put(`/inventory/${itemId}?tenantId=${tId}`, { stock: newStock });
       if (description) {
         await api.post('/stock-adjustments', {
           id: 'adj_' + Date.now(),
-          tenantId,
+          tenantId: tId,
           itemId,
           itemName: item.name,
           category: category || item.category,
@@ -1199,9 +1238,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // MENU ITEMS
   const addMenuItem = async (item: MenuItem) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     try {
-      await api.post('/menu-items', { ...item, tenantId });
+      await api.post('/menu-items', { ...item, tenantId: tId });
       addAudit('Menu Item Added', `Added menu dish/drink ${item.name}`);
     } catch (e) {
       console.error(e);
@@ -1209,9 +1249,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateMenuItem = async (id: string, updates: Partial<MenuItem>) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     try {
-      await api.put(`/menu-items/${id}`, { ...updates, tenantId });
+      await api.put(`/menu-items/${id}`, { ...updates, tenantId: tId });
       addAudit('Menu Item Updated', `Updated menu item details`);
     } catch (e) {
       console.error(e);
@@ -1219,9 +1260,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteMenuItem = async (id: string) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     try {
-      await api.delete(`/menu-items/${id}?tenantId=${tenantId}`);
+      await api.delete(`/menu-items/${id}?tenantId=${tId}`);
       addAudit('Menu Item Deleted', `Deleted menu item ${id}`);
     } catch (e) {
       console.error(e);
@@ -1229,9 +1271,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const batchDeleteMenuItems = async (ids: string[]) => {
-    if (!tenantId || !ids.length) return;
+    const tId = effectiveTenantId;
+    if (!tId || !ids.length) return;
     try {
-      await api.post('/menu-items/batch-delete', { ids, tenantId });
+      await api.post('/menu-items/batch-delete', { ids, tenantId: tId });
       addAudit('Bulk Menu Items Deleted', `Deleted ${ids.length} menu items`);
     } catch (e) {
       console.error(e);
@@ -1239,9 +1282,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const bulkAddMenuItems = async (items: MenuItem[]) => {
-    if (!tenantId || !items.length) return;
+    const tId = effectiveTenantId;
+    if (!tId || !items.length) return;
     try {
-      const itemsWithTenant = items.map(i => ({ ...i, tenantId }));
+      const itemsWithTenant = items.map(i => ({ ...i, tenantId: tId }));
       await api.post('/menu-items/bulk', { items: itemsWithTenant });
       addAudit('Bulk Menu Items Added', `Added ${items.length} menu items`);
     } catch (e) {
@@ -1251,9 +1295,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // SETTINGS & NOTIFICATIONS
   const updateSettings = async (newSettings: HotelSettings) => {
-    if (!tenantId) return;
+    const tId = effectiveTenantId;
+    if (!tId) return;
     try {
-      const res = await api.put('/settings', { ...newSettings, tenantId });
+      const res = await api.put('/settings', { ...newSettings, tenantId: tId });
       setSettings(res.data);
       addAudit('Settings Updated', `Updated property settings`);
     } catch (e) {
