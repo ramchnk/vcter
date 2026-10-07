@@ -53,7 +53,7 @@ const tenantSchema = new mongoose.Schema({
   adminEmail: String,
   enabledMenus: { 
     type: [String], 
-    default: ['dashboard', 'rooms', 'prebookings', 'menu_items', 'restaurant', 'bar', 'laundry', 'hall', 'stock', 'billing', 'reports', 'settings', 'audit'] 
+    default: ['dashboard', 'rooms', 'prebookings', 'menu_items', 'restaurant', 'bar', 'laundry', 'hall', 'stock', 'expenses', 'billing', 'reports', 'settings', 'audit'] 
   },
   status: { type: String, default: 'Active' },
   createdAt: { type: String, default: () => new Date().toISOString().split('T')[0] }
@@ -278,6 +278,21 @@ const notificationSchema = new mongoose.Schema({
   read: { type: Boolean, default: false }
 }, { timestamps: true });
 
+const expenseSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true },
+  tenantId: { type: String, required: true },
+  date: { type: String, default: () => new Date().toISOString().split('T')[0] },
+  department: { type: String, required: true }, // 'Rooms' | 'Restaurant' | 'Bar' | 'General'
+  category: { type: String, default: 'Miscellaneous' },
+  title: { type: String, required: true },
+  amount: { type: Number, required: true },
+  paymentMethod: { type: String, default: 'Cash' }, // 'Cash' | 'UPI' | 'Card' | 'Bank Transfer' | 'Credit / Due'
+  paidTo: String,
+  receiptNumber: String,
+  notes: String,
+  recordedBy: { type: String, default: 'Staff' }
+}, { timestamps: true });
+
 export const Tenant = mongoose.model('Tenant', tenantSchema);
 export const User = mongoose.model('User', userSchema);
 export const Room = mongoose.model('Room', roomSchema);
@@ -289,6 +304,7 @@ export const StockAdjustmentLog = mongoose.model('StockAdjustmentLog', stockAdju
 export const LaundryOrder = mongoose.model('LaundryOrder', laundryOrderSchema);
 export const HallBooking = mongoose.model('HallBooking', hallBookingSchema);
 export const PreBooking = mongoose.model('PreBooking', preBookingSchema);
+export const Expense = mongoose.model('Expense', expenseSchema);
 export const AuditLog = mongoose.model('AuditLog', auditLogSchema);
 export const Settings = mongoose.model('Settings', settingsSchema);
 export const Notification = mongoose.model('Notification', notificationSchema);
@@ -423,6 +439,12 @@ async function seedDefaultData() {
       }
       console.log('Seeded default inventory for tenants');
     }
+
+    // Ensure all existing tenants have 'expenses' in enabledMenus
+    await Tenant.updateMany(
+      { enabledMenus: { $exists: true, $ne: [] } },
+      { $addToSet: { enabledMenus: 'expenses' } }
+    );
   } catch (e) {
     console.error('Error seeding default data:', e);
   }
@@ -444,7 +466,7 @@ app.get('/api/tenants', async (req, res) => {
 
 app.post('/api/tenants', async (req, res) => {
   try {
-    const allMenus = ['dashboard', 'rooms', 'prebookings', 'menu_items', 'restaurant', 'bar', 'laundry', 'hall', 'stock', 'billing', 'reports', 'settings', 'audit'];
+    const allMenus = ['dashboard', 'rooms', 'prebookings', 'menu_items', 'restaurant', 'bar', 'laundry', 'hall', 'stock', 'expenses', 'billing', 'reports', 'settings', 'audit'];
     const tenantData = {
       ...req.body,
       enabledMenus: (req.body.enabledMenus && req.body.enabledMenus.length > 0) ? req.body.enabledMenus : allMenus
@@ -954,6 +976,62 @@ app.delete('/api/pre-bookings/:id', async (req, res) => {
   }
 });
 
+// --- EXPENSES ---
+app.get('/api/expenses', async (req, res) => {
+  const { tenantId, department, startDate, endDate } = req.query;
+  try {
+    const filter = {};
+    if (tenantId) filter.tenantId = tenantId;
+    if (department && department !== 'ALL') filter.department = department;
+    if (startDate && endDate) {
+      filter.date = { $gte: startDate, $lte: endDate };
+    } else if (startDate) {
+      filter.date = { $gte: startDate };
+    } else if (endDate) {
+      filter.date = { $lte: endDate };
+    }
+
+    const expenses = await Expense.find(filter).sort({ date: -1, createdAt: -1 });
+    res.json(expenses);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/expenses', async (req, res) => {
+  try {
+    const expense = await Expense.create(req.body);
+    io.emit('expense_created', expense);
+    res.json(expense);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/expenses/:id', async (req, res) => {
+  const { tenantId } = req.query;
+  try {
+    const filter = tenantId ? { id: req.params.id, tenantId } : { id: req.params.id };
+    const expense = await Expense.findOneAndUpdate(filter, req.body, { returnDocument: 'after' });
+    io.emit('expense_updated', expense);
+    res.json(expense);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/expenses/:id', async (req, res) => {
+  const { tenantId } = req.query;
+  try {
+    const filter = tenantId ? { id: req.params.id, tenantId } : { id: req.params.id };
+    await Expense.deleteOne(filter);
+    io.emit('expense_deleted', { id: req.params.id, tenantId });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- AUDIT LOGS ---
 app.get('/api/audit-logs', async (req, res) => {
   const { tenantId } = req.query;
@@ -1043,6 +1121,7 @@ app.post('/api/tenants/:id/reset-data', async (req, res) => {
     await LaundryOrder.deleteMany({ tenantId });
     await HallBooking.deleteMany({ tenantId });
     await PreBooking.deleteMany({ tenantId });
+    await Expense.deleteMany({ tenantId });
     await PurchaseLog.deleteMany({ tenantId });
     await StockAdjustmentLog.deleteMany({ tenantId });
     await Notification.deleteMany({ tenantId });

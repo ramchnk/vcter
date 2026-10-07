@@ -14,6 +14,7 @@ import { PartyHallView } from './views/PartyHallView';
 import { StockView } from './views/StockView';
 import { UnifiedBillingView } from './views/UnifiedBillingView';
 import { ReportsView } from './views/ReportsView';
+import { ExpensesView } from './views/ExpensesView';
 import { SettingsView } from './views/SettingsView';
 import { AuditLogView } from './views/AuditLogView';
 
@@ -28,7 +29,7 @@ const AppContent: React.FC = () => {
     return saved || (userRole === 'super_admin' ? 'superadmin' : 'dashboard');
   });
   const [selectedRoomForBilling, setSelectedRoomForBilling] = useState('');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false);
 
   // Sync currentTab with localStorage and URL hash
   useEffect(() => {
@@ -57,25 +58,30 @@ const AppContent: React.FC = () => {
     const roleRoutes: Record<string, string[]> = {
       super_admin: [
         'superadmin', 'dashboard', 'rooms', 'prebookings', 'menu_items', 'restaurant', 'bar', 
-        'laundry', 'hall', 'stock', 'billing', 'reports', 'settings', 'audit'
+        'laundry', 'hall', 'stock', 'expenses', 'billing', 'reports', 'settings', 'audit'
       ],
       admin: [
         'dashboard', 'rooms', 'prebookings', 'menu_items', 'restaurant', 'bar', 
-        'laundry', 'hall', 'stock', 'billing', 'reports', 'settings', 'audit'
+        'laundry', 'hall', 'stock', 'expenses', 'billing', 'reports', 'settings', 'audit'
       ],
       reception: [
-        'dashboard', 'rooms', 'prebookings', 'laundry', 'hall', 'billing', 'reports'
+        'dashboard', 'rooms', 'prebookings', 'laundry', 'hall', 'expenses', 'billing', 'reports'
       ],
-      restaurant: ['restaurant', 'menu_items'],
-      bar: ['bar', 'menu_items'],
-      store_manager: ['laundry', 'stock']
+      restaurant: ['restaurant', 'menu_items', 'expenses'],
+      bar: ['bar', 'menu_items', 'expenses'],
+      store_manager: ['laundry', 'stock', 'expenses']
     };
 
     let allowed = roleRoutes[userRole] || [];
     
     // If not super_admin, filter by tenant's enabled menus (only if configured with at least 1 menu)
     if (userRole !== 'super_admin' && currentTenant?.enabledMenus && Array.isArray(currentTenant.enabledMenus) && currentTenant.enabledMenus.length > 0) {
-      allowed = allowed.filter(tab => currentTenant.enabledMenus!.includes(tab));
+      allowed = allowed.filter(tab => {
+        if (tab === 'expenses' && (currentTenant.enabledMenus!.includes('stock') || currentTenant.enabledMenus!.includes('rooms') || currentTenant.enabledMenus!.includes('restaurant') || currentTenant.enabledMenus!.includes('billing') || currentTenant.enabledMenus!.includes('dashboard'))) {
+          return true;
+        }
+        return currentTenant.enabledMenus!.includes(tab);
+      });
     }
 
     if (allowed.length > 0 && !allowed.includes(currentTab)) {
@@ -102,7 +108,12 @@ const AppContent: React.FC = () => {
     <div className="flex h-screen w-screen overflow-hidden bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
       
       {/* Sidebar navigation */}
-      <Sidebar currentTab={currentTab} setTab={setCurrentTab} collapsed={sidebarCollapsed} />
+      <Sidebar 
+        currentTab={currentTab} 
+        setTab={setCurrentTab} 
+        collapsed={sidebarCollapsed} 
+        onCloseMobile={() => setSidebarCollapsed(true)} 
+      />
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -111,7 +122,7 @@ const AppContent: React.FC = () => {
         <RoleHeader onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)} />
 
         {/* Dynamic viewport */}
-        <main className="flex-1 overflow-y-auto p-6 bg-slate-50/50 dark:bg-slate-950/20">
+        <main className="flex-1 overflow-y-auto p-3.5 sm:p-5 md:p-6 bg-slate-50/50 dark:bg-slate-950/20">
           
           {currentTab === 'superadmin' && (
             <SuperAdminView />
@@ -155,6 +166,10 @@ const AppContent: React.FC = () => {
 
           {currentTab === 'stock' && (
             <StockView />
+          )}
+
+          {currentTab === 'expenses' && (
+            <ExpensesView />
           )}
 
           {currentTab === 'billing' && (

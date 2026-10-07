@@ -14,16 +14,18 @@ import {
   Settings, 
   History,
   Crown,
-  BookOpen
+  BookOpen,
+  WalletCards
 } from 'lucide-react';
 
 interface SidebarProps {
   currentTab: string;
   setTab: (tab: string) => void;
   collapsed: boolean;
+  onCloseMobile?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setTab, collapsed }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setTab, collapsed, onCloseMobile }) => {
   const { userRole, currentTenant } = useApp();
 
   // Route definitions with icon, roles allowed, and label
@@ -38,6 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setTab, collapsed 
     { id: 'laundry', label: 'Laundry Service', icon: Shirt, roles: ['super_admin', 'admin', 'reception', 'store_manager'] },
     { id: 'hall', label: 'Party Hall', icon: PartyPopper, roles: ['super_admin', 'admin', 'reception'] },
     { id: 'stock', label: 'Stock / Inventory', icon: Package, roles: ['super_admin', 'admin', 'store_manager'] },
+    { id: 'expenses', label: 'Expenses', icon: WalletCards, roles: ['super_admin', 'admin', 'reception', 'restaurant', 'bar', 'store_manager'] },
     { id: 'billing', label: 'Unified Billing', icon: Receipt, roles: ['super_admin', 'admin', 'reception'] },
     { id: 'reports', label: 'Reports', icon: BarChart3, roles: ['super_admin', 'admin', 'reception'] },
     { id: 'settings', label: 'Settings', icon: Settings, roles: ['super_admin', 'admin'] },
@@ -53,82 +56,110 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setTab, collapsed 
     // 3. For client accounts, check if module is enabled for this tenant
     const enabledMenus = currentTenant?.enabledMenus;
     if (enabledMenus && Array.isArray(enabledMenus) && enabledMenus.length > 0) {
+      if (item.id === 'expenses' && (enabledMenus.includes('stock') || enabledMenus.includes('rooms') || enabledMenus.includes('restaurant') || enabledMenus.includes('billing') || enabledMenus.includes('dashboard'))) {
+        return true;
+      }
       return enabledMenus.includes(item.id);
     }
     return true;
   });
 
   return (
-    <aside className={`${collapsed ? 'w-20' : 'w-64'} bg-slate-900 border-r border-slate-800 flex flex-col justify-between text-slate-300 transition-all duration-300`}>
-      
-      {/* Upper Logo / Banner */}
-      <div className="flex-1 flex flex-col py-6 overflow-y-auto">
-        <div className={collapsed ? "px-4 mb-6" : "px-6 mb-6"}>
+    <>
+      {/* Mobile Backdrop Overlay when open */}
+      {!collapsed && (
+        <div 
+          onClick={onCloseMobile}
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden animate-in fade-in duration-200"
+          aria-hidden="true"
+        />
+      )}
+
+      <aside className={`
+        ${collapsed ? 'hidden md:flex md:w-20' : 'fixed inset-y-0 left-0 z-50 w-64 md:relative md:flex'} 
+        bg-slate-900 border-r border-slate-800 flex flex-col justify-between text-slate-300 transition-all duration-300 no-print shadow-2xl md:shadow-none
+      `}>
+        
+        {/* Upper Logo / Banner */}
+        <div className="flex-1 flex flex-col py-6 overflow-y-auto">
+          <div className={`flex items-center justify-between ${collapsed ? "px-4 mb-6" : "px-6 mb-6"}`}>
+            {!collapsed ? (
+              <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-800/40 border border-slate-700/30">
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
+                  Departmental Terminal
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center py-1 w-full">
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+              </div>
+            )}
+
+            {/* Close button on mobile */}
+            <button 
+              onClick={onCloseMobile}
+              className="md:hidden p-1.5 text-slate-400 hover:text-white bg-slate-800 rounded-lg text-xs font-bold"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Navigation Link list */}
+          <nav className={collapsed ? "px-2 space-y-1.5" : "px-3 space-y-1"}>
+            {visibleItems.map(item => {
+              const Icon = item.icon;
+              const isActive = currentTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setTab(item.id);
+                    if (onCloseMobile) onCloseMobile();
+                  }}
+                  className={`flex items-center gap-3.5 rounded-xl text-sm font-semibold transition-all duration-200 group relative ${
+                    collapsed ? 'justify-center p-3.5 mx-auto w-12' : 'w-full px-4 py-3 text-left'
+                  } ${
+                    isActive 
+                      ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/10' 
+                      : 'hover:bg-slate-800 hover:text-slate-100 text-slate-400'
+                  }`}
+                  title={collapsed ? item.label : undefined}
+                >
+                  <Icon className={`w-4 h-4 transition-transform group-hover:scale-105 duration-200 ${
+                    isActive ? 'text-white' : 'text-slate-500 group-hover:text-slate-300'
+                  }`} />
+                  {!collapsed && <span>{item.label}</span>}
+                  
+                  {/* Micro animation dot */}
+                  {isActive && !collapsed && (
+                    <span className="absolute right-3.5 w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Sidebar Footer with system stats */}
+        <div className="p-4 border-t border-slate-800/80 bg-slate-950/20 text-center">
           {!collapsed ? (
-            <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-800/40 border border-slate-700/30">
-              <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
-              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
-                Departmental Terminal
-              </span>
-            </div>
+            <>
+              <div className="text-[10px] text-slate-500 font-medium font-mono">
+                SYSTEM VER: 1.0.4 PRO
+              </div>
+              <div className="text-[9px] text-slate-600 mt-0.5">
+                HotelVista ERP © 2026
+              </div>
+            </>
           ) : (
-            <div className="flex items-center justify-center py-1">
-              <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+            <div className="text-[9px] font-mono text-slate-500 font-bold uppercase">
+              Pro
             </div>
           )}
         </div>
-
-        {/* Navigation Link list */}
-        <nav className={collapsed ? "px-2 space-y-1.5" : "px-3 space-y-1"}>
-          {visibleItems.map(item => {
-            const Icon = item.icon;
-            const isActive = currentTab === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => setTab(item.id)}
-                className={`flex items-center gap-3.5 rounded-xl text-sm font-semibold transition-all duration-200 group relative ${
-                  collapsed ? 'justify-center p-3.5 mx-auto w-12' : 'w-full px-4 py-3 text-left'
-                } ${
-                  isActive 
-                    ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/10' 
-                    : 'hover:bg-slate-800 hover:text-slate-100 text-slate-400'
-                }`}
-                title={collapsed ? item.label : undefined}
-              >
-                <Icon className={`w-4 h-4 transition-transform group-hover:scale-105 duration-200 ${
-                  isActive ? 'text-white' : 'text-slate-500 group-hover:text-slate-300'
-                }`} />
-                {!collapsed && <span>{item.label}</span>}
-                
-                {/* Micro animation dot */}
-                {isActive && !collapsed && (
-                  <span className="absolute right-3.5 w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
-      </div>
-
-      {/* Sidebar Footer with system stats */}
-      <div className="p-4 border-t border-slate-800/80 bg-slate-950/20 text-center">
-        {!collapsed ? (
-          <>
-            <div className="text-[10px] text-slate-500 font-medium font-mono">
-              SYSTEM VER: 1.0.4 PRO
-            </div>
-            <div className="text-[9px] text-slate-600 mt-0.5">
-              HotelVista ERP © 2026
-            </div>
-          </>
-        ) : (
-          <div className="text-[9px] font-mono text-slate-500 font-bold uppercase">
-            Pro
-          </div>
-        )}
-      </div>
-      
-    </aside>
+        
+      </aside>
+    </>
   );
 };

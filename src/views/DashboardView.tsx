@@ -44,9 +44,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
     preBookings, 
     getBillSummary, 
     currentTenant, 
+    activeTenantId,
+    tenantId,
     userRole,
     refreshData 
   } = useApp();
+
+  const effectiveTenantId = currentTenant?.id || tenantId || activeTenantId;
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -101,29 +105,50 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
   // DYNAMIC CALCULATIONS BASED ON FILTER RANGE
   // ==========================================
 
+  // ==========================================
+  // DYNAMIC CALCULATIONS BASED ON FILTER RANGE
+  // ==========================================
+
+  // Filter raw collections strictly for this tenant
+  const tenantRooms = useMemo(() => {
+    return rooms.filter(r => !effectiveTenantId || !r.tenantId || r.tenantId === effectiveTenantId);
+  }, [rooms, effectiveTenantId]);
+
+  const tenantOrders = useMemo(() => {
+    return orders.filter(o => !effectiveTenantId || !o.tenantId || o.tenantId === effectiveTenantId);
+  }, [orders, effectiveTenantId]);
+
+  const tenantLaundry = useMemo(() => {
+    return laundryOrders.filter(l => !effectiveTenantId || !l.tenantId || l.tenantId === effectiveTenantId);
+  }, [laundryOrders, effectiveTenantId]);
+
+  const tenantHalls = useMemo(() => {
+    return hallBookings.filter(h => !effectiveTenantId || !h.tenantId || h.tenantId === effectiveTenantId);
+  }, [hallBookings, effectiveTenantId]);
+
   // 1. Rooms Status Counters (Live in-house state)
-  const totalRooms = rooms.length;
-  const occupiedRooms = rooms.filter(r => r.status === 'Occupied').length;
-  const availableRooms = rooms.filter(r => r.status === 'Available').length;
-  const cleaningRooms = rooms.filter(r => r.status === 'Cleaning').length;
-  const maintenanceRooms = rooms.filter(r => r.status === 'Maintenance').length;
+  const totalRooms = tenantRooms.length;
+  const occupiedRooms = tenantRooms.filter(r => r.status === 'Occupied').length;
+  const availableRooms = tenantRooms.filter(r => r.status === 'Available').length;
+  const cleaningRooms = tenantRooms.filter(r => r.status === 'Cleaning').length;
+  const maintenanceRooms = tenantRooms.filter(r => r.status === 'Maintenance').length;
   const occupancyRate = totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : 0;
   
   // Active guest headcount
-  const guestsCheckedIn = rooms.reduce((acc, r) => acc + (r.noOfGuests || 0), 0);
+  const guestsCheckedIn = tenantRooms.reduce((acc, r) => acc + (r.noOfGuests || 0), 0);
 
   // 2. Filtered Dataset by Date Range
   const filteredOrders = useMemo(() => {
-    return orders.filter(o => isDateInRange(o.timestamp, startDate, endDate));
-  }, [orders, startDate, endDate]);
+    return tenantOrders.filter(o => isDateInRange(o.timestamp, startDate, endDate));
+  }, [tenantOrders, startDate, endDate]);
 
   const filteredLaundry = useMemo(() => {
-    return laundryOrders.filter(l => isDateInRange(l.timestamp, startDate, endDate));
-  }, [laundryOrders, startDate, endDate]);
+    return tenantLaundry.filter(l => isDateInRange(l.timestamp, startDate, endDate));
+  }, [tenantLaundry, startDate, endDate]);
 
   const filteredHalls = useMemo(() => {
-    return hallBookings.filter(h => isDateInRange(h.date, startDate, endDate));
-  }, [hallBookings, startDate, endDate]);
+    return tenantHalls.filter(h => isDateInRange(h.date, startDate, endDate));
+  }, [tenantHalls, startDate, endDate]);
 
   // 3. Departmental Sales in Selected Period
   const restaurantSales = useMemo(() => {
@@ -149,14 +174,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
   }, [filteredLaundry]);
 
   const laundryPendingCount = useMemo(() => {
-    return laundryOrders.filter(l => l.status === 'Pending').length;
-  }, [laundryOrders]);
+    return tenantLaundry.filter(l => l.status === 'Pending').length;
+  }, [tenantLaundry]);
 
   // 4. Period Revenue Calculation
   const periodRevenue = useMemo(() => {
-    // Room advance / collection for rooms checked in during range
-    const roomCollections = rooms
-      .filter(r => isDateInRange(r.checkInDate, startDate, endDate))
+    // Room advance / collection for occupied rooms checked in during range
+    const roomCollections = tenantRooms
+      .filter(r => isDateInRange(r.checkInDate, startDate, endDate) && (r.status === 'Occupied' || r.guestName))
       .reduce((acc, r) => acc + (r.advancePaid || 0), 0);
     
     // Direct Paid POS Sales
@@ -176,26 +201,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
 
     const total = roomCollections + directPOS + hallAdvances + laundryCompleted;
     return total > 0 ? total : (restaurantSales + barSales + hallSales + laundrySales);
-  }, [rooms, filteredOrders, filteredHalls, filteredLaundry, restaurantSales, barSales, hallSales, laundrySales, startDate, endDate]);
+  }, [tenantRooms, filteredOrders, filteredHalls, filteredLaundry, restaurantSales, barSales, hallSales, laundrySales, startDate, endDate]);
 
   // 5. Outstanding Balances for Occupied Rooms
   const outstandingPayments = useMemo(() => {
-    return rooms
+    return tenantRooms
       .filter(r => r.status === 'Occupied')
       .reduce((acc, r) => {
         const summary = getBillSummary(r.roomNumber);
         return acc + (summary ? summary.pendingAmount : 0);
       }, 0);
-  }, [rooms, getBillSummary]);
+  }, [tenantRooms, getBillSummary]);
 
   // Check-ins & Check-outs in selected range
   const periodCheckIns = useMemo(() => {
-    return rooms.filter(r => r.status === 'Occupied' && isDateInRange(r.checkInDate, startDate, endDate));
-  }, [rooms, startDate, endDate]);
+    return tenantRooms.filter(r => r.status === 'Occupied' && isDateInRange(r.checkInDate, startDate, endDate));
+  }, [tenantRooms, startDate, endDate]);
 
   const periodCheckOuts = useMemo(() => {
-    return rooms.filter(r => r.status === 'Occupied' && isDateInRange(r.checkOutDate, startDate, endDate));
-  }, [rooms, startDate, endDate]);
+    return tenantRooms.filter(r => r.status === 'Occupied' && isDateInRange(r.checkOutDate, startDate, endDate));
+  }, [tenantRooms, startDate, endDate]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -569,10 +594,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
               Pending Folio Balances
             </h3>
             <span className="text-[10px] font-bold bg-rose-500 text-white px-2 py-0.5 rounded">
-              {rooms.filter(r => r.status === 'Occupied').length} Occupied
+              {tenantRooms.filter(r => r.status === 'Occupied').length} Occupied
             </span>
           </div>
-          {rooms.filter(r => r.status === 'Occupied').length === 0 ? (
+          {tenantRooms.filter(r => r.status === 'Occupied').length === 0 ? (
             <p className="py-6 text-center text-xs text-slate-400">No rooms currently occupied.</p>
           ) : (
             <div className="overflow-x-auto">
@@ -586,7 +611,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                  {rooms
+                  {tenantRooms
                     .filter(r => r.status === 'Occupied')
                     .map(r => {
                       const summary = getBillSummary(r.roomNumber);

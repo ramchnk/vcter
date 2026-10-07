@@ -24,6 +24,7 @@ export const ALL_TENANT_MENUS: TenantMenuDefinition[] = [
   { id: 'laundry', label: 'Laundry Service', category: 'Services', description: 'Guest garment laundry tracking & express service' },
   { id: 'hall', label: 'Party Hall', category: 'Events', description: 'Banquet hall reservations, sound, catering & slots' },
   { id: 'stock', label: 'Stock / Inventory', category: 'Inventory', description: 'SKU tracking, reorder thresholds & purchase logs' },
+  { id: 'expenses', label: 'Expenses', category: 'Finance', description: 'Day-by-day departmental expense tracker for Bar, Restaurant, Rooms & General' },
   { id: 'billing', label: 'Unified Billing', category: 'Finance', description: 'Consolidated folio checkout, invoices & settlements' },
   { id: 'reports', label: 'Reports', category: 'Finance', description: 'Sales, collection summaries & tax reports' },
   { id: 'settings', label: 'Settings', category: 'Administration', description: 'Property details, tax rates & invoice prefixes' },
@@ -79,6 +80,7 @@ export interface Room {
 
 export interface PreBooking {
   id: string;
+  tenantId?: string;
   guestName: string;
   phone: string;
   email: string;
@@ -93,11 +95,12 @@ export interface PreBooking {
   noOfGuests: number;
   advancePaid: number;
   specialRequests?: string;
-  status: 'Pending' | 'Confirmed' | 'CheckedIn' | 'Cancelled';
+  status: 'Pending' | 'Confirmed' | 'CheckedIn' | 'CheckedOut' | 'Cancelled';
 }
 
 export interface MenuItem {
   id: string;
+  tenantId?: string;
   name: string;
   category: string;
   price: number;
@@ -118,6 +121,7 @@ export interface OrderItem {
 
 export interface Order {
   id: string;
+  tenantId?: string;
   orderNumber: string;
   type: 'WalkIn' | 'Room';
   roomNumber?: string;
@@ -133,6 +137,7 @@ export interface Order {
 
 export interface LaundryOrder {
   id: string;
+  tenantId?: string;
   orderNumber: string;
   roomNumber: string;
   guestName: string;
@@ -149,6 +154,7 @@ export interface LaundryOrder {
 
 export interface HallBooking {
   id: string;
+  tenantId?: string;
   bookingNumber: string;
   hallType: 'Meeting Room' | 'Conference Hall' | 'Banquet Hall' | 'Marriage Hall';
   guestName: string;
@@ -170,6 +176,7 @@ export interface HallBooking {
 
 export interface InventoryItem {
   id: string;
+  tenantId?: string;
   name: string;
   category: string;
   stock: number;
@@ -182,6 +189,7 @@ export interface InventoryItem {
 
 export interface PurchaseLog {
   id: string;
+  tenantId?: string;
   itemName: string;
   category: string;
   quantity: number;
@@ -195,6 +203,7 @@ export interface PurchaseLog {
 
 export interface StockAdjustmentLog {
   id: string;
+  tenantId?: string;
   itemId: string;
   itemName: string;
   category: string;
@@ -203,6 +212,22 @@ export interface StockAdjustmentLog {
   direction: 'in' | 'out';
   description: string;
   date: string;
+}
+
+export interface Expense {
+  id: string;
+  tenantId?: string;
+  date: string;
+  department: 'Rooms' | 'Restaurant' | 'Bar' | 'General';
+  category: string;
+  title: string;
+  amount: number;
+  paymentMethod: 'Cash' | 'UPI' | 'Card' | 'Bank Transfer' | 'Credit / Due';
+  paidTo?: string;
+  receiptNumber?: string;
+  notes?: string;
+  recordedBy?: string;
+  createdAt?: string;
 }
 
 export interface ClientUserAccount {
@@ -286,6 +311,7 @@ interface AppContextType {
   inventory: InventoryItem[];
   purchaseLogs: PurchaseLog[];
   stockAdjustmentLogs: StockAdjustmentLog[];
+  expenses: Expense[];
   userAccounts: ClientUserAccount[];
   currentUser: ClientUserAccount | null;
   tenants: TenantAccount[];
@@ -312,6 +338,7 @@ interface AppContextType {
   addPreBooking: (booking: Omit<PreBooking, 'id' | 'status' | 'bookingDate'>) => Promise<void>;
   cancelPreBooking: (id: string) => Promise<void>;
   confirmPreBookingCheckIn: (id: string, roomId: string) => Promise<void>;
+  updatePreBookingStatus: (id: string, status: PreBooking['status']) => Promise<void>;
   
   addRestaurantBarOrder: (order: Omit<Order, 'id' | 'orderNumber' | 'timestamp' | 'tax' | 'total' | 'status'>) => Promise<void>;
   addLaundryOrder: (order: Omit<LaundryOrder, 'id' | 'orderNumber' | 'timestamp' | 'status'>) => Promise<void>;
@@ -324,6 +351,10 @@ interface AppContextType {
   deleteInventoryItem: (id: string) => Promise<void>;
   recordPurchase: (purchase: Omit<PurchaseLog, 'id' | 'date'>) => any;
   updateStockLevel: (itemId: string, amount: number, direction: 'in' | 'out', category?: string, description?: string) => any;
+  
+  addExpense: (expense: Omit<Expense, 'id'>) => Promise<void>;
+  updateExpense: (id: string, updates: Partial<Expense>) => Promise<void>;
+  deleteExpense: (id: string) => Promise<void>;
   
   getBillSummary: (roomNumber: string) => BillSummary | null;
   addAudit: (action: string, details: string, oldValue?: string, newValue?: string) => any;
@@ -406,6 +437,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [purchaseLogs, setPurchaseLogs] = useState<PurchaseLog[]>([]);
   const [stockAdjustmentLogs, setStockAdjustmentLogs] = useState<StockAdjustmentLog[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [laundryOrders, setLaundryOrders] = useState<LaundryOrder[]>([]);
   const [hallBookings, setHallBookings] = useState<HallBooking[]>([]);
   const [preBookings, setPreBookings] = useState<PreBooking[]>([]);
@@ -446,6 +478,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (userRole === 'super_admin') return true;
     if (!currentTenant) return true;
     if (!currentTenant.enabledMenus || currentTenant.enabledMenus.length === 0) return true;
+    if (menuId === 'expenses' && (currentTenant.enabledMenus.includes('stock') || currentTenant.enabledMenus.includes('rooms') || currentTenant.enabledMenus.includes('restaurant') || currentTenant.enabledMenus.includes('billing') || currentTenant.enabledMenus.includes('dashboard'))) {
+      return true;
+    }
     return currentTenant.enabledMenus.includes(menuId);
   };
 
@@ -471,6 +506,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         invRes,
         purchasesRes,
         adjustmentsRes,
+        expensesRes,
         laundryRes,
         hallRes,
         preBookRes,
@@ -484,6 +520,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         api.get(`/inventory?tenantId=${tId}`),
         api.get(`/purchase-logs?tenantId=${tId}`),
         api.get(`/stock-adjustments?tenantId=${tId}`),
+        api.get(`/expenses?tenantId=${tId}`),
         api.get(`/laundry-orders?tenantId=${tId}`),
         api.get(`/hall-bookings?tenantId=${tId}`),
         api.get(`/pre-bookings?tenantId=${tId}`),
@@ -498,6 +535,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setInventory(invRes.data || []);
       setPurchaseLogs(purchasesRes.data || []);
       setStockAdjustmentLogs(adjustmentsRes.data || []);
+      setExpenses(expensesRes.data || []);
       setLaundryOrders(laundryRes.data || []);
       setHallBookings(hallRes.data || []);
       setPreBookings(preBookRes.data || []);
@@ -582,6 +620,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     socket.on('purchase_log_created', (p: PurchaseLog) => setPurchaseLogs(prev => [p, ...prev.filter(x => x.id !== p.id)]));
     socket.on('stock_adjustment_created', (s: StockAdjustmentLog) => setStockAdjustmentLogs(prev => [s, ...prev.filter(x => x.id !== s.id)]));
 
+    socket.on('expense_created', (e: Expense) => setExpenses(prev => [e, ...prev.filter(x => x.id !== e.id)]));
+    socket.on('expense_updated', (e: Expense) => setExpenses(prev => prev.map(x => x.id === e.id ? e : x)));
+    socket.on('expense_deleted', ({ id }: { id: string }) => setExpenses(prev => prev.filter(x => x.id !== id)));
+
     socket.on('laundry_order_created', (l: LaundryOrder) => setLaundryOrders(prev => [l, ...prev.filter(x => x.id !== l.id)]));
     socket.on('laundry_order_updated', (l: LaundryOrder) => setLaundryOrders(prev => prev.map(x => x.id === l.id ? l : x)));
     socket.on('laundry_order_deleted', ({ id }) => setLaundryOrders(prev => prev.filter(x => x.id !== id)));
@@ -625,6 +667,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       socket.off('inventory_deleted');
       socket.off('purchase_log_created');
       socket.off('stock_adjustment_created');
+      socket.off('expense_created');
+      socket.off('expense_updated');
+      socket.off('expense_deleted');
       socket.off('laundry_order_created');
       socket.off('laundry_order_updated');
       socket.off('laundry_order_deleted');
@@ -915,6 +960,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await api.put('/orders/settle-room', { tenantId: tId, roomNumber: room.roomNumber });
       setRooms(prev => prev.map(r => r.id === roomId ? { ...r, ...resetData } as Room : r));
       setOrders(prev => prev.map(o => o.roomNumber === room.roomNumber && o.status === 'PostedToRoom' ? { ...o, status: 'Paid' } : o));
+
+      // Auto update matching checked-in reservation to CheckedOut
+      const matchingPre = preBookings.find(pb => 
+        (pb.roomNumber === room.roomNumber || (pb.phone && pb.phone === room.guestPhone)) &&
+        pb.status === 'CheckedIn'
+      );
+      if (matchingPre) {
+        await api.put(`/pre-bookings/${matchingPre.id}?tenantId=${tId}`, { status: 'CheckedOut' });
+        setPreBookings(prev => prev.map(p => p.id === matchingPre.id ? { ...p, status: 'CheckedOut' } : p));
+      }
+
       addAudit('Check-Out', `Guest ${room.guestName} checked out of Room ${room.roomNumber}. Paid via ${paymentDetails.method}. Discount: ₹${paymentDetails.discount}`, 'Occupied', 'Cleaning');
     } catch (e) {
       console.error(e);
@@ -1179,6 +1235,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const updatePreBookingStatus = async (id: string, status: PreBooking['status']) => {
+    const tId = effectiveTenantId;
+    if (!tId) return;
+    try {
+      await api.put(`/pre-bookings/${id}?tenantId=${tId}`, { status });
+      setPreBookings(prev => prev.map(p => p.id === id ? { ...p, status } : p));
+      addAudit('Reservation Status Update', `Updated pre-booking ${id} status to ${status}`);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   // INVENTORY & PURCHASES
   const addInventoryItem = async (item: Omit<InventoryItem, 'id'>) => {
     const tId = effectiveTenantId;
@@ -1264,6 +1332,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  // EXPENSES
+  const addExpense = async (expense: Omit<Expense, 'id'>) => {
+    const tId = effectiveTenantId;
+    if (!tId) return;
+    const newId = 'exp_' + Date.now();
+    const finalExpense: Expense = {
+      ...expense,
+      tenantId: tId,
+      id: newId,
+      recordedBy: currentUser?.name || 'Staff'
+    };
+    try {
+      const res = await api.post('/expenses', finalExpense);
+      const saved = res.data || finalExpense;
+      setExpenses(prev => [saved, ...prev.filter(x => x.id !== saved.id)]);
+      addAudit('Expense Added', `Added ₹${expense.amount} for ${expense.department} (${expense.title})`);
+    } catch (e) {
+      console.error('Error adding expense:', e);
+    }
+  };
+
+  const updateExpense = async (id: string, updates: Partial<Expense>) => {
+    const tId = effectiveTenantId;
+    if (!tId) return;
+    try {
+      const res = await api.put(`/expenses/${id}?tenantId=${tId}`, updates);
+      const saved = res.data || { id, ...updates };
+      setExpenses(prev => prev.map(x => x.id === id ? { ...x, ...saved } : x));
+      addAudit('Expense Updated', `Updated expense ${id} (${updates.title || 'details'})`);
+    } catch (e) {
+      console.error('Error updating expense:', e);
+    }
+  };
+
+  const deleteExpense = async (id: string) => {
+    const tId = effectiveTenantId;
+    if (!tId) return;
+    try {
+      await api.delete(`/expenses/${id}?tenantId=${tId}`);
+      setExpenses(prev => prev.filter(x => x.id !== id));
+      addAudit('Expense Deleted', `Deleted expense record ${id}`);
+    } catch (e) {
+      console.error('Error deleting expense:', e);
     }
   };
 
@@ -1355,7 +1469,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // BILLING CALCULATION
   const getBillSummary = (roomNumber: string): BillSummary | null => {
-    const room = rooms.find(r => r.roomNumber === roomNumber);
+    const room = rooms.find(r => r.roomNumber === roomNumber && (!tenantId || !r.tenantId || r.tenantId === tenantId));
     if (!room || room.status !== 'Occupied' || !room.checkInDate) return null;
 
     const checkIn = new Date(room.checkInDate);
@@ -1424,6 +1538,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         inventory,
         purchaseLogs,
         stockAdjustmentLogs,
+        expenses,
         userAccounts,
         currentUser,
         tenants,
@@ -1450,6 +1565,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addPreBooking,
         cancelPreBooking,
         confirmPreBookingCheckIn,
+        updatePreBookingStatus,
 
         addRestaurantBarOrder,
         addLaundryOrder,
@@ -1462,6 +1578,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteInventoryItem,
         recordPurchase,
         updateStockLevel,
+
+        addExpense,
+        updateExpense,
+        deleteExpense,
 
         getBillSummary,
         addAudit,

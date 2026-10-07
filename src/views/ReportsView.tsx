@@ -25,6 +25,7 @@ import {
   isDateInRange, 
   isStayInRange 
 } from '../utils/dateUtils';
+import { PnLStatementReport } from '../components/PnLStatementReport';
 
 export const ReportsView: React.FC = () => {
   const { 
@@ -33,23 +34,29 @@ export const ReportsView: React.FC = () => {
     laundryOrders, 
     hallBookings, 
     purchaseLogs, 
+    expenses,
     inventory, 
     preBookings, 
     auditLogs, 
     getBillSummary, 
     settings,
-    refreshData 
+    refreshData,
+    currentTenant,
+    activeTenantId,
+    tenantId
   } = useApp();
+
+  const effectiveTenantId = currentTenant?.id || tenantId || activeTenantId;
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Active Sub Tab (persisted on reload)
+  // Active Sub Tab (persisted on reload, default to pnl)
   const [activeReportTab, setActiveReportTab] = useState<
-    'sales' | 'transactions' | 'occupancy' | 'gst' | 'stock' | 'outstanding'
+    'pnl' | 'sales' | 'transactions' | 'occupancy' | 'gst' | 'stock' | 'outstanding'
   >(() => {
     const saved = localStorage.getItem('hotelvista_reports_subtab');
-    return (saved as any) || 'sales';
+    return (saved as any) || 'pnl';
   });
 
   React.useEffect(() => {
@@ -97,44 +104,103 @@ export const ReportsView: React.FC = () => {
     }
   };
 
-  // Filtered Datasets based on Date Range
+  // Tenant Isolated & Date Filtered Datasets
+  const tenantOrders = useMemo(() => {
+    return orders.filter(o => !effectiveTenantId || !o.tenantId || o.tenantId === effectiveTenantId);
+  }, [orders, effectiveTenantId]);
+
   const filteredOrders = useMemo(() => {
-    return orders.filter(o => isDateInRange(o.timestamp, startDate, endDate));
-  }, [orders, startDate, endDate]);
+    return tenantOrders.filter(o => isDateInRange(o.timestamp, startDate, endDate));
+  }, [tenantOrders, startDate, endDate]);
+
+  const tenantLaundry = useMemo(() => {
+    return laundryOrders.filter(l => !effectiveTenantId || !l.tenantId || l.tenantId === effectiveTenantId);
+  }, [laundryOrders, effectiveTenantId]);
 
   const filteredLaundry = useMemo(() => {
-    return laundryOrders.filter(l => isDateInRange(l.timestamp, startDate, endDate));
-  }, [laundryOrders, startDate, endDate]);
+    return tenantLaundry.filter(l => isDateInRange(l.timestamp, startDate, endDate));
+  }, [tenantLaundry, startDate, endDate]);
+
+  const tenantHall = useMemo(() => {
+    return hallBookings.filter(h => !effectiveTenantId || !h.tenantId || h.tenantId === effectiveTenantId);
+  }, [hallBookings, effectiveTenantId]);
 
   const filteredHall = useMemo(() => {
-    return hallBookings.filter(h => isDateInRange(h.date, startDate, endDate));
-  }, [hallBookings, startDate, endDate]);
+    return tenantHall.filter(h => isDateInRange(h.date, startDate, endDate));
+  }, [tenantHall, startDate, endDate]);
+
+  const tenantPurchases = useMemo(() => {
+    return purchaseLogs.filter(p => !effectiveTenantId || !p.tenantId || p.tenantId === effectiveTenantId);
+  }, [purchaseLogs, effectiveTenantId]);
 
   const filteredPurchases = useMemo(() => {
-    return purchaseLogs.filter(p => isDateInRange(p.date, startDate, endDate));
-  }, [purchaseLogs, startDate, endDate]);
+    return tenantPurchases.filter(p => isDateInRange(p.date, startDate, endDate));
+  }, [tenantPurchases, startDate, endDate]);
+
+  const tenantExpenses = useMemo(() => {
+    return (expenses || []).filter(e => !effectiveTenantId || !e.tenantId || e.tenantId === effectiveTenantId);
+  }, [expenses, effectiveTenantId]);
+
+  const filteredExpenses = useMemo(() => {
+    return tenantExpenses.filter(e => isDateInRange(e.date, startDate, endDate));
+  }, [tenantExpenses, startDate, endDate]);
+
+  const tenantPreBookings = useMemo(() => {
+    return (preBookings || []).filter(pb => !effectiveTenantId || !pb.tenantId || pb.tenantId === effectiveTenantId);
+  }, [preBookings, effectiveTenantId]);
+
+  const filteredPreBookings = useMemo(() => {
+    return tenantPreBookings.filter(pb => isDateInRange(pb.bookingDate || pb.checkInDate, startDate, endDate));
+  }, [tenantPreBookings, startDate, endDate]);
+
+  const tenantRooms = useMemo(() => {
+    return rooms.filter(r => !effectiveTenantId || !r.tenantId || r.tenantId === effectiveTenantId);
+  }, [rooms, effectiveTenantId]);
 
   const filteredRooms = useMemo(() => {
-    return rooms.filter(r => isStayInRange(r.checkInDate, r.checkOutDate, startDate, endDate));
-  }, [rooms, startDate, endDate]);
+    return tenantRooms.filter(r => {
+      // If room has stay dates, filter by stay in range
+      if (r.checkInDate) {
+        return isStayInRange(r.checkInDate, r.checkOutDate, startDate, endDate);
+      }
+      return !startDate && !endDate; // If no stay dates, only show in all-time view
+    });
+  }, [tenantRooms, startDate, endDate]);
 
   // Calculations for Reports
-  // 1. Departmental sales (date filtered)
+  // 1. Departmental sales (date filtered & strictly tenant matched)
   const roomRev = useMemo(() => {
-    return filteredRooms.reduce((acc, r) => {
-      const bill = getBillSummary(r.roomNumber);
-      return acc + (bill ? bill.roomRentTotal : (r.price || 0));
-    }, 0);
-  }, [filteredRooms, getBillSummary]);
+    let rev = 0;
+    filteredRooms.forEach(r => {
+      // ONLY count actual occupied rooms or rooms with active guest stays
+      if (r.status === 'Occupied' || (r.checkInDate && r.guestName)) {
+        const bill = getBillSummary(r.roomNumber);
+        rev += bill ? bill.roomRentTotal : (r.price || 0);
+      } else if (r.advancePaid && r.advancePaid > 0) {
+        rev += r.advancePaid;
+      }
+    });
+
+    // Also include advance deposits from confirmed pre-bookings in this date range
+    filteredPreBookings.forEach(pb => {
+      if (pb.advancePaid > 0 && !filteredRooms.some(r => r.guestPhone === pb.phone && (r.status === 'Occupied' || r.guestName))) {
+        rev += pb.advancePaid;
+      }
+    });
+
+    return rev;
+  }, [filteredRooms, filteredPreBookings, getBillSummary]);
 
   const restSales = useMemo(() => filteredOrders.filter(o => !o.isBar).reduce((acc, o) => acc + o.total, 0), [filteredOrders]);
   const barSales = useMemo(() => filteredOrders.filter(o => o.isBar).reduce((acc, o) => acc + o.total, 0), [filteredOrders]);
   const laundrySales = useMemo(() => filteredLaundry.reduce((acc, o) => acc + o.totalPrice, 0), [filteredLaundry]);
   const hallSales = useMemo(() => filteredHall.filter(o => o.status !== 'Cancelled').reduce((acc, o) => acc + o.totalPrice, 0), [filteredHall]);
   const purchaseExpenses = useMemo(() => filteredPurchases.reduce((acc, p) => acc + p.totalAmount, 0), [filteredPurchases]);
+  const operationalExpenses = useMemo(() => filteredExpenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0), [filteredExpenses]);
 
   const totalSales = roomRev + restSales + barSales + laundrySales + hallSales;
-  const netOperatingIncome = totalSales - purchaseExpenses;
+  const totalOutflow = purchaseExpenses + operationalExpenses;
+  const netOperatingIncome = totalSales - totalOutflow;
 
   // GST calculations
   const generalTaxRate = settings?.taxRate || 18;
@@ -147,7 +213,7 @@ export const ReportsView: React.FC = () => {
 
   // Outstanding bills list
   const outstandingList = useMemo(() => {
-    return rooms
+    return tenantRooms
       .filter(r => r.status === 'Occupied')
       .map(r => {
         const summary = getBillSummary(r.roomNumber);
@@ -163,7 +229,7 @@ export const ReportsView: React.FC = () => {
         };
       })
       .filter(o => o.pendingAmount > 0);
-  }, [rooms, getBillSummary]);
+  }, [tenantRooms, getBillSummary]);
 
   // Occupancy stats by category
   const categoriesCount = useMemo(() => {
@@ -176,7 +242,7 @@ export const ReportsView: React.FC = () => {
       'Dormitory': { total: 0, occupied: 0 }
     };
 
-    rooms.forEach(r => {
+    tenantRooms.forEach(r => {
       if (!counts[r.category]) {
         counts[r.category] = { total: 0, occupied: 0 };
       }
@@ -186,7 +252,7 @@ export const ReportsView: React.FC = () => {
       }
     });
     return counts;
-  }, [rooms]);
+  }, [tenantRooms]);
 
   // Unified Master Transactions List
   const masterTransactions = useMemo(() => {
@@ -429,7 +495,7 @@ export const ReportsView: React.FC = () => {
     <div className="space-y-6">
       
       {/* Top Header & Export All Action */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/50 dark:border-slate-800/50 shadow-sm">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/50 dark:border-slate-800/50 shadow-sm no-print">
         <div className="flex items-center gap-3">
           <div className="p-3 bg-indigo-600 text-white rounded-2xl shadow-md shadow-indigo-500/20">
             <BarChart3 className="w-6 h-6" />
@@ -468,7 +534,7 @@ export const ReportsView: React.FC = () => {
       </div>
 
       {/* Date Range & Custom Filter Controls Bar */}
-      <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-800/50 shadow-sm space-y-3">
+      <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-800/50 shadow-sm space-y-3 no-print">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           
           {/* Quick Preset Buttons */}
@@ -541,7 +607,7 @@ export const ReportsView: React.FC = () => {
       </div>
 
       {/* KPI Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 no-print">
         
         {/* Total Sales */}
         <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/50 rounded-2xl shadow-sm flex items-center justify-between">
@@ -556,15 +622,18 @@ export const ReportsView: React.FC = () => {
           </div>
         </div>
 
-        {/* Purchase Expenses */}
+        {/* Expenses Outflow */}
         <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/50 rounded-2xl shadow-sm flex items-center justify-between">
           <div className="space-y-1">
-            <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block">Stock Purchases Expense</span>
-            <span className="text-xl font-bold font-mono text-amber-600 dark:text-amber-400">
-              ₹{purchaseExpenses.toLocaleString()}
+            <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block">Total Expenses & Stock</span>
+            <span className="text-xl font-bold font-mono text-rose-600 dark:text-rose-400">
+              ₹{totalOutflow.toLocaleString()}
+            </span>
+            <span className="text-[10px] text-slate-400 block">
+              Ops: ₹{operationalExpenses.toLocaleString()} | Stock: ₹{purchaseExpenses.toLocaleString()}
             </span>
           </div>
-          <div className="p-3 bg-amber-50 dark:bg-amber-950 text-amber-500 rounded-xl">
+          <div className="p-3 bg-rose-50 dark:bg-rose-950 text-rose-500 rounded-xl">
             <Package className="w-5 h-5" />
           </div>
         </div>
@@ -598,9 +667,20 @@ export const ReportsView: React.FC = () => {
       </div>
 
       {/* Selector Controls for Sub Reports & Export Button for Active Tab */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-2.5 rounded-2xl border border-slate-200/50 dark:border-slate-800/50 shadow-sm">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-2.5 rounded-2xl border border-slate-200/50 dark:border-slate-800/50 shadow-sm no-print">
         
         <div className="flex flex-wrap bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-fit">
+          <button
+            onClick={() => setActiveReportTab('pnl')}
+            className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              activeReportTab === 'pnl' 
+                ? 'bg-red-600 text-white shadow-sm' 
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Landmark className="w-3.5 h-3.5" />
+            <span>P&L Account Statement</span>
+          </button>
           <button
             onClick={() => setActiveReportTab('sales')}
             className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-all ${
@@ -675,8 +755,13 @@ export const ReportsView: React.FC = () => {
       </div>
 
       {/* Sub Report Render Area */}
-      <div className="p-6 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/50 rounded-2xl shadow-sm">
+      <div className="p-6 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/50 rounded-2xl shadow-sm print:p-0 print:border-none print:shadow-none print:bg-transparent">
         
+        {/* TAB 0: P&L Statement (Formal Hotel Profit & Loss Account) */}
+        {activeReportTab === 'pnl' && (
+          <PnLStatementReport startDate={startDate} endDate={endDate} />
+        )}
+
         {/* TAB 1: Departmental Sales */}
         {activeReportTab === 'sales' && (
           <div className="space-y-6">
