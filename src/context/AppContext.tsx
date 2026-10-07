@@ -59,6 +59,7 @@ export interface Room {
   floor: number;
   price: number;
   status: RoomStatus;
+  tenantId?: string;
   guestName?: string;
   guestPhone?: string;
   guestEmail?: string;
@@ -826,6 +827,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tId) return;
     const newRoom: Room = {
       ...room,
+      tenantId: tId,
       status: 'Available',
       restaurantCharges: 0,
       barCharges: 0,
@@ -834,7 +836,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       otherCharges: 0
     };
     try {
-      await api.post('/rooms', { ...newRoom, tenantId: tId });
+      const res = await api.post('/rooms', { ...newRoom, tenantId: tId });
+      const saved = res.data || newRoom;
+      setRooms(prev => [...prev.filter(r => r.id !== saved.id), saved]);
       addAudit('Room Created', `Added room ${room.roomNumber} (${room.category})`);
     } catch (e) {
       console.error(e);
@@ -846,6 +850,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tId) return;
     try {
       await api.delete(`/rooms/${roomId}?tenantId=${tId}`);
+      setRooms(prev => prev.filter(r => r.id !== roomId));
       addAudit('Room Deleted', `Deleted room ${roomId}`);
     } catch (e) {
       console.error(e);
@@ -856,7 +861,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const tId = effectiveTenantId;
     if (!tId) return;
     try {
-      const roomUpdate = {
+      const roomUpdate: Partial<Room> = {
         status: 'Occupied',
         guestName: guestInfo.name,
         guestPhone: guestInfo.phone,
@@ -875,6 +880,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         otherCharges: 0
       };
       await api.put(`/rooms/${roomId}?tenantId=${tId}`, roomUpdate);
+      setRooms(prev => prev.map(r => r.id === roomId ? { ...r, ...roomUpdate } as Room : r));
       addAudit('Check-In', `Guest ${guestInfo.name} checked into Room ${rooms.find(r => r.id === roomId)?.roomNumber}`, undefined, 'Occupied');
     } catch (e) {
       console.error(e);
@@ -887,7 +893,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const room = rooms.find(r => r.id === roomId);
     if (!room) return;
     try {
-      const resetData = {
+      const resetData: Partial<Room> = {
         status: 'Cleaning',
         guestName: '',
         guestPhone: '',
@@ -907,6 +913,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
       await api.put(`/rooms/${roomId}?tenantId=${tId}`, resetData);
       await api.put('/orders/settle-room', { tenantId: tId, roomNumber: room.roomNumber });
+      setRooms(prev => prev.map(r => r.id === roomId ? { ...r, ...resetData } as Room : r));
+      setOrders(prev => prev.map(o => o.roomNumber === room.roomNumber && o.status === 'PostedToRoom' ? { ...o, status: 'Paid' } : o));
       addAudit('Check-Out', `Guest ${room.guestName} checked out of Room ${room.roomNumber}. Paid via ${paymentDetails.method}. Discount: ₹${paymentDetails.discount}`, 'Occupied', 'Cleaning');
     } catch (e) {
       console.error(e);
@@ -920,7 +928,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const dest = rooms.find(r => r.id === toRoomId);
     if (!source || !dest) return;
     try {
-      await api.put(`/rooms/${fromRoomId}?tenantId=${tId}`, {
+      const cleanSource: Partial<Room> = {
         status: 'Cleaning',
         guestName: '',
         guestPhone: '',
@@ -937,9 +945,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         laundryCharges: 0,
         hallCharges: 0,
         otherCharges: 0
-      });
-
-      await api.put(`/rooms/${toRoomId}?tenantId=${tId}`, {
+      };
+      const occupiedDest: Partial<Room> = {
         status: 'Occupied',
         guestName: source.guestName || '',
         guestPhone: source.guestPhone || '',
@@ -956,8 +963,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         laundryCharges: source.laundryCharges || 0,
         hallCharges: source.hallCharges || 0,
         otherCharges: source.otherCharges || 0
-      });
-
+      };
+      await api.put(`/rooms/${fromRoomId}?tenantId=${tId}`, cleanSource);
+      await api.put(`/rooms/${toRoomId}?tenantId=${tId}`, occupiedDest);
+      setRooms(prev => prev.map(r => r.id === fromRoomId ? { ...r, ...cleanSource } as Room : (r.id === toRoomId ? { ...r, ...occupiedDest } as Room : r)));
       addAudit('Room Transfer', `Transferred guest ${source.guestName} from Room ${source.roomNumber} to Room ${dest.roomNumber}`);
     } catch (e) {
       console.error(e);
@@ -969,6 +978,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tId) return;
     try {
       await api.put(`/rooms/${roomId}?tenantId=${tId}`, { status });
+      setRooms(prev => prev.map(r => r.id === roomId ? { ...r, status } : r));
       addAudit('Housekeeping Update', `Room status updated to ${status}`);
     } catch (e) {
       console.error(e);
@@ -985,6 +995,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newCheckOut = current.toISOString().split('T')[0];
     try {
       await api.put(`/rooms/${roomId}?tenantId=${tId}`, { checkOutDate: newCheckOut });
+      setRooms(prev => prev.map(r => r.id === roomId ? { ...r, checkOutDate: newCheckOut } : r));
       addAudit('Stay Extended', `Extended stay for Room ${room.roomNumber} by ${days} days`);
     } catch (e) {
       console.error(e);
@@ -1017,7 +1028,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } as any;
 
     try {
-      await api.post('/orders', finalOrder);
+      const res = await api.post('/orders', finalOrder);
+      const saved = res.data || finalOrder;
+      setOrders(prev => [saved, ...prev.filter(o => o.id !== saved.id)]);
       if (isPostedToRoom) {
         addAudit('POS Link to Room', `Posted ${order.isBar ? 'Bar' : 'Restaurant'} order ${orderNo} (₹${grandTotal}) to Room ${order.roomNumber}`);
       } else {
@@ -1044,7 +1057,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } as any;
 
     try {
-      await api.post('/laundry-orders', finalOrder);
+      const res = await api.post('/laundry-orders', finalOrder);
+      const saved = res.data || finalOrder;
+      setLaundryOrders(prev => [saved, ...prev.filter(l => l.id !== saved.id)]);
       addAudit('Laundry Order', `New laundry order ${orderNo} for Room ${order.roomNumber}`);
     } catch (e) {
       console.error(e);
@@ -1056,6 +1071,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tId) return;
     try {
       await api.put(`/laundry-orders/${id}?tenantId=${tId}`, { status });
+      setLaundryOrders(prev => prev.map(l => l.id === id ? { ...l, status } : l));
       addAudit('Laundry Status Update', `Updated laundry order ${id} to ${status}`);
     } catch (e) {
       console.error(e);
@@ -1080,7 +1096,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } as any;
 
     try {
-      await api.post('/hall-bookings', finalBooking);
+      const res = await api.post('/hall-bookings', finalBooking);
+      const saved = res.data || finalBooking;
+      setHallBookings(prev => [saved, ...prev.filter(h => h.id !== saved.id)]);
       addAudit('Hall Booking', `Booked ${booking.hallType} for ${booking.guestName} on ${booking.date}`);
     } catch (e) {
       console.error(e);
@@ -1092,6 +1110,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tId) return;
     try {
       await api.put(`/hall-bookings/${id}?tenantId=${tId}`, { status: 'Cancelled' });
+      setHallBookings(prev => prev.map(h => h.id === id ? { ...h, status: 'Cancelled' } : h));
       addAudit('Hall Booking Cancelled', `Cancelled hall booking ${id}`);
     } catch (e) {
       console.error(e);
@@ -1112,7 +1131,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } as any;
 
     try {
-      await api.post('/pre-bookings', finalBooking);
+      const res = await api.post('/pre-bookings', finalBooking);
+      const saved = res.data || finalBooking;
+      setPreBookings(prev => [saved, ...prev.filter(p => p.id !== saved.id)]);
       addAudit('Pre-Booking', `Created reservation for ${booking.guestName} (${booking.roomCategory})`);
     } catch (e) {
       console.error(e);
@@ -1124,6 +1145,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tId) return;
     try {
       await api.put(`/pre-bookings/${id}?tenantId=${tId}`, { status: 'Cancelled' });
+      setPreBookings(prev => prev.map(p => p.id === id ? { ...p, status: 'Cancelled' } : p));
       addAudit('Pre-Booking Cancelled', `Cancelled pre-booking ${id}`);
     } catch (e) {
       console.error(e);
@@ -1151,6 +1173,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         status: 'CheckedIn', 
         roomNumber: targetRoom ? targetRoom.roomNumber : undefined 
       });
+      setPreBookings(prev => prev.map(p => p.id === id ? { ...p, status: 'CheckedIn', roomNumber: targetRoom ? targetRoom.roomNumber : undefined } : p));
     } catch (e) {
       console.error(e);
     }
@@ -1167,7 +1190,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: newId
     } as any;
     try {
-      await api.post('/inventory', finalItem);
+      const res = await api.post('/inventory', finalItem);
+      const saved = res.data || finalItem;
+      setInventory(prev => [...prev.filter(i => i.id !== saved.id), saved]);
       addAudit('Inventory Added', `Added SKU ${item.name} (${item.category})`);
     } catch (e) {
       console.error(e);
@@ -1179,6 +1204,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tId) return;
     try {
       await api.delete(`/inventory/${id}?tenantId=${tId}`);
+      setInventory(prev => prev.filter(i => i.id !== id));
       addAudit('Inventory Deleted', `Deleted SKU ${id}`);
     } catch (e) {
       console.error(e);
@@ -1197,7 +1223,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } as any;
 
     try {
-      await api.post('/purchase-logs', finalPurchase);
+      const res = await api.post('/purchase-logs', finalPurchase);
+      const saved = res.data || finalPurchase;
+      setPurchaseLogs(prev => [saved, ...prev.filter(p => p.id !== saved.id)]);
       const match = inventory.find(i => (i.name || '').toLowerCase() === (purchase.itemName || '').toLowerCase());
       if (match) {
         await updateStockLevel(match.id, purchase.quantity, 'in');
@@ -1216,8 +1244,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newStock = direction === 'in' ? item.stock + amount : Math.max(0, item.stock - amount);
     try {
       await api.put(`/inventory/${itemId}?tenantId=${tId}`, { stock: newStock });
+      setInventory(prev => prev.map(i => i.id === itemId ? { ...i, stock: newStock } : i));
       if (description) {
-        await api.post('/stock-adjustments', {
+        const adj = {
           id: 'adj_' + Date.now(),
           tenantId: tId,
           itemId,
@@ -1229,7 +1258,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           description,
           date: new Date().toISOString().split('T')[0],
           timestamp: new Date().toISOString()
-        });
+        };
+        await api.post('/stock-adjustments', adj);
+        setStockAdjustmentLogs(prev => [adj, ...prev]);
       }
     } catch (e) {
       console.error(e);
@@ -1241,7 +1272,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const tId = effectiveTenantId;
     if (!tId) return;
     try {
-      await api.post('/menu-items', { ...item, tenantId: tId });
+      const res = await api.post('/menu-items', { ...item, tenantId: tId });
+      const saved = res.data || { ...item, tenantId: tId };
+      setMenuItems(prev => [...prev.filter(m => m.id !== saved.id), saved]);
       addAudit('Menu Item Added', `Added menu dish/drink ${item.name}`);
     } catch (e) {
       console.error(e);
@@ -1253,6 +1286,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tId) return;
     try {
       await api.put(`/menu-items/${id}`, { ...updates, tenantId: tId });
+      setMenuItems(prev => prev.map(m => m.id === id ? { ...m, ...updates } : m));
       addAudit('Menu Item Updated', `Updated menu item details`);
     } catch (e) {
       console.error(e);
@@ -1264,6 +1298,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tId) return;
     try {
       await api.delete(`/menu-items/${id}?tenantId=${tId}`);
+      setMenuItems(prev => prev.filter(m => m.id !== id));
       addAudit('Menu Item Deleted', `Deleted menu item ${id}`);
     } catch (e) {
       console.error(e);
@@ -1275,6 +1310,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tId || !ids.length) return;
     try {
       await api.post('/menu-items/batch-delete', { ids, tenantId: tId });
+      setMenuItems(prev => prev.filter(m => !ids.includes(m.id)));
       addAudit('Bulk Menu Items Deleted', `Deleted ${ids.length} menu items`);
     } catch (e) {
       console.error(e);
@@ -1286,7 +1322,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tId || !items.length) return;
     try {
       const itemsWithTenant = items.map(i => ({ ...i, tenantId: tId }));
-      await api.post('/menu-items/bulk', { items: itemsWithTenant });
+      const res = await api.post('/menu-items/bulk', { items: itemsWithTenant });
+      const savedItems = res.data || itemsWithTenant;
+      const itemIds = savedItems.map((i: MenuItem) => i.id);
+      setMenuItems(prev => [...prev.filter(m => !itemIds.includes(m.id)), ...savedItems]);
       addAudit('Bulk Menu Items Added', `Added ${items.length} menu items`);
     } catch (e) {
       console.error(e);
@@ -1299,7 +1338,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tId) return;
     try {
       const res = await api.put('/settings', { ...newSettings, tenantId: tId });
-      setSettings(res.data);
+      setSettings(res.data || newSettings);
       addAudit('Settings Updated', `Updated property settings`);
     } catch (e) {
       console.error(e);
