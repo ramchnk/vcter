@@ -38,6 +38,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     getBillSummary,
     preBookings,
     confirmPreBookingCheckIn,
+    updatePreBookingStatus,
     settings
   } = useApp();
 

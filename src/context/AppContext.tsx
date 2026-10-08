@@ -52,6 +52,7 @@ export interface TenantAccount {
 
 export type RoomCategory = 'Deluxe AC' | 'Deluxe Superior' | 'Elite' | 'Superior' | 'Family Suite' | 'Non AC' | string;
 export const ROOM_CATEGORIES: string[] = ['Deluxe AC', 'Deluxe Superior', 'Elite', 'Superior', 'Family Suite', 'Non AC'];
+export type RoomStatus = 'Available' | 'Occupied' | 'Reserved' | 'Cleaning' | 'Maintenance';
 export const BOOKING_SOURCES = [
   'Direct / Walk-In',
   'MakeMyTrip',
@@ -349,6 +350,7 @@ interface AppContextType {
   user: any | null;
   loadingAuth: boolean;
   tenantId: string | null;
+  effectiveTenantId: string | null;
   logout: () => Promise<void>;
   
   checkInRoom: (roomId: string, guestInfo: { 
@@ -1715,6 +1717,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         user: currentUser,
         loadingAuth,
         tenantId,
+        effectiveTenantId,
         logout,
 
         checkInRoom,
