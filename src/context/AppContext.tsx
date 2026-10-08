@@ -50,7 +50,8 @@ export interface TenantAccount {
   enabledMenus?: string[];
 }
 
-export type RoomCategory = 'Standard' | 'Premium' | 'Semi Premium' | 'Suite' | 'Family Suite' | 'Dormitory';
+export type RoomCategory = 'Deluxe AC' | 'Deluxe Superior' | 'Elite' | 'Superior' | 'Family Suite' | string;
+export const ROOM_CATEGORIES: string[] = ['Deluxe AC', 'Deluxe Superior', 'Elite', 'Superior', 'Family Suite'];
 export type RoomStatus = 'Available' | 'Occupied' | 'Reserved' | 'Cleaning' | 'Maintenance';
 
 export interface Room {

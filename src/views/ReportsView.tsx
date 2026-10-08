@@ -257,12 +257,11 @@ export const ReportsView: React.FC = () => {
   // Occupancy stats by category
   const categoriesCount = useMemo(() => {
     const counts: { [key: string]: { total: number; occupied: number } } = {
-      'Standard': { total: 0, occupied: 0 },
-      'Semi Premium': { total: 0, occupied: 0 },
-      'Premium': { total: 0, occupied: 0 },
-      'Suite': { total: 0, occupied: 0 },
-      'Family Suite': { total: 0, occupied: 0 },
-      'Dormitory': { total: 0, occupied: 0 }
+      'Deluxe AC': { total: 0, occupied: 0 },
+      'Deluxe Superior': { total: 0, occupied: 0 },
+      'Elite': { total: 0, occupied: 0 },
+      'Superior': { total: 0, occupied: 0 },
+      'Family Suite': { total: 0, occupied: 0 }
     };
 
     tenantRooms.forEach(r => {

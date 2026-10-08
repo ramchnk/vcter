@@ -19,7 +19,7 @@ export const PreBookingView: React.FC = () => {
   const [address, setAddress] = useState('');
   const [idProof, setIdProof] = useState('');
   const [gstNumber, setGstNumber] = useState('');
-  const [roomCategory, setRoomCategory] = useState<RoomCategory>('Standard');
+  const [roomCategory, setRoomCategory] = useState<RoomCategory>('Deluxe AC');
   const [checkInDate, setCheckInDate] = useState('');
   const [checkOutDate, setCheckOutDate] = useState('');
   const [noOfGuests, setNoOfGuests] = useState(1);
@@ -42,7 +42,7 @@ export const PreBookingView: React.FC = () => {
   // Timeline Matrix Date Navigation (Default: today)
   const [matrixStartDate, setMatrixStartDate] = useState(() => new Date().toISOString().split('T')[0]);
 
-  const categories: RoomCategory[] = ['Standard', 'Semi Premium', 'Premium', 'Suite', 'Family Suite', 'Dormitory'];
+  const categories: RoomCategory[] = ['Deluxe AC', 'Deluxe Superior', 'Elite', 'Superior', 'Family Suite'];
 
   // Helper: Format Date
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);

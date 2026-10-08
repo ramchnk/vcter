@@ -127,7 +127,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   };
 
   // Categories list for tabs
-  const categories = ['All', 'Standard', 'Semi Premium', 'Premium', 'Suite', 'Family Suite', 'Dormitory'];
+  const categories = ['All', 'Deluxe AC', 'Deluxe Superior', 'Elite', 'Superior', 'Family Suite'];
   const statuses = ['All', 'Available', 'Occupied', 'Reserved', 'Cleaning', 'Maintenance'];
 
   // Filter logic

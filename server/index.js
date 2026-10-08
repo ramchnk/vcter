@@ -369,23 +369,23 @@ async function seedDefaultData() {
     const roomCount = await Room.countDocuments();
     if (roomCount === 0) {
       const defaultRooms = [
-        { id: 'r101', roomNumber: '101', category: 'Standard', floor: 1, price: 1500, status: 'Available' },
-        { id: 'r102', roomNumber: '102', category: 'Standard', floor: 1, price: 1500, status: 'Available' },
-        { id: 'r103', roomNumber: '103', category: 'Standard', floor: 1, price: 1500, status: 'Available' },
-        { id: 'r104', roomNumber: '104', category: 'Standard', floor: 1, price: 1500, status: 'Available' },
-        { id: 'r105', roomNumber: '105', category: 'Standard', floor: 1, price: 1500, status: 'Available' },
-        { id: 'r106', roomNumber: '106', category: 'Standard', floor: 1, price: 1500, status: 'Available' },
-        { id: 'r201', roomNumber: '201', category: 'Semi Premium', floor: 2, price: 2500, status: 'Available' },
-        { id: 'r202', roomNumber: '202', category: 'Semi Premium', floor: 2, price: 2500, status: 'Available' },
-        { id: 'r203', roomNumber: '203', category: 'Semi Premium', floor: 2, price: 2500, status: 'Available' },
-        { id: 'r204', roomNumber: '204', category: 'Semi Premium', floor: 2, price: 2500, status: 'Available' },
-        { id: 'r205', roomNumber: '205', category: 'Semi Premium', floor: 2, price: 2500, status: 'Available' },
-        { id: 'r301', roomNumber: '301', category: 'Premium', floor: 3, price: 4000, status: 'Available' },
-        { id: 'r302', roomNumber: '302', category: 'Premium', floor: 3, price: 4000, status: 'Available' },
-        { id: 'r303', roomNumber: '303', category: 'Suite', floor: 3, price: 6500, status: 'Available' },
-        { id: 'r304', roomNumber: '304', category: 'Suite', floor: 3, price: 6500, status: 'Available' },
+        { id: 'r101', roomNumber: '101', category: 'Deluxe AC', floor: 1, price: 1500, status: 'Available' },
+        { id: 'r102', roomNumber: '102', category: 'Deluxe AC', floor: 1, price: 1500, status: 'Available' },
+        { id: 'r103', roomNumber: '103', category: 'Deluxe AC', floor: 1, price: 1500, status: 'Available' },
+        { id: 'r104', roomNumber: '104', category: 'Deluxe AC', floor: 1, price: 1500, status: 'Available' },
+        { id: 'r105', roomNumber: '105', category: 'Deluxe AC', floor: 1, price: 1500, status: 'Available' },
+        { id: 'r106', roomNumber: '106', category: 'Deluxe AC', floor: 1, price: 1500, status: 'Available' },
+        { id: 'r201', roomNumber: '201', category: 'Deluxe Superior', floor: 2, price: 2500, status: 'Available' },
+        { id: 'r202', roomNumber: '202', category: 'Deluxe Superior', floor: 2, price: 2500, status: 'Available' },
+        { id: 'r203', roomNumber: '203', category: 'Deluxe Superior', floor: 2, price: 2500, status: 'Available' },
+        { id: 'r204', roomNumber: '204', category: 'Deluxe Superior', floor: 2, price: 2500, status: 'Available' },
+        { id: 'r205', roomNumber: '205', category: 'Deluxe Superior', floor: 2, price: 2500, status: 'Available' },
+        { id: 'r301', roomNumber: '301', category: 'Elite', floor: 3, price: 4000, status: 'Available' },
+        { id: 'r302', roomNumber: '302', category: 'Elite', floor: 3, price: 4000, status: 'Available' },
+        { id: 'r303', roomNumber: '303', category: 'Superior', floor: 3, price: 5500, status: 'Available' },
+        { id: 'r304', roomNumber: '304', category: 'Superior', floor: 3, price: 5500, status: 'Available' },
         { id: 'r401', roomNumber: '401', category: 'Family Suite', floor: 4, price: 8000, status: 'Available' },
-        { id: 'r402', roomNumber: '402', category: 'Dormitory', floor: 4, price: 800, status: 'Available' }
+        { id: 'r402', roomNumber: '402', category: 'Family Suite', floor: 4, price: 8000, status: 'Available' }
       ];
 
       const tenants = await Tenant.find();
