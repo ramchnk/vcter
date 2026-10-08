@@ -42,7 +42,7 @@ export const PreBookingView: React.FC = () => {
   // Timeline Matrix Date Navigation (Default: today)
   const [matrixStartDate, setMatrixStartDate] = useState(() => new Date().toISOString().split('T')[0]);
 
-  const categories: RoomCategory[] = ['Deluxe AC', 'Deluxe Superior', 'Elite', 'Superior', 'Family Suite'];
+  const categories: RoomCategory[] = ['Deluxe AC', 'Deluxe Superior', 'Elite', 'Superior', 'Family Suite', 'Non AC'];
 
   // Helper: Format Date
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);

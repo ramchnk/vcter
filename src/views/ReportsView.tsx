@@ -261,7 +261,8 @@ export const ReportsView: React.FC = () => {
       'Deluxe Superior': { total: 0, occupied: 0 },
       'Elite': { total: 0, occupied: 0 },
       'Superior': { total: 0, occupied: 0 },
-      'Family Suite': { total: 0, occupied: 0 }
+      'Family Suite': { total: 0, occupied: 0 },
+      'Non AC': { total: 0, occupied: 0 }
     };
 
     tenantRooms.forEach(r => {

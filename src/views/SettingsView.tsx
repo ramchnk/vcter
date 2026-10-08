@@ -1008,7 +1008,7 @@ export const SettingsView: React.FC = () => {
                     onChange={e => setNewRoomCategory(e.target.value as RoomCategory)}
                     className="w-full p-2 border dark:border-slate-800 dark:bg-slate-900 rounded-lg font-semibold"
                   >
-                    {['Deluxe AC', 'Deluxe Superior', 'Elite', 'Superior', 'Family Suite'].map(cat => (
+                    {['Deluxe AC', 'Deluxe Superior', 'Elite', 'Superior', 'Family Suite', 'Non AC'].map(cat => (
                       <option key={cat} value={cat}>{cat}</option>
                     ))}
                   </select>
