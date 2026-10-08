@@ -272,6 +272,8 @@ export interface HotelSettings {
   barTaxRate: number;
   invoicePrefix: string;
   logoUrl?: string;
+  checkInTime?: string;
+  checkOutTime?: string;
 }
 
 export interface BillSummary {
@@ -452,7 +454,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     gstNumber: '33AAAAA0000A1Z5',
     taxRate: 18,
     barTaxRate: 20,
-    invoicePrefix: 'HV-INV-'
+    invoicePrefix: 'HV-INV-',
+    checkInTime: '12:00 PM',
+    checkOutTime: '11:00 AM'
   });
 
   const currentTenant = (tenants || []).find(t => t.id === tenantId) || 

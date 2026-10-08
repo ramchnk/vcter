@@ -18,8 +18,10 @@ import {
   Lock,
   UserCheck,
   Save,
-  Database
+  Database,
+  Clock
 } from 'lucide-react';
+import { formatTime12h, formatTime24h } from '../utils/dateUtils';
 
 export interface TenantAccount {
   id: string;
@@ -71,6 +73,24 @@ export const SettingsView: React.FC = () => {
   const [taxRate, setTaxRate] = useState(settings.taxRate);
   const [barTaxRate, setBarTaxRate] = useState(settings.barTaxRate);
   const [invoicePrefix, setInvoicePrefix] = useState(settings.invoicePrefix);
+  const [checkInTime, setCheckInTime] = useState(settings.checkInTime || '12:00 PM');
+  const [checkOutTime, setCheckOutTime] = useState(settings.checkOutTime || '11:00 AM');
+
+  // Synchronize state when settings context changes
+  React.useEffect(() => {
+    if (settings) {
+      setHotelName(settings.name || '');
+      setAddress(settings.address || '');
+      setPhone(settings.phone || '');
+      setEmail(settings.email || '');
+      setGstNumber(settings.gstNumber || '');
+      setTaxRate(settings.taxRate ?? 18);
+      setBarTaxRate(settings.barTaxRate ?? 20);
+      setInvoicePrefix(settings.invoicePrefix || 'HV-INV-');
+      setCheckInTime(settings.checkInTime || '12:00 PM');
+      setCheckOutTime(settings.checkOutTime || '11:00 AM');
+    }
+  }, [settings]);
 
   // Settings Sub-Tabs
   const [activeSettingsTab, setActiveSettingsTab] = useState<'hotel' | 'tenants' | 'users' | 'rooms'>('hotel');
@@ -127,6 +147,9 @@ export const SettingsView: React.FC = () => {
   const handleHotelSave = (e: React.FormEvent) => {
     e.preventDefault();
     
+    const formattedCheckIn = formatTime12h(checkInTime);
+    const formattedCheckOut = formatTime12h(checkOutTime);
+
     const updatedSettings: HotelSettings = {
       name: hotelName,
       address,
@@ -135,7 +158,9 @@ export const SettingsView: React.FC = () => {
       gstNumber,
       taxRate,
       barTaxRate,
-      invoicePrefix
+      invoicePrefix,
+      checkInTime: formattedCheckIn,
+      checkOutTime: formattedCheckOut
     };
     
     if (updateSettings) {
@@ -149,8 +174,10 @@ export const SettingsView: React.FC = () => {
     settings.taxRate = taxRate;
     settings.barTaxRate = barTaxRate;
     settings.invoicePrefix = invoicePrefix;
+    settings.checkInTime = formattedCheckIn;
+    settings.checkOutTime = formattedCheckOut;
     localStorage.setItem('hv_settings', JSON.stringify(settings));
-    addAudit('Save Settings', 'Updated hotel metadata details and general taxation structures.');
+    addAudit('Save Settings', `Updated property settings. Check-in: ${formattedCheckIn}, Check-out: ${formattedCheckOut}`);
     alert('Hotel settings updated successfully!');
   };
 
@@ -436,6 +463,123 @@ export const SettingsView: React.FC = () => {
                     onChange={e => setInvoicePrefix(e.target.value)}
                     className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-bold"
                   />
+                </div>
+              </div>
+
+              {/* Standard Hotel Timings (Check-in & Check-out Live Alert Triggers) */}
+              <div className="border-t pt-4 border-slate-100 dark:border-slate-800/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 text-xs">
+                      <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                      Property Standard Check-In & Check-Out Timings
+                    </label>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      Powers live room status alerts and dynamic color-coded blinkers on the Room Management grid.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Check-in Time */}
+                  <div className="p-3.5 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200/70 dark:border-slate-800/70 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-700 dark:text-slate-300 text-xs">Check-In Time *</span>
+                      <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300">
+                        {formatTime12h(checkInTime)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="time"
+                        value={formatTime24h(checkInTime)}
+                        onChange={e => setCheckInTime(e.target.value ? formatTime12h(e.target.value) : '12:00 PM')}
+                        className="flex-1 p-2 border dark:border-slate-800 dark:bg-slate-900 rounded-lg text-xs font-mono font-bold"
+                      />
+                      <input
+                        type="text"
+                        placeholder="e.g. 12:00 PM"
+                        value={checkInTime}
+                        onChange={e => setCheckInTime(e.target.value)}
+                        className="w-28 p-2 border dark:border-slate-800 dark:bg-slate-900 rounded-lg text-xs font-mono"
+                      />
+                    </div>
+                    <div className="flex gap-1 flex-wrap pt-1">
+                      {['11:00 AM', '12:00 PM', '01:00 PM', '02:00 PM'].map(preset => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setCheckInTime(preset)}
+                          className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+                            formatTime12h(checkInTime) === preset
+                              ? 'bg-indigo-600 text-white border-indigo-600 font-bold'
+                              : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200/50'
+                          }`}
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Check-out Time */}
+                  <div className="p-3.5 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200/70 dark:border-slate-800/70 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-700 dark:text-slate-300 text-xs">Check-Out Time *</span>
+                      <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300">
+                        {formatTime12h(checkOutTime)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="time"
+                        value={formatTime24h(checkOutTime)}
+                        onChange={e => setCheckOutTime(e.target.value ? formatTime12h(e.target.value) : '11:00 AM')}
+                        className="flex-1 p-2 border dark:border-slate-800 dark:bg-slate-900 rounded-lg text-xs font-mono font-bold"
+                      />
+                      <input
+                        type="text"
+                        placeholder="e.g. 11:00 AM"
+                        value={checkOutTime}
+                        onChange={e => setCheckOutTime(e.target.value)}
+                        className="w-28 p-2 border dark:border-slate-800 dark:bg-slate-900 rounded-lg text-xs font-mono"
+                      />
+                    </div>
+                    <div className="flex gap-1 flex-wrap pt-1">
+                      {['10:00 AM', '11:00 AM', '12:00 PM', '01:00 PM'].map(preset => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setCheckOutTime(preset)}
+                          className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+                            formatTime12h(checkOutTime) === preset
+                              ? 'bg-rose-600 text-white border-rose-600 font-bold'
+                              : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200/50'
+                          }`}
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Blinker Alert Guide Box */}
+                <div className="p-3 bg-amber-500/10 dark:bg-amber-500/5 border border-amber-500/30 rounded-xl flex items-start gap-2.5 text-[11px]">
+                  <span className="text-base leading-none">💡</span>
+                  <div className="space-y-1 text-slate-700 dark:text-slate-300">
+                    <p className="font-semibold text-amber-800 dark:text-amber-300">How Room Checkout Blinkers Work:</p>
+                    <div className="flex flex-wrap gap-3 pt-0.5">
+                      <span className="flex items-center gap-1">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping"></span>
+                        <strong className="text-amber-700 dark:text-amber-400">Amber Blinker:</strong> Triggered when a room is approaching check-out time on its departure date (within 60 mins).
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping"></span>
+                        <strong className="text-rose-700 dark:text-rose-400">Red Blinker:</strong> Triggered once the room has crossed the {formatTime12h(checkOutTime)} check-out time.
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
 

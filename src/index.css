@@ -53,6 +53,88 @@
   animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* ==========================================
+   CHECKOUT ALERT BLINKER ANIMATIONS
+   Approaching Check-out (Amber) & Crossed Check-out (Red)
+   ========================================== */
+@keyframes blinker-amber {
+  0%, 100% {
+    border-color: rgba(245, 158, 11, 0.95);
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2), 0 0 16px rgba(245, 158, 11, 0.45);
+    background-color: rgba(254, 243, 199, 0.6);
+  }
+  50% {
+    border-color: rgba(245, 158, 11, 0.3);
+    box-shadow: 0 0 0 0 transparent, 0 0 2px rgba(245, 158, 11, 0.1);
+    background-color: rgba(254, 243, 199, 0.1);
+  }
+}
+
+@keyframes blinker-amber-dark {
+  0%, 100% {
+    border-color: rgba(245, 158, 11, 1);
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.3), 0 0 20px rgba(245, 158, 11, 0.5);
+    background-color: rgba(120, 53, 15, 0.4);
+  }
+  50% {
+    border-color: rgba(245, 158, 11, 0.3);
+    box-shadow: 0 0 0 0 transparent, 0 0 4px rgba(245, 158, 11, 0.1);
+    background-color: rgba(15, 23, 42, 0.4);
+  }
+}
+
+@keyframes blinker-red {
+  0%, 100% {
+    border-color: rgba(239, 68, 68, 1);
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.3), 0 0 22px rgba(239, 68, 68, 0.65);
+    background-color: rgba(254, 226, 226, 0.75);
+  }
+  50% {
+    border-color: rgba(239, 68, 68, 0.35);
+    box-shadow: 0 0 0 0 transparent, 0 0 4px rgba(239, 68, 68, 0.15);
+    background-color: rgba(254, 226, 226, 0.15);
+  }
+}
+
+@keyframes blinker-red-dark {
+  0%, 100% {
+    border-color: rgba(239, 68, 68, 1);
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.4), 0 0 25px rgba(239, 68, 68, 0.75);
+    background-color: rgba(127, 29, 29, 0.5);
+  }
+  50% {
+    border-color: rgba(239, 68, 68, 0.35);
+    box-shadow: 0 0 0 0 transparent, 0 0 4px rgba(239, 68, 68, 0.15);
+    background-color: rgba(15, 23, 42, 0.5);
+  }
+}
+
+.animate-blinker-amber {
+  animation: blinker-amber 1.3s ease-in-out infinite;
+}
+
+.dark .animate-blinker-amber {
+  animation: blinker-amber-dark 1.3s ease-in-out infinite;
+}
+
+.animate-blinker-red {
+  animation: blinker-red 0.85s ease-in-out infinite;
+}
+
+.dark .animate-blinker-red {
+  animation: blinker-red-dark 0.85s ease-in-out infinite;
+}
+
+@keyframes ping-badge {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.3); opacity: 0.5; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-ping-badge {
+  animation: ping-badge 1s ease-in-out infinite;
+}
+
 /* Thermal receipt style for simulated printing */
 .receipt-print {
   font-family: 'Courier New', Courier, monospace;

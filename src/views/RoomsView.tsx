@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useApp, Room, RoomStatus, RoomCategory, PreBooking } from '../context/AppContext';
 import { 
   Plus, 
@@ -13,8 +13,11 @@ import {
   RotateCcw,
   Sparkles,
   Info,
-  Search
+  Search,
+  BellRing,
+  AlertTriangle
 } from 'lucide-react';
+import { getRoomCheckoutAlert, formatTime12h, RoomCheckoutAlert } from '../utils/dateUtils';
 
 interface RoomsViewProps {
   setTab: (tab: string) => void;
@@ -30,8 +33,18 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     extendStay, 
     getBillSummary,
     preBookings,
-    confirmPreBookingCheckIn
+    confirmPreBookingCheckIn,
+    settings
   } = useApp();
+
+  // Real-time clock ticker to dynamically update checkout countdowns and blinkers every 15s
+  const [currentTime, setCurrentTime] = useState<Date>(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 15000);
+    return () => clearInterval(timer);
+  }, []);
 
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
@@ -56,6 +69,40 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
 
   const [transferTargetRoomId, setTransferTargetRoomId] = useState('');
   const [extendDays, setExtendDays] = useState(1);
+
+  // Pre-calculate real-time checkout alerts for all occupied rooms
+  const roomAlertMap = useMemo(() => {
+    const map = new Map<string, RoomCheckoutAlert>();
+    (rooms || []).forEach(room => {
+      if (room.status === 'Occupied' && room.checkOutDate) {
+        const alertInfo = getRoomCheckoutAlert(
+          room.checkOutDate, 
+          settings?.checkOutTime, 
+          60, 
+          currentTime
+        );
+        map.set(room.id, alertInfo);
+      }
+    });
+    return map;
+  }, [rooms, settings?.checkOutTime, currentTime]);
+
+  // Aggregate counts of alert states
+  const overdueCount = useMemo(() => {
+    let count = 0;
+    roomAlertMap.forEach(alert => {
+      if (alert.status === 'overdue') count++;
+    });
+    return count;
+  }, [roomAlertMap]);
+
+  const approachingCount = useMemo(() => {
+    let count = 0;
+    roomAlertMap.forEach(alert => {
+      if (alert.status === 'approaching') count++;
+    });
+    return count;
+  }, [roomAlertMap]);
 
   // Status-based color mapping for cards
   const getStatusColorClass = (status: RoomStatus) => {
@@ -87,7 +134,17 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const filteredRooms = (rooms || []).filter(room => {
     if (!room) return false;
     const matchesCat = categoryFilter === 'All' || room.category === categoryFilter;
-    const matchesStat = statusFilter === 'All' || room.status === statusFilter;
+    
+    let matchesStat = true;
+    if (statusFilter === 'All') {
+      matchesStat = true;
+    } else if (statusFilter === 'Overdue Checkout') {
+      matchesStat = room.status === 'Occupied' && roomAlertMap.get(room.id)?.status === 'overdue';
+    } else if (statusFilter === 'Due Soon') {
+      matchesStat = room.status === 'Occupied' && roomAlertMap.get(room.id)?.status === 'approaching';
+    } else {
+      matchesStat = room.status === statusFilter;
+    }
     
     const searchLower = (roomSearchTerm || '').toLowerCase().trim();
     const matchesSearch = 
@@ -208,6 +265,82 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   return (
     <div className="space-y-6">
       
+      {/* LIVE FRONT-DESK CHECK-OUT ALERTS BANNER */}
+      {(overdueCount > 0 || approachingCount > 0) && (
+        <div className="p-4 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white rounded-2xl shadow-xl border border-slate-700/80 flex flex-col md:flex-row md:items-center justify-between gap-4 animate-in fade-in duration-300">
+          <div className="flex items-center gap-3.5">
+            <div className={`p-3 rounded-xl border flex items-center justify-center ${
+              overdueCount > 0 
+                ? 'bg-rose-500/20 border-rose-500/50 text-rose-400' 
+                : 'bg-amber-500/20 border-amber-500/50 text-amber-400'
+            }`}>
+              <BellRing className="w-5 h-5 animate-bounce" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-100">
+                  Live Front-Desk Check-Out Alerts
+                </h4>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                  Check-Out Time: {settings.checkOutTime || '11:00 AM'}
+                </span>
+              </div>
+              
+              <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs">
+                {overdueCount > 0 && (
+                  <span className="flex items-center gap-1.5 text-rose-400 font-bold bg-rose-950/70 border border-rose-800/80 px-2.5 py-1 rounded-lg">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-90"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                    </span>
+                    {overdueCount} {overdueCount === 1 ? 'Room has' : 'Rooms have'} Crossed Check-Out Time (Red Blinker)
+                  </span>
+                )}
+                {approachingCount > 0 && (
+                  <span className="flex items-center gap-1.5 text-amber-300 font-semibold bg-amber-950/70 border border-amber-800/80 px-2.5 py-1 rounded-lg">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-90"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400"></span>
+                    </span>
+                    {approachingCount} {approachingCount === 1 ? 'Room is' : 'Rooms are'} Approaching Check-Out (Amber Blinker)
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Filter Buttons on Banner */}
+          <div className="flex items-center gap-2 self-start md:self-center shrink-0">
+            {overdueCount > 0 && (
+              <button
+                onClick={() => setStatusFilter(statusFilter === 'Overdue Checkout' ? 'All' : 'Overdue Checkout')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm ${
+                  statusFilter === 'Overdue Checkout'
+                    ? 'bg-rose-600 text-white ring-2 ring-rose-300'
+                    : 'bg-rose-600/30 text-rose-200 hover:bg-rose-600 hover:text-white border border-rose-500/50'
+                }`}
+              >
+                <AlertCircle className="w-3.5 h-3.5" />
+                View Overdue ({overdueCount})
+              </button>
+            )}
+            {approachingCount > 0 && (
+              <button
+                onClick={() => setStatusFilter(statusFilter === 'Due Soon' ? 'All' : 'Due Soon')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm ${
+                  statusFilter === 'Due Soon'
+                    ? 'bg-amber-500 text-slate-950 ring-2 ring-amber-300'
+                    : 'bg-amber-500/30 text-amber-200 hover:bg-amber-500 hover:text-slate-950 border border-amber-500/50'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                View Due Soon ({approachingCount})
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Category Tabs & Status Filters */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-800/50 shadow-sm">
         
@@ -228,8 +361,8 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
           ))}
         </div>
 
-        {/* Status Dropdown */}
-        <div className="flex items-center gap-2">
+        {/* Status Filter Chips + Alert Badges */}
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Status:</span>
           <div className="flex gap-1 flex-wrap">
             {statuses.map(stat => (
@@ -245,6 +378,36 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                 {stat}
               </button>
             ))}
+
+            {/* Quick Alert Filter: Overdue Checkout */}
+            {overdueCount > 0 && (
+              <button
+                onClick={() => setStatusFilter(statusFilter === 'Overdue Checkout' ? 'All' : 'Overdue Checkout')}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-bold border transition-all flex items-center gap-1 ${
+                  statusFilter === 'Overdue Checkout'
+                    ? 'bg-rose-600 border-rose-600 text-white shadow-sm'
+                    : 'border-rose-300 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 hover:bg-rose-100'
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping"></span>
+                Overdue ({overdueCount})
+              </button>
+            )}
+
+            {/* Quick Alert Filter: Due Soon */}
+            {approachingCount > 0 && (
+              <button
+                onClick={() => setStatusFilter(statusFilter === 'Due Soon' ? 'All' : 'Due Soon')}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-bold border transition-all flex items-center gap-1 ${
+                  statusFilter === 'Due Soon'
+                    ? 'bg-amber-500 border-amber-500 text-slate-950 shadow-sm'
+                    : 'border-amber-300 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 hover:bg-amber-100'
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>
+                Due Soon ({approachingCount})
+              </button>
+            )}
           </div>
         </div>
 
@@ -268,11 +431,21 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
           const isOccupied = room.status === 'Occupied';
           const isReserved = room.status === 'Reserved';
           const activeBill = isOccupied ? getBillSummary(room.roomNumber) : null;
+          const checkoutAlert = isOccupied ? roomAlertMap.get(room.id) : null;
+          
+          // Determine card styling based on status and live checkout alert
+          let cardClassName = `p-5 rounded-2xl border-t-4 border border-slate-200/40 dark:border-slate-800/40 shadow-sm flex flex-col justify-between transition-all duration-300 ${getStatusColorClass(room.status)}`;
+          
+          if (checkoutAlert?.status === 'overdue') {
+            cardClassName = 'p-5 rounded-2xl border-2 border-rose-600 dark:border-rose-500 shadow-xl shadow-rose-500/10 flex flex-col justify-between transition-all duration-300 animate-blinker-red';
+          } else if (checkoutAlert?.status === 'approaching') {
+            cardClassName = 'p-5 rounded-2xl border-2 border-amber-500 dark:border-amber-400 shadow-lg shadow-amber-500/10 flex flex-col justify-between transition-all duration-300 animate-blinker-amber';
+          }
           
           return (
             <div 
               key={room.id}
-              className={`p-5 rounded-2xl border-t-4 border border-slate-200/40 dark:border-slate-800/40 shadow-sm flex flex-col justify-between hover:shadow-md transition-all duration-300 ${getStatusColorClass(room.status)}`}
+              className={cardClassName}
             >
               {/* Header: Room info */}
               <div className="space-y-3">
@@ -285,14 +458,65 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                       Floor {room.floor} ● {room.category}
                     </p>
                   </div>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${getStatusBadgeClass(room.status)}`}>
-                    {room.status}
-                  </span>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${getStatusBadgeClass(room.status)}`}>
+                      {room.status}
+                    </span>
+                    {checkoutAlert?.status === 'overdue' && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-600 text-white font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                        <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span>
+                        Crossed
+                      </span>
+                    )}
+                    {checkoutAlert?.status === 'approaching' && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-900 animate-ping"></span>
+                        Due Soon
+                      </span>
+                    )}
+                  </div>
                 </div>
+
+                {/* LIVE CHECK-OUT ALERT BLINKER NOTIFICATION ON CARD */}
+                {checkoutAlert && checkoutAlert.status === 'overdue' && (
+                  <div className="p-2.5 bg-gradient-to-r from-rose-600 to-red-600 text-white rounded-xl shadow-md flex items-center justify-between gap-2 border border-rose-400">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="relative flex h-3 w-3 shrink-0">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-90"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-black uppercase tracking-wider leading-tight">Check-Out Crossed!</p>
+                        <p className="text-[10px] text-rose-100 font-medium truncate mt-0.5">{checkoutAlert.label}</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-mono font-black bg-rose-950/70 text-rose-200 px-2 py-0.5 rounded shrink-0">
+                      {checkoutAlert.formattedCheckoutTime}
+                    </span>
+                  </div>
+                )}
+
+                {checkoutAlert && checkoutAlert.status === 'approaching' && (
+                  <div className="p-2.5 bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 rounded-xl shadow-md flex items-center justify-between gap-2 border border-amber-300">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="relative flex h-3 w-3 shrink-0">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-slate-950 opacity-80"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-slate-950"></span>
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-black uppercase tracking-wider leading-tight">Check-Out Due Soon</p>
+                        <p className="text-[10px] text-slate-900 font-bold truncate mt-0.5">{checkoutAlert.label}</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-mono font-black bg-slate-950 text-amber-300 px-2 py-0.5 rounded shrink-0">
+                      {checkoutAlert.formattedCheckoutTime}
+                    </span>
+                  </div>
+                )}
 
                 {/* Body: Guest details if occupied */}
                 {isOccupied && (
-                  <div className="p-3 bg-white/40 dark:bg-slate-900/30 rounded-xl space-y-2 border border-white/30 dark:border-slate-800/30 text-xs">
+                  <div className="p-3 bg-white/50 dark:bg-slate-900/40 rounded-xl space-y-2 border border-white/40 dark:border-slate-800/40 text-xs">
                     <div>
                       <p className="text-[10px] text-slate-400 leading-none">Guest Name</p>
                       <p className="font-bold text-slate-800 dark:text-slate-200 mt-0.5 truncate">{room.guestName}</p>
@@ -304,12 +528,24 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                         <p className="font-semibold text-slate-700 dark:text-slate-300 font-mono mt-0.5">{room.checkInDate}</p>
                       </div>
                       <div>
-                        <p className="text-slate-400">Checkout Due</p>
-                        <p className="font-semibold text-slate-700 dark:text-slate-300 font-mono mt-0.5">{room.checkOutDate}</p>
+                        <p className="text-slate-400 flex items-center gap-1">
+                          <span>Checkout Due</span>
+                          {checkoutAlert?.status === 'overdue' && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping"></span>}
+                          {checkoutAlert?.status === 'approaching' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>}
+                        </p>
+                        <p className={`font-mono mt-0.5 ${
+                          checkoutAlert?.status === 'overdue'
+                            ? 'font-bold text-rose-600 dark:text-rose-400'
+                            : checkoutAlert?.status === 'approaching'
+                            ? 'font-bold text-amber-600 dark:text-amber-400'
+                            : 'font-semibold text-slate-700 dark:text-slate-300'
+                        }`}>
+                          {room.checkOutDate} <span className="text-[9px] opacity-75 font-normal">({settings.checkOutTime || '11:00 AM'})</span>
+                        </p>
                       </div>
                     </div>
 
-                    <div className="pt-1.5 border-t border-slate-200/20 flex items-center justify-between">
+                    <div className="pt-1.5 border-t border-slate-200/30 flex items-center justify-between">
                       <span className="text-[10px] text-slate-400">Active Balance</span>
                       <span className="font-bold text-rose-600 dark:text-rose-400 font-mono">
                         ₹{activeBill ? activeBill.pendingAmount.toFixed(0) : '0'}
@@ -480,6 +716,23 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
             
             <form onSubmit={handleCheckInSubmit} className="space-y-4 text-xs">
               
+              {/* Standard Hotel Timings Info */}
+              <div className="p-2.5 bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/60 dark:border-indigo-800/60 rounded-xl flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-indigo-500" />
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Property Policy Timings</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-300 text-[11px]">
+                      Check-In: <strong className="text-indigo-600 dark:text-indigo-400 font-mono">{settings.checkInTime || '12:00 PM'}</strong>
+                      {' '}| Check-Out: <strong className="text-rose-600 dark:text-rose-400 font-mono">{settings.checkOutTime || '11:00 AM'}</strong>
+                    </span>
+                  </div>
+                </div>
+                <span className="text-[10px] font-medium text-slate-400 text-right">
+                  Blinker alerts active near {settings.checkOutTime || '11:00 AM'}
+                </span>
+              </div>
+
               {/* Pre-Booking Quick Autofill Selector */}
               <div className="p-3 bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2">
                 <div className="flex items-center justify-between">
