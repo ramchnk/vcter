@@ -19,7 +19,9 @@ import {
   User,
   Bed,
   DollarSign,
-  BookOpen
+  BookOpen,
+  Boxes,
+  Droplets
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -421,12 +423,26 @@ export const RestaurantBarView: React.FC = () => {
                       {/* Card Body */}
                       <div className="p-3 flex flex-col justify-between flex-1">
                         <div className="space-y-0.5">
-                          <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block">
-                            {item.category || 'Standard'}
-                          </span>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block">
+                              {item.category || 'Standard'}
+                            </span>
+                            {item.isCombo && (
+                              <span className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[8px] font-black uppercase bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300">
+                                <Boxes className="w-2.5 h-2.5" /> Combo
+                              </span>
+                            )}
+                          </div>
                           <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 line-clamp-2 leading-snug group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">
                             {item.name}
                           </h4>
+                          {item.recipe && item.recipe.length > 0 && (
+                            <span className="text-[9px] text-amber-700 dark:text-amber-400 font-semibold block line-clamp-1">
+                              {item.isCombo 
+                                ? `${item.recipe.length} items bundled` 
+                                : `Deducts: ${item.recipe.map(r => `${r.quantity}${r.deductionType === 'ml' ? 'ml' : 'x'} ${r.itemName}`).join(', ')}`}
+                            </span>
+                          )}
                         </div>
 
                         <div className="flex items-center justify-between mt-3 pt-2 border-t border-slate-100 dark:border-slate-800/60">

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef } from 'react';
-import { useApp, MenuItem } from '../context/AppContext';
+import { useApp, MenuItem, RecipeItem } from '../context/AppContext';
 import { 
   Search, 
   Plus, 
@@ -21,7 +21,12 @@ import {
   Download,
   RefreshCw,
   Eye,
-  EyeOff
+  EyeOff,
+  Boxes,
+  Droplets,
+  Layers,
+  Scale,
+  Package
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -44,6 +49,7 @@ const SAMPLE_IMAGE_PRESETS: { name: string; url: string; dietary: 'Veg' | 'Non-V
 export const MenuView: React.FC = () => {
   const { 
     menuItems, 
+    inventory,
     addMenuItem, 
     updateMenuItem, 
     deleteMenuItem, 
@@ -79,6 +85,12 @@ export const MenuView: React.FC = () => {
   const [formImagePreview, setFormImagePreview] = useState('');
   const [showPresetPicker, setShowPresetPicker] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Recipe & Combo Stock Deduction State
+  const [formRecipe, setFormRecipe] = useState<RecipeItem[]>([]);
+  const [selectedInvId, setSelectedInvId] = useState('');
+  const [recipeDeductType, setRecipeDeductType] = useState<'ml' | 'qty'>('qty');
+  const [recipeQty, setRecipeQty] = useState('1');
 
   // Dropdown menu state
   const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -150,6 +162,10 @@ export const MenuView: React.FC = () => {
     setFormPrice('');
     setFormImageUrl('');
     setFormImagePreview('');
+    setFormRecipe([]);
+    setSelectedInvId('');
+    setRecipeDeductType('qty');
+    setRecipeQty('1');
     setShowPresetPicker(false);
     setIsModalOpen(true);
   };
@@ -166,8 +182,72 @@ export const MenuView: React.FC = () => {
     setFormPrice(String(item.price || 0));
     setFormImageUrl(item.imageUrl || '');
     setFormImagePreview(item.imageUrl || '');
+    setFormRecipe(item.recipe || []);
+    setSelectedInvId('');
+    setRecipeDeductType('qty');
+    setRecipeQty('1');
     setShowPresetPicker(false);
     setIsModalOpen(true);
+  };
+
+  // Add Recipe / Combo Item
+  const handleAddRecipeItem = () => {
+    if (!selectedInvId) return;
+    const inv = (inventory || []).find(i => i.id === selectedInvId);
+    if (!inv) return;
+    const qtyNum = parseFloat(recipeQty) || 1;
+    const unitLabel = recipeDeductType === 'ml' ? 'ml' : (inv.unit || 'units');
+
+    setFormRecipe(prev => {
+      const exists = prev.find(r => r.inventoryItemId === selectedInvId);
+      if (exists) {
+        return prev.map(r => r.inventoryItemId === selectedInvId ? {
+          ...r,
+          quantity: qtyNum,
+          deductionType: recipeDeductType,
+          unit: unitLabel
+        } : r);
+      }
+      return [...prev, {
+        inventoryItemId: inv.id,
+        itemName: inv.name,
+        deductionType: recipeDeductType,
+        quantity: qtyNum,
+        unit: unitLabel
+      }];
+    });
+
+    setSelectedInvId('');
+    setRecipeQty('1');
+  };
+
+  // Remove Recipe / Combo Item
+  const handleRemoveRecipeItem = (invId: string) => {
+    setFormRecipe(prev => prev.filter(r => r.inventoryItemId !== invId));
+  };
+
+  // Quick Preset Helper for Peg / Bottle
+  const handleApplyQuickRecipe = (type: '30ml' | '60ml' | '1qty' | '4qty') => {
+    if (!selectedInvId) {
+      alert('Please select an inventory stock item from the dropdown first.');
+      return;
+    }
+    const inv = (inventory || []).find(i => i.id === selectedInvId);
+    if (!inv) return;
+
+    if (type === '30ml') {
+      setRecipeDeductType('ml');
+      setRecipeQty('30');
+    } else if (type === '60ml') {
+      setRecipeDeductType('ml');
+      setRecipeQty('60');
+    } else if (type === '1qty') {
+      setRecipeDeductType('qty');
+      setRecipeQty('1');
+    } else if (type === '4qty') {
+      setRecipeDeductType('qty');
+      setRecipeQty('4');
+    }
   };
 
   // Handle Image File Upload (converted to Base64)
@@ -217,7 +297,8 @@ export const MenuView: React.FC = () => {
         isAvailable: editingItem.isAvailable !== false,
         imageUrl: formImageUrl || formImagePreview,
         dietary: finalDietary,
-        isCombo: formIsCombo
+        isCombo: formIsCombo,
+        recipe: formRecipe
       });
     } else {
       // Create new item
@@ -230,7 +311,8 @@ export const MenuView: React.FC = () => {
         isAvailable: true,
         imageUrl: formImageUrl || formImagePreview,
         dietary: finalDietary,
-        isCombo: formIsCombo
+        isCombo: formIsCombo,
+        recipe: formRecipe
       };
       await addMenuItem(newItem);
       confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
@@ -664,6 +746,26 @@ export const MenuView: React.FC = () => {
                     </span>
                   </div>
 
+                  {/* Linked Inventory Recipe / Combo Items Indicator */}
+                  {item.recipe && item.recipe.length > 0 && (
+                    <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                      <div className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-amber-700 dark:text-amber-400 mb-1">
+                        {item.isCombo ? <Boxes className="w-3 h-3 text-indigo-500" /> : <Droplets className="w-3 h-3 text-amber-600" />}
+                        <span>{item.isCombo ? 'Combo Package' : 'Stock Auto-Deduct'}:</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto">
+                        {item.recipe.map((r, idx) => (
+                          <span key={idx} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200/60 dark:border-amber-800/40 text-[9px] font-bold text-slate-700 dark:text-slate-300">
+                            <span className="text-amber-600 dark:text-amber-400 font-black">
+                              {r.quantity} {r.deductionType === 'ml' ? 'ml' : (r.unit || 'qty')}
+                            </span>
+                            <span className="truncate max-w-[95px]">{r.itemName}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Price Row at Bottom */}
                   <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
                     <span className="text-xs text-slate-400 font-medium">
@@ -951,13 +1053,177 @@ export const MenuView: React.FC = () => {
                     onChange={e => setFormIsCombo(e.target.checked)}
                     className="w-4 h-4 text-amber-600 rounded focus:ring-amber-500 accent-amber-600"
                   />
-                  <span className="text-xs font-black tracking-wider text-[#78350F] dark:text-amber-300/90 uppercase">
-                    THIS IS A COMBO ITEM
+                  <span className="text-xs font-black tracking-wider text-[#78350F] dark:text-amber-300/90 uppercase flex items-center gap-1.5">
+                    <Boxes className="w-3.5 h-3.5 text-indigo-600" />
+                    THIS IS A COMBO PACKAGE ITEM
                   </span>
                 </label>
+                {formIsCombo && (
+                  <p className="text-[11px] text-indigo-700 dark:text-indigo-300 mt-1 pl-6">
+                    Combo mode allows bundling multiple stock SKUs (e.g. 4 Beers + 1 Snack + 1 Water) that deduct together upon sale.
+                  </p>
+                )}
               </div>
 
-              {/* 7. PRICE */}
+              {/* 7. INVENTORY STOCK DEDUCTION & RECIPE / COMBO MAPPING SECTION */}
+              <div className="p-3.5 bg-amber-50/70 dark:bg-slate-800/80 border border-amber-200/80 dark:border-slate-700 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    {formIsCombo ? (
+                      <Boxes className="w-4 h-4 text-indigo-600" />
+                    ) : formIsBar ? (
+                      <Wine className="w-4 h-4 text-purple-600" />
+                    ) : (
+                      <Package className="w-4 h-4 text-amber-600" />
+                    )}
+                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                      {formIsCombo ? 'Combo Package Item Mapping' : 'Stock Deduction / Recipe Mapping'}
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-200/60 dark:bg-slate-700 text-amber-900 dark:text-amber-300">
+                    {formRecipe.length} {formRecipe.length === 1 ? 'Item' : 'Items'} Mapped
+                  </span>
+                </div>
+
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {formIsCombo 
+                    ? 'Add all items included in this combo package with their deduction quantities.' 
+                    : 'Map this menu item to inventory stock. Choose whether to deduct in ML (liquor/pegs) or Qty (bottles/pieces).'}
+                </p>
+
+                {/* Recipe Item Inputs */}
+                <div className="space-y-2 pt-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                    {/* Select Inventory SKU */}
+                    <div className="sm:col-span-6">
+                      <select
+                        value={selectedInvId}
+                        onChange={e => setSelectedInvId(e.target.value)}
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      >
+                        <option value="">Select Inventory Stock Item...</option>
+                        {(inventory || []).map(inv => (
+                          <option key={inv.id} value={inv.id}>
+                            {inv.name} (Stock: {inv.stock} {inv.unit} - {inv.category})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Deduction Type (ML vs QTY) */}
+                    <div className="sm:col-span-3">
+                      <select
+                        value={recipeDeductType}
+                        onChange={e => setRecipeDeductType(e.target.value as 'ml' | 'qty')}
+                        className="w-full px-2.5 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      >
+                        <option value="ml">ML (Peg/Vol)</option>
+                        <option value="qty">Qty (Bottles/Pcs)</option>
+                      </select>
+                    </div>
+
+                    {/* Quantity Input */}
+                    <div className="sm:col-span-3 flex gap-1.5">
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        value={recipeQty}
+                        onChange={e => setRecipeQty(e.target.value)}
+                        placeholder={recipeDeductType === 'ml' ? '30' : '1'}
+                        className="w-full px-2.5 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Quick Shortcut Buttons for Bar/Drink/Combo */}
+                  <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1">
+                    <div className="flex flex-wrap gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleApplyQuickRecipe('30ml')}
+                        className="px-2 py-1 bg-white dark:bg-slate-900 hover:bg-amber-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 rounded-lg text-[10px] font-bold text-slate-700 dark:text-slate-300 transition-colors"
+                      >
+                        🥃 30ml Peg
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleApplyQuickRecipe('60ml')}
+                        className="px-2 py-1 bg-white dark:bg-slate-900 hover:bg-amber-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 rounded-lg text-[10px] font-bold text-slate-700 dark:text-slate-300 transition-colors"
+                      >
+                        🥃 60ml Large
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleApplyQuickRecipe('1qty')}
+                        className="px-2 py-1 bg-white dark:bg-slate-900 hover:bg-amber-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 rounded-lg text-[10px] font-bold text-slate-700 dark:text-slate-300 transition-colors"
+                      >
+                        🍾 1 Bottle/Qty
+                      </button>
+                      {formIsCombo && (
+                        <button
+                          type="button"
+                          onClick={() => handleApplyQuickRecipe('4qty')}
+                          className="px-2 py-1 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 border border-indigo-200 dark:border-indigo-800 rounded-lg text-[10px] font-bold text-indigo-700 dark:text-indigo-300 transition-colors"
+                        >
+                          🎁 4x Combo Qty
+                        </button>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleAddRecipeItem}
+                      disabled={!selectedInvId}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1 shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Add to {formIsCombo ? 'Combo' : 'Recipe'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* List of Configured Items */}
+                {formRecipe.length > 0 ? (
+                  <div className="space-y-1.5 pt-2 border-t border-amber-200/60 dark:border-slate-700 max-h-40 overflow-y-auto">
+                    {formRecipe.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 flex items-center justify-center text-[10px] font-black">
+                            {idx + 1}
+                          </span>
+                          <div>
+                            <span className="font-bold text-slate-800 dark:text-slate-100">
+                              {item.itemName}
+                            </span>
+                            <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-amber-50 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                              Deducts: {item.quantity} {item.deductionType === 'ml' ? 'ml' : (item.unit || 'unit')}
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveRecipeItem(item.inventoryItemId)}
+                          className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors"
+                          title="Remove item"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-2 text-[11px] text-slate-400 italic">
+                    No stock item mapped yet. (Optional - add items above to auto-deduct inventory on order).
+                  </div>
+                )}
+              </div>
+
+              {/* 8. PRICE */}
               <div className="pt-2">
                 <label className="block text-[11px] font-black tracking-wider text-[#78350F] dark:text-amber-300/80 uppercase mb-1.5">
                   PRICE (₹) *

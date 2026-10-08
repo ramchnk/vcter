@@ -118,6 +118,14 @@ export interface PreBooking {
   status: 'Pending' | 'Confirmed' | 'CheckedIn' | 'CheckedOut' | 'Cancelled';
 }
 
+export interface RecipeItem {
+  inventoryItemId: string;
+  itemName: string;
+  deductionType: 'ml' | 'qty';
+  quantity: number;
+  unit?: string;
+}
+
 export interface MenuItem {
   id: string;
   tenantId?: string;
@@ -130,6 +138,7 @@ export interface MenuItem {
   dietary?: 'Veg' | 'Non-Veg' | 'Drinks';
   isCombo?: boolean;
   description?: string;
+  recipe?: RecipeItem[];
 }
 
 export interface OrderItem {
@@ -200,6 +209,7 @@ export interface InventoryItem {
   name: string;
   category: string;
   stock: number;
+  bottleSizeMl?: number;
   minStock: number;
   unit: string;
   expiryDate?: string;
@@ -1239,6 +1249,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else {
         addAudit('POS Sale', `Cash/Direct Sale ${orderNo} of ₹${grandTotal}`);
       }
+
+      // Auto-deduct inventory stock if menu items have recipe mappings or combos configured
+      if (order.items && order.items.length > 0) {
+        for (const orderItem of order.items) {
+          const menuItem = menuItems.find(m => m.id === orderItem.menuItemId);
+          if (menuItem && menuItem.recipe && menuItem.recipe.length > 0) {
+            for (const recipeItem of menuItem.recipe) {
+              const invItem = inventory.find(i => i.id === recipeItem.inventoryItemId);
+              if (invItem) {
+                const totalDeduct = (recipeItem.quantity || 1) * (orderItem.quantity || 1);
+                let deductAmount = totalDeduct;
+                let unitLabel = recipeItem.unit || invItem.unit || 'units';
+
+                // If recipe specifies ml and inventory is tracked in bottles
+                if (recipeItem.deductionType === 'ml') {
+                  const isBottleUnit = (invItem.unit || '').toLowerCase().includes('bottle') || 
+                                       (invItem.unit || '').toLowerCase().includes('btl');
+                  if (isBottleUnit) {
+                    const bottleSize = invItem.bottleSizeMl || 750;
+                    deductAmount = parseFloat((totalDeduct / bottleSize).toFixed(3));
+                    unitLabel = `bottles (${totalDeduct}ml)`;
+                  } else {
+                    deductAmount = totalDeduct;
+                    unitLabel = 'ml';
+                  }
+                }
+
+                await updateStockLevel(
+                  invItem.id,
+                  deductAmount,
+                  'out',
+                  invItem.category,
+                  `POS Sale [${orderNo}]: ${orderItem.quantity}x ${menuItem.name} (${deductAmount} ${unitLabel})`
+                );
+              }
+            }
+          }
+        }
+      }
     } catch (e) {
       console.error('Error adding POS order:', e);
     }
@@ -1472,18 +1521,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tId) return;
     const item = inventory.find(i => i.id === itemId);
     if (!item) return;
-    const newStock = direction === 'in' ? item.stock + amount : Math.max(0, item.stock - amount);
+    const newStock = direction === 'in' 
+      ? parseFloat(((item.stock || 0) + amount).toFixed(3)) 
+      : Math.max(0, parseFloat(((item.stock || 0) - amount).toFixed(3)));
     try {
       await api.put(`/inventory/${itemId}?tenantId=${tId}`, { stock: newStock });
       setInventory(prev => prev.map(i => i.id === itemId ? { ...i, stock: newStock } : i));
       if (description) {
         const adj = {
-          id: 'adj_' + Date.now(),
+          id: 'adj_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
           tenantId: tId,
           itemId,
           itemName: item.name,
           category: category || item.category,
-          amount,
+          amount: parseFloat(amount.toFixed(3)),
           unit: item.unit,
           direction,
           description,

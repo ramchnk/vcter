@@ -132,7 +132,14 @@ const menuItemSchema = new mongoose.Schema({
   imageUrl: String,
   dietary: { type: String, enum: ['Veg', 'Non-Veg', 'Drinks'], default: 'Veg' },
   isCombo: { type: Boolean, default: false },
-  description: String
+  description: String,
+  recipe: [{
+    inventoryItemId: String,
+    itemName: String,
+    deductionType: { type: String, default: 'qty' }, // 'qty' | 'ml'
+    quantity: { type: Number, default: 1 },
+    unit: String
+  }]
 }, { timestamps: true });
 menuItemSchema.index({ id: 1, tenantId: 1 }, { unique: true });
 
@@ -144,6 +151,7 @@ const inventorySchema = new mongoose.Schema({
   stock: { type: Number, default: 0 },
   minStock: { type: Number, default: 5 },
   unit: { type: String, default: 'units' },
+  bottleSizeMl: { type: Number, default: 750 },
   pricePerUnit: { type: Number, default: 0 },
   expiryDate: String,
   barcode: String,
