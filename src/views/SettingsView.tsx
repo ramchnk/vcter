@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useApp, MenuItem, UserRole, HotelSettings, RoomCategory, DEFAULT_ENABLED_MENUS } from '../context/AppContext';
+import { useApp, MenuItem, UserRole, HotelSettings, RoomCategory, Room, DEFAULT_ENABLED_MENUS } from '../context/AppContext';
 import { 
   Settings, 
   Plus, 
@@ -19,7 +19,8 @@ import {
   UserCheck,
   Save,
   Database,
-  Clock
+  Clock,
+  Pencil
 } from 'lucide-react';
 import { formatTime12h, formatTime24h } from '../utils/dateUtils';
 
@@ -59,6 +60,7 @@ export const SettingsView: React.FC = () => {
     updateSettings,
     rooms,
     addRoom,
+    updateRoom,
     deleteRoom,
     cloudDbConnected,
     cloudDbName
@@ -140,6 +142,44 @@ export const SettingsView: React.FC = () => {
   const [newRoomFloor, setNewRoomFloor] = useState(1);
   const [newRoomCategory, setNewRoomCategory] = useState<RoomCategory>('Deluxe AC');
   const [newRoomPrice, setNewRoomPrice] = useState(1500);
+
+  // Edit Room Modal state
+  const [showEditRoomModal, setShowEditRoomModal] = useState(false);
+  const [editRoomId, setEditRoomId] = useState('');
+  const [editRoomNumber, setEditRoomNumber] = useState('');
+  const [editRoomFloor, setEditRoomFloor] = useState<number>(1);
+  const [editRoomCategory, setEditRoomCategory] = useState<RoomCategory>('Deluxe AC');
+  const [editRoomPrice, setEditRoomPrice] = useState<number>(2500);
+  const [isSubmittingEditRoom, setIsSubmittingEditRoom] = useState(false);
+
+  const handleOpenEditRoom = (room: Room) => {
+    setEditRoomId(room.id);
+    setEditRoomNumber(room.roomNumber);
+    setEditRoomFloor(room.floor || 1);
+    setEditRoomCategory(room.category);
+    setEditRoomPrice(room.price || 0);
+    setShowEditRoomModal(true);
+  };
+
+  const handleEditRoomSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editRoomId || !editRoomNumber || editRoomPrice <= 0) return;
+    setIsSubmittingEditRoom(true);
+    try {
+      await updateRoom(editRoomId, {
+        roomNumber: editRoomNumber,
+        floor: Number(editRoomFloor),
+        category: editRoomCategory,
+        price: Number(editRoomPrice)
+      });
+      setShowEditRoomModal(false);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to update room details.');
+    } finally {
+      setIsSubmittingEditRoom(false);
+    }
+  };
 
   const foodCategories = ['Breakfast', 'Lunch', 'Dinner', 'Beverages', 'Desserts'];
   const barCategories = ['Beer', 'Whisky', 'Rum', 'Vodka', 'Wine', 'Cocktails', 'Snacks'];
@@ -1047,7 +1087,14 @@ export const SettingsView: React.FC = () => {
                       </p>
                       <span className="text-[9px] text-slate-450 font-semibold">Floor {room.floor} • ₹{room.price}/day • Status: <span className="font-bold text-emerald-500">{room.status}</span></span>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleOpenEditRoom(room)}
+                        className="p-1.5 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 rounded-lg transition-colors"
+                        title="Edit Room Details (Floor, Price, Category, Room #)"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
                       <button
                         onClick={async () => {
                           if (room.status !== 'Available') {
@@ -1072,6 +1119,114 @@ export const SettingsView: React.FC = () => {
         )}
 
       </div>
+
+      {/* EDIT ROOM DETAILS MODAL */}
+      {showEditRoomModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-md rounded-2xl shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b pb-2 border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200/50 dark:border-indigo-800/50">
+                  <Pencil className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 dark:text-slate-100">
+                    Edit Room Details
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Modify floor number, rent price, category, or room number
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setShowEditRoomModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl font-bold">×</button>
+            </div>
+
+            <form onSubmit={handleEditRoomSubmit} className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                    Room Number <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editRoomNumber}
+                    onChange={e => setEditRoomNumber(e.target.value)}
+                    className="w-full p-2.5 border rounded-xl dark:bg-slate-950 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-mono font-bold text-sm focus:ring-2 focus:ring-indigo-500"
+                    placeholder="e.g. 101"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                    Floor Number <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={0}
+                    value={editRoomFloor}
+                    onChange={e => setEditRoomFloor(Number(e.target.value))}
+                    className="w-full p-2.5 border rounded-xl dark:bg-slate-950 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-bold text-sm focus:ring-2 focus:ring-indigo-500"
+                    placeholder="1"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                  Room Category <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={editRoomCategory}
+                  onChange={e => setEditRoomCategory(e.target.value as RoomCategory)}
+                  className="w-full p-2.5 border rounded-xl dark:bg-slate-950 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-semibold focus:ring-2 focus:ring-indigo-500"
+                >
+                  {['Deluxe AC', 'Deluxe Superior', 'Elite', 'Superior', 'Family Suite', 'Non AC'].map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                  Room Rent Price / Day (₹) <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-slate-400 font-bold">₹</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    required
+                    value={editRoomPrice || ''}
+                    onChange={e => setEditRoomPrice(Number(e.target.value))}
+                    className="w-full pl-8 pr-3 py-2.5 border rounded-xl dark:bg-slate-950 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-mono font-bold text-sm focus:ring-2 focus:ring-indigo-500"
+                    placeholder="2500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 justify-end pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowEditRoomModal(false)}
+                  className="px-4 py-2 border dark:border-slate-800 text-slate-500 dark:text-slate-400 font-semibold rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingEditRoom || !editRoomNumber || editRoomPrice <= 0}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  {isSubmittingEditRoom ? 'Saving...' : 'Save Room Details'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );

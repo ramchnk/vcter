@@ -381,6 +381,7 @@ interface AppContextType {
   bulkAddMenuItems: (items: MenuItem[]) => Promise<void>;
   updateSettings: (settings: HotelSettings) => Promise<void>;
   addRoom: (room: Omit<Room, 'status' | 'restaurantCharges' | 'barCharges' | 'laundryCharges' | 'hallCharges' | 'otherCharges'>) => Promise<void>;
+  updateRoom: (roomId: string, updates: Partial<Room>) => Promise<void>;
   deleteRoom: (roomId: string) => Promise<void>;
   resetTenantData: () => Promise<void>;
   isMenuEnabled: (menuId: string) => boolean;
@@ -906,6 +907,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addAudit('Room Deleted', `Deleted room ${roomId}`);
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const updateRoom = async (roomId: string, updates: Partial<Room>) => {
+    const tId = effectiveTenantId;
+    if (!tId) return;
+    try {
+      const res = await api.put(`/rooms/${roomId}?tenantId=${tId}`, updates);
+      const updated = res.data || updates;
+      setRooms(prev => prev.map(r => r.id === roomId ? { ...r, ...updated } : r));
+      addAudit('Room Details Updated', `Updated details for Room ${updates.roomNumber || roomId}`);
+    } catch (e) {
+      console.error(e);
+      throw e;
     }
   };
 
@@ -1626,6 +1641,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         bulkAddMenuItems,
         updateSettings,
         addRoom,
+        updateRoom,
         deleteRoom,
         resetTenantData,
         isMenuEnabled,
