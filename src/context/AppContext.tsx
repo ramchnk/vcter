@@ -338,6 +338,7 @@ interface AppContextType {
   transferRoom: (fromRoomId: string, toRoomId: string) => Promise<void>;
   updateHousekeeping: (roomId: string, status: RoomStatus) => Promise<void>;
   extendStay: (roomId: string, days: number) => Promise<void>;
+  addRoomCharge: (roomId: string, amount: number, description?: string) => Promise<void>;
   
   addPreBooking: (booking: Omit<PreBooking, 'id' | 'status' | 'bookingDate'>) => Promise<void>;
   cancelPreBooking: (id: string) => Promise<void>;
@@ -1064,6 +1065,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const addRoomCharge = async (roomId: string, amount: number, description?: string) => {
+    const tId = effectiveTenantId;
+    if (!tId) return;
+    const room = rooms.find(r => r.id === roomId);
+    if (!room) return;
+    const newOtherCharges = (Number(room.otherCharges) || 0) + Number(amount);
+    try {
+      await api.put(`/rooms/${roomId}?tenantId=${tId}`, { otherCharges: newOtherCharges });
+      setRooms(prev => prev.map(r => r.id === roomId ? { ...r, otherCharges: newOtherCharges } : r));
+      addAudit('Room Charge Added', `Added charge of ₹${amount} (${description || 'Extra Bed / Other Service'}) to Room ${room.roomNumber}`);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   // RESTAURANT & BAR ORDERS
   const addRestaurantBarOrder = async (order: Omit<Order, 'id' | 'orderNumber' | 'timestamp' | 'tax' | 'total' | 'status'>) => {
     const tId = effectiveTenantId;
@@ -1567,6 +1583,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         transferRoom,
         updateHousekeeping,
         extendStay,
+        addRoomCharge,
 
         addPreBooking,
         cancelPreBooking,
