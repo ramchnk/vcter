@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useApp, PreBooking, RoomCategory, Room } from '../context/AppContext';
+import { useApp, PreBooking, RoomCategory, Room, BOOKING_SOURCES } from '../context/AppContext';
 import { 
   Calendar, UserPlus, XCircle, CheckCircle, Clock, AlertTriangle, 
   CalendarDays, BedDouble, Search, Filter, ShieldCheck, ChevronLeft, ChevronRight,
@@ -24,6 +24,9 @@ export const PreBookingView: React.FC = () => {
   const [checkOutDate, setCheckOutDate] = useState('');
   const [noOfGuests, setNoOfGuests] = useState(1);
   const [advancePaid, setAdvancePaid] = useState(0);
+  const [roomPrice, setRoomPrice] = useState<number>(1500);
+  const [bookingSource, setBookingSource] = useState<string>('Direct / Walk-In');
+  const [isAcSwitchedOff, setIsAcSwitchedOff] = useState<boolean>(false);
   const [specialRequests, setSpecialRequests] = useState('');
   
   // Specific room assignment option
@@ -122,6 +125,14 @@ export const PreBookingView: React.FC = () => {
     };
   }, [checkInDate, checkOutDate, roomCategory, rooms, preBookings, todayStr]);
 
+  // Calculate duration in nights
+  const stayNights = useMemo(() => {
+    if (!checkInDate || !checkOutDate || checkInDate >= checkOutDate) return 1;
+    const s = new Date(checkInDate).getTime();
+    const e = new Date(checkOutDate).getTime();
+    return Math.max(1, Math.ceil((e - s) / (1000 * 60 * 60 * 24)));
+  }, [checkInDate, checkOutDate]);
+
   // Form Submit Handler
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -143,6 +154,9 @@ export const PreBookingView: React.FC = () => {
       if (rm) assignedRoomNumber = rm.roomNumber;
     }
 
+    const nightlyRate = Number(roomPrice) || 1500;
+    const estTotalFolio = stayNights * nightlyRate;
+
     await addPreBooking({
       guestName,
       phone,
@@ -152,10 +166,15 @@ export const PreBookingView: React.FC = () => {
       gstNumber: gstNumber || undefined,
       roomCategory,
       roomNumber: assignedRoomNumber,
+      roomPrice: nightlyRate,
+      bookingSource: bookingSource,
+      isAcSwitchedOff: isAcSwitchedOff,
       checkInDate,
       checkOutDate,
       noOfGuests,
       advancePaid: Number(advancePaid),
+      totalAmount: estTotalFolio,
+      roomRentTotal: estTotalFolio,
       specialRequests: specialRequests || undefined
     });
 
@@ -170,6 +189,9 @@ export const PreBookingView: React.FC = () => {
     setCheckOutDate('');
     setNoOfGuests(1);
     setAdvancePaid(0);
+    setRoomPrice(1500);
+    setBookingSource('Direct / Walk-In');
+    setIsAcSwitchedOff(false);
     setSpecialRequests('');
     setAssignSpecificRoom(false);
     setSelectedSpecificRoomId('');
@@ -457,6 +479,112 @@ export const PreBookingView: React.FC = () => {
                 )}
               </div>
 
+              {/* Room Nightly Tariff & Booking Channel */}
+              <div className="p-3.5 bg-indigo-50/50 dark:bg-indigo-950/40 rounded-xl border border-indigo-200/60 dark:border-indigo-800/60 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 text-xs">
+                    <span>💰</span>
+                    <span>Agreed Room Rate & Channel Source</span>
+                  </label>
+                  <span className="text-[10px] font-bold font-mono text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                    Est. Total: ₹{(stayNights * (roomPrice || 1500)).toLocaleString()} ({stayNights}N)
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Editable Nightly Rate */}
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 dark:text-slate-300 text-[11px] block">
+                      Nightly Room Rate (₹/Day) *
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2 font-mono font-bold text-slate-400">₹</span>
+                      <input
+                        type="number"
+                        required
+                        min={1}
+                        value={roomPrice}
+                        onChange={e => setRoomPrice(Number(e.target.value))}
+                        className="w-full pl-7 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-bold font-mono text-indigo-600 dark:text-indigo-400 text-sm focus:ring-2 focus:ring-indigo-500/20"
+                        placeholder="1500"
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-400">
+                      Adjust for dynamic online OTA prices (MMT, Booking.com) or discounts.
+                    </p>
+                  </div>
+
+                  {/* Booking Source / Channel */}
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 dark:text-slate-300 text-[11px] block">
+                      Booking Channel / Source
+                    </label>
+                    <select
+                      value={bookingSource}
+                      onChange={e => setBookingSource(e.target.value)}
+                      className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-semibold text-slate-800 dark:text-slate-200 text-xs"
+                    >
+                      {BOOKING_SOURCES.map(source => (
+                        <option key={source} value={source}>
+                          {source === 'Direct / Walk-In' ? '🚶 ' : ''}
+                          {source === 'MakeMyTrip' ? '🌐 ' : ''}
+                          {source === 'Booking.com' ? '🏨 ' : ''}
+                          {source === 'Agoda' ? '✈️ ' : ''}
+                          {source === 'Goibibo' ? '🌍 ' : ''}
+                          {source === 'Airbnb' ? '🏡 ' : ''}
+                          {source === 'Corporate / Travel Agent' ? '🏢 ' : ''}
+                          {source === 'Phone / WhatsApp Booking' ? '📞 ' : ''}
+                          {source}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-slate-400">
+                      Track online OTA vs direct reservations.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Quick AC / Non-AC Mode Toggle */}
+                <div className="pt-2 border-t border-indigo-100 dark:border-indigo-900/40 flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                    AC Mode Option:
+                  </span>
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAcSwitchedOff(false);
+                        const match = rooms.find(r => r.category === roomCategory);
+                        setRoomPrice(match?.price || 1500);
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                        !isAcSwitchedOff
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      ❄️ AC Active
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAcSwitchedOff(true);
+                        const match = rooms.find(r => r.category === roomCategory);
+                        const base = match?.price || 1500;
+                        setRoomPrice(Math.max(500, Math.round(base * 0.67)));
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                        isAcSwitchedOff
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      🍃 Non-AC (AC Switched Off)
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               {/* Guest Details */}
               <div className="space-y-1">
                 <label className="font-bold text-slate-500">Guest Full Name *</label>
@@ -667,14 +795,31 @@ export const PreBookingView: React.FC = () => {
                             </td>
 
                             <td className="py-3">
-                              <span className="font-semibold text-slate-700 dark:text-slate-300">{booking.roomCategory}</span>
-                              {booking.roomNumber ? (
-                                <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono font-bold mt-0.5">
-                                  Room {booking.roomNumber}
-                                </p>
-                              ) : (
-                                <p className="text-[10px] text-slate-400 italic mt-0.5">Auto-pool</p>
-                              )}
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-semibold text-slate-700 dark:text-slate-300">{booking.roomCategory}</span>
+                                {booking.bookingSource && booking.bookingSource !== 'Direct / Walk-In' && (
+                                  <span className="text-[9px] px-1.5 py-0.2 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-bold rounded border border-indigo-200 dark:border-indigo-800">
+                                    {booking.bookingSource}
+                                  </span>
+                                )}
+                                {booking.isAcSwitchedOff && (
+                                  <span className="text-[9px] px-1.5 py-0.2 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 font-bold rounded border border-emerald-200 dark:border-emerald-800">
+                                    🍃 Non-AC
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                {booking.roomNumber ? (
+                                  <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono font-bold">
+                                    Room {booking.roomNumber}
+                                  </p>
+                                ) : (
+                                  <p className="text-[10px] text-slate-400 italic">Auto-pool</p>
+                                )}
+                                <span className="text-[10px] font-mono font-bold text-slate-600 dark:text-slate-400">
+                                  ₹{booking.roomPrice || 1500}/night
+                                </span>
+                              </div>
                             </td>
 
                             <td className="py-3 font-mono">

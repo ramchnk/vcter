@@ -52,7 +52,17 @@ export interface TenantAccount {
 
 export type RoomCategory = 'Deluxe AC' | 'Deluxe Superior' | 'Elite' | 'Superior' | 'Family Suite' | 'Non AC' | string;
 export const ROOM_CATEGORIES: string[] = ['Deluxe AC', 'Deluxe Superior', 'Elite', 'Superior', 'Family Suite', 'Non AC'];
-export type RoomStatus = 'Available' | 'Occupied' | 'Reserved' | 'Cleaning' | 'Maintenance';
+export const BOOKING_SOURCES = [
+  'Direct / Walk-In',
+  'MakeMyTrip',
+  'Booking.com',
+  'Agoda',
+  'Goibibo',
+  'Airbnb',
+  'Corporate / Travel Agent',
+  'Phone / WhatsApp Booking',
+  'Other'
+];
 
 export interface Room {
   id: string;
@@ -60,6 +70,9 @@ export interface Room {
   category: RoomCategory;
   floor: number;
   price: number;
+  basePrice?: number;
+  bookingSource?: string;
+  isAcSwitchedOff?: boolean;
   status: RoomStatus;
   tenantId?: string;
   guestName?: string;
@@ -90,11 +103,16 @@ export interface PreBooking {
   gstNumber?: string;
   roomCategory: RoomCategory;
   roomNumber?: string;
+  roomPrice?: number;
+  bookingSource?: string;
+  isAcSwitchedOff?: boolean;
   bookingDate: string;
   checkInDate: string;
   checkOutDate: string;
   noOfGuests: number;
   advancePaid: number;
+  totalAmount?: number;
+  roomRentTotal?: number;
   specialRequests?: string;
   status: 'Pending' | 'Confirmed' | 'CheckedIn' | 'CheckedOut' | 'Cancelled';
 }
@@ -333,7 +351,19 @@ interface AppContextType {
   tenantId: string | null;
   logout: () => Promise<void>;
   
-  checkInRoom: (roomId: string, guestInfo: { name: string; phone: string; email?: string; address?: string; idProof: string; gstNumber?: string; noOfGuests: number; advancePaid: number }) => Promise<void>;
+  checkInRoom: (roomId: string, guestInfo: { 
+    name: string; 
+    phone: string; 
+    email?: string; 
+    address?: string; 
+    idProof: string; 
+    gstNumber?: string; 
+    noOfGuests: number; 
+    advancePaid: number;
+    price?: number;
+    bookingSource?: string;
+    isAcSwitchedOff?: boolean;
+  }) => Promise<void>;
   checkOutRoom: (roomId: string, paymentDetails: { method: 'Cash' | 'Card' | 'UPI' | 'Split'; discount: number; splitDetails?: string }) => Promise<void>;
   transferRoom: (fromRoomId: string, toRoomId: string) => Promise<void>;
   updateHousekeeping: (roomId: string, status: RoomStatus) => Promise<void>;
@@ -924,12 +954,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const checkInRoom = async (roomId: string, guestInfo: { name: string; phone: string; email?: string; address?: string; idProof: string; gstNumber?: string; noOfGuests: number; advancePaid: number }) => {
+  const checkInRoom = async (roomId: string, guestInfo: { 
+    name: string; 
+    phone: string; 
+    email?: string; 
+    address?: string; 
+    idProof: string; 
+    gstNumber?: string; 
+    noOfGuests: number; 
+    advancePaid: number;
+    price?: number;
+    bookingSource?: string;
+    isAcSwitchedOff?: boolean;
+  }) => {
     const tId = effectiveTenantId;
     if (!tId) return;
+    const room = rooms.find(r => r.id === roomId);
+    const basePrice = room?.basePrice || room?.price || 1500;
+    const stayPrice = guestInfo.price !== undefined && Number(guestInfo.price) > 0 
+      ? Number(guestInfo.price) 
+      : (room?.price || basePrice);
+
     try {
       const roomUpdate: Partial<Room> = {
         status: 'Occupied',
+        basePrice: basePrice,
+        price: stayPrice,
+        bookingSource: guestInfo.bookingSource || 'Direct / Walk-In',
+        isAcSwitchedOff: !!guestInfo.isAcSwitchedOff,
         guestName: guestInfo.name,
         guestPhone: guestInfo.phone,
         guestEmail: guestInfo.email || '',
@@ -948,7 +1000,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
       await api.put(`/rooms/${roomId}?tenantId=${tId}`, roomUpdate);
       setRooms(prev => prev.map(r => r.id === roomId ? { ...r, ...roomUpdate } as Room : r));
-      addAudit('Check-In', `Guest ${guestInfo.name} checked into Room ${rooms.find(r => r.id === roomId)?.roomNumber}`, undefined, 'Occupied');
+      const sourceTag = guestInfo.bookingSource ? ` via ${guestInfo.bookingSource}` : '';
+      const acTag = guestInfo.isAcSwitchedOff ? ' (Non-AC Mode)' : '';
+      addAudit('Check-In', `Guest ${guestInfo.name} checked into Room ${room?.roomNumber || roomId} @ ₹${stayPrice}/night${sourceTag}${acTag}`, undefined, 'Occupied');
     } catch (e) {
       console.error(e);
     }
@@ -959,9 +1013,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tId) return;
     const room = rooms.find(r => r.id === roomId);
     if (!room) return;
+    
+    // Capture billing and guest info before resetting room
+    const summary = getBillSummary(room.roomNumber);
+    const roomRent = summary ? summary.roomRentTotal : (room.price || 0);
+    const totalFolio = summary ? summary.grandTotal : roomRent;
+    const guestName = room.guestName || 'In-House Guest';
+    const checkInDate = room.checkInDate || new Date().toISOString().split('T')[0];
+    const checkOutDate = new Date().toISOString().split('T')[0];
+
     try {
       const resetData: Partial<Room> = {
         status: 'Cleaning',
+        price: room.basePrice || room.price, // Reset back to standard base room price
+        bookingSource: undefined,
+        isAcSwitchedOff: false,
         guestName: '',
         guestPhone: '',
         guestEmail: '',
@@ -983,17 +1049,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setRooms(prev => prev.map(r => r.id === roomId ? { ...r, ...resetData } as Room : r));
       setOrders(prev => prev.map(o => o.roomNumber === room.roomNumber && o.status === 'PostedToRoom' ? { ...o, status: 'Paid' } : o));
 
-      // Auto update matching checked-in reservation to CheckedOut
+      // Auto update or create matching reservation in preBookings to CheckedOut
       const matchingPre = preBookings.find(pb => 
         (pb.roomNumber === room.roomNumber || (pb.phone && pb.phone === room.guestPhone)) &&
-        pb.status === 'CheckedIn'
+        (pb.status === 'CheckedIn' || pb.status === 'Confirmed')
       );
       if (matchingPre) {
-        await api.put(`/pre-bookings/${matchingPre.id}?tenantId=${tId}`, { status: 'CheckedOut' });
-        setPreBookings(prev => prev.map(p => p.id === matchingPre.id ? { ...p, status: 'CheckedOut' } : p));
+        const updateData: Partial<PreBooking> = {
+          status: 'CheckedOut',
+          checkInDate: checkInDate,
+          checkOutDate: checkOutDate,
+          roomRentTotal: roomRent,
+          totalAmount: totalFolio,
+          advancePaid: room.advancePaid || matchingPre.advancePaid || 0
+        };
+        await api.put(`/pre-bookings/${matchingPre.id}?tenantId=${tId}`, updateData);
+        setPreBookings(prev => prev.map(p => p.id === matchingPre.id ? { ...p, ...updateData } : p));
+      } else {
+        // Create completed stay record for walk-in guest so revenue & P&L are accurately recorded
+        const newCompletedStay: PreBooking = {
+          id: 'pb_stay_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+          tenantId: tId,
+          guestName: guestName,
+          phone: room.guestPhone || '',
+          email: room.guestEmail || '',
+          address: room.guestAddress || '',
+          idProof: room.guestIdProof || '',
+          gstNumber: room.gstNumber || '',
+          roomCategory: room.category,
+          roomNumber: room.roomNumber,
+          bookingDate: checkInDate,
+          checkInDate: checkInDate,
+          checkOutDate: checkOutDate,
+          noOfGuests: room.noOfGuests || 1,
+          advancePaid: room.advancePaid || 0,
+          roomRentTotal: roomRent,
+          totalAmount: totalFolio,
+          status: 'CheckedOut'
+        };
+        try {
+          const res = await api.post('/pre-bookings', newCompletedStay);
+          const saved = res.data || newCompletedStay;
+          setPreBookings(prev => [saved, ...prev.filter(p => p.id !== saved.id)]);
+        } catch (e) {
+          setPreBookings(prev => [newCompletedStay, ...prev]);
+        }
       }
 
-      addAudit('Check-Out', `Guest ${room.guestName} checked out of Room ${room.roomNumber}. Paid via ${paymentDetails.method}. Discount: ₹${paymentDetails.discount}`, 'Occupied', 'Cleaning');
+      addAudit(
+        'Check-Out', 
+        `Guest ${guestName} checked out of Room ${room.roomNumber}. Room Rent: ₹${roomRent}. Total Folio: ₹${totalFolio}. Paid via ${paymentDetails.method}. Discount: ₹${paymentDetails.discount}`, 
+        'Occupied', 
+        'Cleaning'
+      );
     } catch (e) {
       console.error(e);
     }
@@ -1251,6 +1359,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const pb = preBookings.find(p => p.id === id);
     if (!pb) return;
     const targetRoom = rooms.find(r => r.id === roomId);
+    
+    // Calculate nightly price if custom roomPrice was given
+    let stayPrice = pb.roomPrice;
+    if (!stayPrice && pb.totalAmount && pb.checkInDate && pb.checkOutDate) {
+      const s = new Date(pb.checkInDate).getTime();
+      const e = new Date(pb.checkOutDate).getTime();
+      const nights = Math.max(1, Math.ceil((e - s) / 86400000));
+      stayPrice = Math.round(pb.totalAmount / nights);
+    }
+    if (!stayPrice) {
+      stayPrice = targetRoom?.price || 1500;
+    }
+
     try {
       await checkInRoom(roomId, {
         name: pb.guestName,
@@ -1260,7 +1381,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         idProof: pb.idProof,
         gstNumber: pb.gstNumber,
         noOfGuests: pb.noOfGuests || 1,
-        advancePaid: pb.advancePaid || 0
+        advancePaid: pb.advancePaid || 0,
+        price: stayPrice,
+        bookingSource: pb.bookingSource || 'Pre-Booking / Online OTA',
+        isAcSwitchedOff: pb.isAcSwitchedOff
       });
       await api.put(`/pre-bookings/${id}?tenantId=${tId}`, { 
         status: 'CheckedIn', 

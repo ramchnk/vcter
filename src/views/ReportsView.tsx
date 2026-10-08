@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useApp } from '../context/AppContext';
+import { useApp, ROOM_CATEGORIES } from '../context/AppContext';
 import { 
   BarChart3, 
   FileSpreadsheet, 
@@ -16,7 +16,9 @@ import {
   RefreshCw,
   Layers,
   Building2,
-  CheckCircle2
+  CheckCircle2,
+  BedDouble,
+  Users
 } from 'lucide-react';
 
 import { 
@@ -150,12 +152,20 @@ export const ReportsView: React.FC = () => {
   }, [preBookings, effectiveTenantId]);
 
   const filteredPreBookings = useMemo(() => {
-    return tenantPreBookings.filter(pb => isDateInRange(pb.bookingDate || pb.checkInDate, startDate, endDate));
+    return tenantPreBookings.filter(pb => isDateInRange(pb.checkOutDate || pb.checkInDate || pb.bookingDate, startDate, endDate));
   }, [tenantPreBookings, startDate, endDate]);
 
   const tenantRooms = useMemo(() => {
     return rooms.filter(r => !effectiveTenantId || !r.tenantId || r.tenantId === effectiveTenantId);
   }, [rooms, effectiveTenantId]);
+
+  const tenantAuditLogs = useMemo(() => {
+    return (auditLogs || []).filter(a => !effectiveTenantId || !a.tenantId || a.tenantId === effectiveTenantId);
+  }, [auditLogs, effectiveTenantId]);
+
+  const filteredAuditLogs = useMemo(() => {
+    return tenantAuditLogs.filter(a => isDateInRange(a.timestamp, startDate, endDate));
+  }, [tenantAuditLogs, startDate, endDate]);
 
   const filteredRooms = useMemo(() => {
     return tenantRooms.filter(r => {
@@ -171,8 +181,8 @@ export const ReportsView: React.FC = () => {
   // 1. Departmental sales (date filtered & strictly tenant matched)
   const roomRev = useMemo(() => {
     let rev = 0;
+    // 1. In-House occupied rooms
     filteredRooms.forEach(r => {
-      // ONLY count actual occupied rooms or rooms with active guest stays
       if (r.status === 'Occupied' || (r.checkInDate && r.guestName)) {
         const bill = getBillSummary(r.roomNumber);
         rev += bill ? bill.roomRentTotal : (r.price || 0);
@@ -181,15 +191,48 @@ export const ReportsView: React.FC = () => {
       }
     });
 
-    // Also include advance deposits from confirmed pre-bookings in this date range
+    // 2. Completed / Checked-Out Stays & Pre-Bookings
     filteredPreBookings.forEach(pb => {
-      if (pb.advancePaid > 0 && !filteredRooms.some(r => r.guestPhone === pb.phone && (r.status === 'Occupied' || r.guestName))) {
-        rev += pb.advancePaid;
+      if (pb.status === 'CheckedOut') {
+        let stayDays = 1;
+        if (pb.checkInDate && pb.checkOutDate) {
+          const s = new Date(pb.checkInDate).getTime();
+          const e = new Date(pb.checkOutDate).getTime();
+          stayDays = Math.max(1, Math.ceil((e - s) / (1000 * 60 * 60 * 24)));
+        }
+        const matchedRoom = tenantRooms.find(r => r.roomNumber === pb.roomNumber || r.category === pb.roomCategory);
+        const roomPrice = matchedRoom ? matchedRoom.price : 2000;
+        const rent = (pb as any).roomRentTotal || ((pb as any).totalAmount ? (pb as any).totalAmount : (stayDays * roomPrice));
+        rev += rent;
+      } else if (pb.status === 'Confirmed' || pb.status === 'Pending') {
+        if (pb.advancePaid > 0 && !filteredRooms.some(r => r.guestPhone === pb.phone && (r.status === 'Occupied' || r.guestName))) {
+          rev += pb.advancePaid;
+        }
+      }
+    });
+
+    // 3. Fallback: Parse check-out audit logs for past checkouts
+    filteredAuditLogs.forEach(a => {
+      if (a.action === 'Check-Out') {
+        const matchRoom = a.details?.match(/Room\s+([A-Za-z0-9_-]+)/i);
+        const roomNo = matchRoom ? matchRoom[1] : '';
+        const alreadyInPre = filteredPreBookings.some(pb => pb.status === 'CheckedOut' && pb.roomNumber === roomNo);
+        if (!alreadyInPre) {
+          const matchRent = a.details?.match(/Room Rent:\s*₹?([0-9]+(?:\.[0-9]+)?)/i);
+          const matchTotal = a.details?.match(/Total Folio:\s*₹?([0-9]+(?:\.[0-9]+)?)/i) || a.details?.match(/Total Bill:\s*₹?([0-9]+(?:\.[0-9]+)?)/i);
+          const matchPrice = matchRent ? parseFloat(matchRent[1]) : (matchTotal ? parseFloat(matchTotal[1]) : 0);
+          if (matchPrice > 0) {
+            rev += matchPrice;
+          } else {
+            const matchedRoom = tenantRooms.find(r => r.roomNumber === roomNo);
+            if (matchedRoom) rev += (matchedRoom.price || 0);
+          }
+        }
       }
     });
 
     return rev;
-  }, [filteredRooms, filteredPreBookings, getBillSummary]);
+  }, [filteredRooms, filteredPreBookings, filteredAuditLogs, tenantRooms, getBillSummary]);
 
   const restSales = useMemo(() => filteredOrders.filter(o => !o.isBar).reduce((acc, o) => acc + o.total, 0), [filteredOrders]);
   const barSales = useMemo(() => filteredOrders.filter(o => o.isBar).reduce((acc, o) => acc + o.total, 0), [filteredOrders]);
@@ -197,14 +240,6 @@ export const ReportsView: React.FC = () => {
   const hallSales = useMemo(() => filteredHall.filter(o => o.status !== 'Cancelled').reduce((acc, o) => acc + o.totalPrice, 0), [filteredHall]);
   const purchaseExpenses = useMemo(() => filteredPurchases.reduce((acc, p) => acc + p.totalAmount, 0), [filteredPurchases]);
   const operationalExpenses = useMemo(() => filteredExpenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0), [filteredExpenses]);
-
-  const tenantAuditLogs = useMemo(() => {
-    return (auditLogs || []).filter(a => !effectiveTenantId || !a.tenantId || a.tenantId === effectiveTenantId);
-  }, [auditLogs, effectiveTenantId]);
-
-  const filteredAuditLogs = useMemo(() => {
-    return tenantAuditLogs.filter(a => isDateInRange(a.timestamp, startDate, endDate));
-  }, [tenantAuditLogs, startDate, endDate]);
 
   const totalDiscounts = useMemo(() => {
     let sum = 0;
@@ -254,28 +289,142 @@ export const ReportsView: React.FC = () => {
       .filter(o => o.pendingAmount > 0);
   }, [tenantRooms, getBillSummary]);
 
-  // Occupancy stats by category
-  const categoriesCount = useMemo(() => {
-    const counts: { [key: string]: { total: number; occupied: number } } = {
-      'Deluxe AC': { total: 0, occupied: 0 },
-      'Deluxe Superior': { total: 0, occupied: 0 },
-      'Elite': { total: 0, occupied: 0 },
-      'Superior': { total: 0, occupied: 0 },
-      'Family Suite': { total: 0, occupied: 0 },
-      'Non AC': { total: 0, occupied: 0 }
-    };
+  // Detailed Room Category Booking & Occupancy Summary
+  const roomCategorySummary = useMemo(() => {
+    const categoriesSet = new Set<string>(ROOM_CATEGORIES);
+    tenantRooms.forEach(r => { if (r.category) categoriesSet.add(r.category); });
+    tenantPreBookings.forEach(pb => { if (pb.roomCategory) categoriesSet.add(pb.roomCategory); });
 
-    tenantRooms.forEach(r => {
-      if (!counts[r.category]) {
-        counts[r.category] = { total: 0, occupied: 0 };
-      }
-      counts[r.category].total += 1;
-      if (r.status === 'Occupied') {
-        counts[r.category].occupied += 1;
+    const categories = Array.from(categoriesSet);
+
+    const statsMap: Record<string, {
+      category: string;
+      totalInventory: number;
+      inHouseOccupied: number;
+      vacantRooms: number;
+      totalBookings: number;
+      nightsSold: number;
+      totalRevenue: number;
+      adr: number;
+      occupancyRate: number;
+    }> = {};
+
+    categories.forEach(cat => {
+      const catRooms = tenantRooms.filter(r => r.category === cat);
+      const catOccupied = filteredRooms.filter(r => r.category === cat && (r.status === 'Occupied' || (r.checkInDate && r.guestName))).length;
+      statsMap[cat] = {
+        category: cat,
+        totalInventory: catRooms.length,
+        inHouseOccupied: catOccupied,
+        vacantRooms: Math.max(0, catRooms.length - catOccupied),
+        totalBookings: 0,
+        nightsSold: 0,
+        totalRevenue: 0,
+        adr: 0,
+        occupancyRate: catRooms.length > 0 ? Math.round((catOccupied / catRooms.length) * 100) : 0
+      };
+    });
+
+    // 1. In-house occupied rooms
+    filteredRooms.forEach(r => {
+      if (r.status === 'Occupied' || (r.checkInDate && r.guestName)) {
+        const cat = r.category || 'Standard';
+        if (!statsMap[cat]) {
+          statsMap[cat] = { category: cat, totalInventory: 0, inHouseOccupied: 1, vacantRooms: 0, totalBookings: 0, nightsSold: 0, totalRevenue: 0, adr: 0, occupancyRate: 0 };
+        }
+        const bill = getBillSummary(r.roomNumber);
+        const stayNights = bill?.stayDuration || 1;
+        const rent = bill ? bill.roomRentTotal : (r.price || 0);
+        
+        statsMap[cat].totalBookings += 1;
+        statsMap[cat].nightsSold += stayNights;
+        statsMap[cat].totalRevenue += rent;
       }
     });
+
+    // 2. Pre-Bookings & Completed Checkouts
+    filteredPreBookings.forEach(pb => {
+      let cat = pb.roomCategory;
+      if (!cat && pb.roomNumber) {
+        const rm = tenantRooms.find(r => r.roomNumber === pb.roomNumber);
+        if (rm) cat = rm.category;
+      }
+      cat = cat || 'Standard';
+      if (!statsMap[cat]) {
+        statsMap[cat] = { category: cat, totalInventory: 0, inHouseOccupied: 0, vacantRooms: 0, totalBookings: 0, nightsSold: 0, totalRevenue: 0, adr: 0, occupancyRate: 0 };
+      }
+
+      if (pb.status === 'CheckedOut') {
+        let stayDays = 1;
+        if (pb.checkInDate && pb.checkOutDate) {
+          const s = new Date(pb.checkInDate).getTime();
+          const e = new Date(pb.checkOutDate).getTime();
+          stayDays = Math.max(1, Math.ceil((e - s) / (1000 * 60 * 60 * 24)));
+        }
+        const matchedRoom = tenantRooms.find(r => r.roomNumber === pb.roomNumber || r.category === pb.roomCategory);
+        const roomPrice = matchedRoom ? matchedRoom.price : 2000;
+        const rent = (pb as any).roomRentTotal || ((pb as any).totalAmount ? (pb as any).totalAmount : (stayDays * roomPrice));
+
+        statsMap[cat].totalBookings += 1;
+        statsMap[cat].nightsSold += stayDays;
+        statsMap[cat].totalRevenue += rent;
+      } else if (pb.status === 'Confirmed' || pb.status === 'Pending') {
+        let stayDays = 1;
+        if (pb.checkInDate && pb.checkOutDate) {
+          const s = new Date(pb.checkInDate).getTime();
+          const e = new Date(pb.checkOutDate).getTime();
+          stayDays = Math.max(1, Math.ceil((e - s) / (1000 * 60 * 60 * 24)));
+        }
+        const isAlreadyOccupied = filteredRooms.some(r => r.guestPhone === pb.phone && (r.status === 'Occupied' || r.guestName));
+        if (!isAlreadyOccupied) {
+          statsMap[cat].totalBookings += 1;
+          statsMap[cat].nightsSold += stayDays;
+          if (pb.advancePaid > 0) {
+            statsMap[cat].totalRevenue += pb.advancePaid;
+          }
+        }
+      }
+    });
+
+    // 3. Fallback audit logs for checkouts
+    filteredAuditLogs.forEach(a => {
+      if (a.action === 'Check-Out') {
+        const matchRoom = a.details?.match(/Room\s+([A-Za-z0-9_-]+)/i);
+        const roomNo = matchRoom ? matchRoom[1] : '';
+        const matchedRoom = tenantRooms.find(r => r.roomNumber === roomNo);
+        const cat = matchedRoom?.category || 'Standard';
+        
+        const alreadyInPre = filteredPreBookings.some(pb => pb.status === 'CheckedOut' && pb.roomNumber === roomNo);
+        if (!alreadyInPre) {
+          if (!statsMap[cat]) {
+            statsMap[cat] = { category: cat, totalInventory: 0, inHouseOccupied: 0, vacantRooms: 0, totalBookings: 0, nightsSold: 0, totalRevenue: 0, adr: 0, occupancyRate: 0 };
+          }
+          const matchRent = a.details?.match(/Room Rent:\s*₹?([0-9]+(?:\.[0-9]+)?)/i);
+          const matchTotal = a.details?.match(/Total Folio:\s*₹?([0-9]+(?:\.[0-9]+)?)/i) || a.details?.match(/Total Bill:\s*₹?([0-9]+(?:\.[0-9]+)?)/i);
+          const matchPrice = matchRent ? parseFloat(matchRent[1]) : (matchTotal ? parseFloat(matchTotal[1]) : (matchedRoom?.price || 0));
+          
+          statsMap[cat].totalBookings += 1;
+          statsMap[cat].nightsSold += 1;
+          statsMap[cat].totalRevenue += matchPrice;
+        }
+      }
+    });
+
+    // Calculate ADR & format
+    return Object.values(statsMap).map(s => ({
+      ...s,
+      adr: s.nightsSold > 0 ? Math.round(s.totalRevenue / s.nightsSold) : 0
+    }));
+  }, [tenantRooms, filteredRooms, filteredPreBookings, filteredAuditLogs, tenantPreBookings, getBillSummary]);
+
+  // Occupancy stats by category helper for backward compatibility
+  const categoriesCount = useMemo(() => {
+    const counts: { [key: string]: { total: number; occupied: number } } = {};
+    roomCategorySummary.forEach(c => {
+      counts[c.category] = { total: c.totalInventory, occupied: c.inHouseOccupied };
+    });
     return counts;
-  }, [tenantRooms]);
+  }, [roomCategorySummary]);
 
   // Unified Master Transactions List
   const masterTransactions = useMemo(() => {
@@ -419,22 +568,33 @@ export const ReportsView: React.FC = () => {
       downloadExcel(`Master_Transactions${dateTag}`, rows);
     } else if (activeReportTab === 'occupancy') {
       const rows: (string | number)[][] = [
-        ['HotelVista ERP - Room Occupancy & Category Breakdown Report'],
+        ['HotelVista ERP - Room Category Booking Summary & Occupancy Report'],
+        ['Filter Period', startDate && endDate ? `${startDate} to ${endDate}` : 'All Time'],
         ['Generated Date', new Date().toLocaleString()],
         [],
-        ['Room Category', 'Total Rooms Count', 'Occupied Rooms', 'Vacant Rooms', 'Occupancy Rate (%)']
+        ['1. ROOM CATEGORY BOOKING & REVENUE ANALYTICS'],
+        ['Room Category', 'Total Inventory', 'Occupied In-House', 'Vacant Rooms', 'Total Bookings / Stays', 'Room Nights Sold', 'Total Room Revenue (INR)', 'Average Daily Rate (ADR INR)', 'Occupancy Rate (%)']
       ];
-      Object.entries(categoriesCount).forEach(([cat, data]) => {
-        const rate = data.total > 0 ? Math.round((data.occupied / data.total) * 100) : 0;
-        rows.push([cat, data.total, data.occupied, data.total - data.occupied, `${rate}%`]);
+      roomCategorySummary.forEach(s => {
+        rows.push([
+          s.category,
+          s.totalInventory,
+          s.inHouseOccupied,
+          s.vacantRooms,
+          s.totalBookings,
+          s.nightsSold,
+          s.totalRevenue,
+          s.adr,
+          `${s.occupancyRate}%`
+        ]);
       });
       rows.push([]);
-      rows.push(['ACTIVE IN-HOUSE GUESTS CHECKLIST']);
+      rows.push(['2. ACTIVE IN-HOUSE GUESTS CHECKLIST']);
       rows.push(['Room No', 'Category', 'Guest Name', 'Phone', 'Check-In Date', 'Advance Paid']);
       rooms.filter(r => r.status === 'Occupied').forEach(r => {
         rows.push([r.roomNumber, r.category, r.guestName || '', r.guestPhone || '', r.checkInDate || '', r.advancePaid || 0]);
       });
-      downloadExcel(`Occupancy_Report${dateTag}`, rows);
+      downloadExcel(`Room_Category_Bookings_Report${dateTag}`, rows);
     } else if (activeReportTab === 'gst') {
       const rows: (string | number)[][] = [
         ['HotelVista ERP - GST & Tax Returns Audit Report'],
@@ -506,6 +666,10 @@ export const ReportsView: React.FC = () => {
       ['Bar & Beverage POS', barSales, totalSales > 0 ? ((barSales / totalSales) * 100).toFixed(2) : 0],
       ['Laundry & Dry Cleaning', laundrySales, totalSales > 0 ? ((laundrySales / totalSales) * 100).toFixed(2) : 0],
       ['Banquet & Hall Rentals', hallSales, totalSales > 0 ? ((hallSales / totalSales) * 100).toFixed(2) : 0],
+      [],
+      ['2b. ROOM CATEGORY BOOKING & REVENUE SUMMARY'],
+      ['Room Category', 'Inventory', 'In-House Occupied', 'Bookings Count', 'Nights Sold', 'Revenue (INR)', 'ADR (INR)', 'Occupancy (%)'],
+      ...roomCategorySummary.map(s => [s.category, s.totalInventory, s.inHouseOccupied, s.totalBookings, s.nightsSold, s.totalRevenue, s.adr, `${s.occupancyRate}%`]),
       [],
       ['3. TAXATION & DUTIES AUDIT'],
       ['General GST (18%) Taxable Base', generalTaxableBase, 'Duty Collected:', generalGstTax.toFixed(2)],
@@ -760,7 +924,7 @@ export const ReportsView: React.FC = () => {
                 : 'text-slate-500'
             }`}
           >
-            Occupancy Logs
+            Room Bookings & Occupancy
           </button>
           <button
             onClick={() => setActiveReportTab('gst')}
@@ -885,6 +1049,52 @@ export const ReportsView: React.FC = () => {
 
             </div>
 
+            {/* Room Category Revenue Summary Subsection */}
+            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                    Room Categories Revenue & Booking Performance
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    Breakdown of room revenues and room nights sold by room category
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveReportTab('occupancy')}
+                  className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+                >
+                  View Full Room Analytics →
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {roomCategorySummary.map(cat => (
+                  <div key={cat.category} className="p-3.5 bg-slate-50 dark:bg-slate-950 rounded-xl border dark:border-slate-850 space-y-1.5 font-mono text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-slate-800 dark:text-slate-200 font-sans">{cat.category}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-bold font-mono">
+                        {cat.occupancyRate}% Occ
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-slate-500 text-[11px]">
+                      <span>Bookings / Stays:</span>
+                      <span className="font-bold text-slate-700 dark:text-slate-300">{cat.totalBookings}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-500 text-[11px]">
+                      <span>Room Nights:</span>
+                      <span className="font-bold text-slate-700 dark:text-slate-300">{cat.nightsSold}N</span>
+                    </div>
+                    <div className="flex justify-between border-t border-slate-200 dark:border-slate-800 pt-1 text-slate-900 dark:text-white font-extrabold">
+                      <span className="font-sans">Revenue:</span>
+                      <span className="text-indigo-600 dark:text-indigo-400">₹{cat.totalRevenue.toLocaleString()}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
           </div>
         )}
 
@@ -941,42 +1151,181 @@ export const ReportsView: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 3: Occupancy Rate breakdown */}
+        {/* TAB 3: Room Category Booking Summary & Occupancy Rate Analytics */}
         {activeReportTab === 'occupancy' && (
-          <div className="space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 border-b pb-2 border-slate-100 dark:border-slate-800">
-              Occupancy Breakdown by Room Category
-            </h3>
+          <div className="space-y-6">
             
-            <div className="overflow-x-auto">
+            {/* Header & KPI Metrics Cards */}
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3 border-slate-100 dark:border-slate-800">
+                <div>
+                  <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                    <BedDouble className="w-4 h-4 text-indigo-500" />
+                    Room Category Booking Summary & Occupancy Analytics
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Comprehensive overview of what room types are booked, how many stays, room nights sold, and revenue generated
+                  </p>
+                </div>
+              </div>
+
+              {/* Top KPI Cards for Rooms */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="p-3.5 bg-slate-50 dark:bg-slate-950 rounded-xl border dark:border-slate-850 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Bookings & Stays</span>
+                  <p className="text-xl font-black font-mono text-slate-900 dark:text-white">
+                    {roomCategorySummary.reduce((acc, c) => acc + c.totalBookings, 0)}
+                  </p>
+                  <span className="text-[10px] text-slate-400">In-house & completed stays</span>
+                </div>
+
+                <div className="p-3.5 bg-slate-50 dark:bg-slate-950 rounded-xl border dark:border-slate-850 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Room Nights Sold</span>
+                  <p className="text-xl font-black font-mono text-indigo-600 dark:text-indigo-400">
+                    {roomCategorySummary.reduce((acc, c) => acc + c.nightsSold, 0)} Nights
+                  </p>
+                  <span className="text-[10px] text-slate-400">Total duration billed</span>
+                </div>
+
+                <div className="p-3.5 bg-slate-50 dark:bg-slate-950 rounded-xl border dark:border-slate-850 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">In-House Occupied</span>
+                  <p className="text-xl font-black font-mono text-emerald-600 dark:text-emerald-400">
+                    {roomCategorySummary.reduce((acc, c) => acc + c.inHouseOccupied, 0)} / {tenantRooms.length}
+                  </p>
+                  <span className="text-[10px] text-emerald-600 font-semibold">
+                    {tenantRooms.length > 0 ? Math.round((roomCategorySummary.reduce((acc, c) => acc + c.inHouseOccupied, 0) / tenantRooms.length) * 100) : 0}% Active Occupancy
+                  </span>
+                </div>
+
+                <div className="p-3.5 bg-slate-50 dark:bg-slate-950 rounded-xl border dark:border-slate-850 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Room Revenue</span>
+                  <p className="text-xl font-black font-mono text-indigo-600 dark:text-indigo-400">
+                    ₹{roomCategorySummary.reduce((acc, c) => acc + c.totalRevenue, 0).toLocaleString()}
+                  </p>
+                  <span className="text-[10px] text-slate-400">
+                    ADR: ₹{roomCategorySummary.reduce((acc, c) => acc + c.nightsSold, 0) > 0 ? Math.round(roomCategorySummary.reduce((acc, c) => acc + c.totalRevenue, 0) / roomCategorySummary.reduce((acc, c) => acc + c.nightsSold, 0)).toLocaleString() : 0}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Main Room Category Booking Summary Table */}
+            <div className="overflow-x-auto rounded-xl border border-slate-200/50 dark:border-slate-800/50">
               <table className="w-full text-xs text-left">
                 <thead>
-                  <tr className="text-slate-400 border-b border-slate-100 dark:border-slate-800">
-                    <th className="py-2">Room Category</th>
-                    <th className="py-2 text-center">Total Inventory</th>
-                    <th className="py-2 text-center">Occupied Rooms</th>
-                    <th className="py-2 text-center">Vacant Rooms</th>
-                    <th className="py-2 text-right">Occupancy Rate</th>
+                  <tr className="bg-slate-50 dark:bg-slate-950/70 text-slate-400 border-b border-slate-200/50 dark:border-slate-800/50">
+                    <th className="py-3 px-4 font-bold">Room Category</th>
+                    <th className="py-3 px-3 text-center font-bold">Inventory</th>
+                    <th className="py-3 px-3 text-center font-bold">Occupied Now</th>
+                    <th className="py-3 px-3 text-center font-bold">Vacant</th>
+                    <th className="py-3 px-3 text-center font-bold">Total Bookings</th>
+                    <th className="py-3 px-3 text-center font-bold">Nights Sold</th>
+                    <th className="py-3 px-4 text-right font-bold">Total Revenue</th>
+                    <th className="py-3 px-4 text-right font-bold">ADR (₹/Night)</th>
+                    <th className="py-3 px-4 text-right font-bold">Occupancy %</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                  {Object.entries(categoriesCount).map(([category, count]) => {
-                    const rate = count.total > 0 ? Math.round((count.occupied / count.total) * 100) : 0;
-                    return (
-                      <tr key={category} className="text-slate-700 dark:text-slate-300">
-                        <td className="py-3 font-bold text-slate-800 dark:text-slate-200">{category}</td>
-                        <td className="py-3 text-center font-mono font-medium">{count.total}</td>
-                        <td className="py-3 text-center font-mono font-medium text-emerald-600 dark:text-emerald-400 font-bold">{count.occupied}</td>
-                        <td className="py-3 text-center font-mono font-medium text-slate-400">{count.total - count.occupied}</td>
-                        <td className="py-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                          {rate}%
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {roomCategorySummary.map(cat => (
+                    <tr key={cat.category} className="hover:bg-slate-50/50 dark:hover:bg-slate-850/40 text-slate-700 dark:text-slate-300">
+                      <td className="py-3 px-4 font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                        <span>{cat.category}</span>
+                      </td>
+                      <td className="py-3 px-3 text-center font-mono font-medium">{cat.totalInventory}</td>
+                      <td className="py-3 px-3 text-center font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                        {cat.inHouseOccupied}
+                      </td>
+                      <td className="py-3 px-3 text-center font-mono text-slate-400">{cat.vacantRooms}</td>
+                      <td className="py-3 px-3 text-center font-mono font-extrabold text-indigo-600 dark:text-indigo-400 bg-indigo-50/40 dark:bg-indigo-950/20">
+                        {cat.totalBookings}
+                      </td>
+                      <td className="py-3 px-3 text-center font-mono font-bold">{cat.nightsSold}</td>
+                      <td className="py-3 px-4 text-right font-mono font-extrabold text-slate-900 dark:text-slate-100">
+                        ₹{cat.totalRevenue.toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono text-slate-600 dark:text-slate-400">
+                        ₹{cat.adr.toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-extrabold text-indigo-600 dark:text-indigo-400">
+                        {cat.occupancyRate}%
+                      </td>
+                    </tr>
+                  ))}
+
+                  {/* Summary Totals Row */}
+                  <tr className="bg-slate-100/70 dark:bg-slate-950/80 font-bold border-t-2 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white">
+                    <td className="py-3 px-4 uppercase font-sans">Total Across Categories</td>
+                    <td className="py-3 px-3 text-center font-mono">{tenantRooms.length}</td>
+                    <td className="py-3 px-3 text-center font-mono text-emerald-600 dark:text-emerald-400">
+                      {roomCategorySummary.reduce((acc, c) => acc + c.inHouseOccupied, 0)}
+                    </td>
+                    <td className="py-3 px-3 text-center font-mono text-slate-400">
+                      {roomCategorySummary.reduce((acc, c) => acc + c.vacantRooms, 0)}
+                    </td>
+                    <td className="py-3 px-3 text-center font-mono text-indigo-600 dark:text-indigo-400">
+                      {roomCategorySummary.reduce((acc, c) => acc + c.totalBookings, 0)}
+                    </td>
+                    <td className="py-3 px-3 text-center font-mono">
+                      {roomCategorySummary.reduce((acc, c) => acc + c.nightsSold, 0)}
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono text-indigo-600 dark:text-indigo-400">
+                      ₹{roomCategorySummary.reduce((acc, c) => acc + c.totalRevenue, 0).toLocaleString()}
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono">
+                      ₹{roomCategorySummary.reduce((acc, c) => acc + c.nightsSold, 0) > 0 
+                        ? Math.round(roomCategorySummary.reduce((acc, c) => acc + c.totalRevenue, 0) / roomCategorySummary.reduce((acc, c) => acc + c.nightsSold, 0)).toLocaleString() 
+                        : 0}
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono text-indigo-600 dark:text-indigo-400">
+                      {tenantRooms.length > 0 
+                        ? Math.round((roomCategorySummary.reduce((acc, c) => acc + c.inHouseOccupied, 0) / tenantRooms.length) * 100) 
+                        : 0}%
+                    </td>
+                  </tr>
                 </tbody>
               </table>
             </div>
+
+            {/* Active In-House Guests Checklist */}
+            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
+              <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                <Users className="w-4 h-4 text-emerald-500" />
+                Active In-House Guests Checklist ({tenantRooms.filter(r => r.status === 'Occupied').length})
+              </h4>
+              <div className="overflow-x-auto rounded-xl border border-slate-200/50 dark:border-slate-800/50">
+                <table className="w-full text-xs text-left">
+                  <thead>
+                    <tr className="bg-slate-50 dark:bg-slate-950/70 text-slate-400 border-b border-slate-200/50 dark:border-slate-800/50">
+                      <th className="py-2.5 px-3">Room No</th>
+                      <th className="py-2.5 px-3">Category</th>
+                      <th className="py-2.5 px-3">Guest Name</th>
+                      <th className="py-2.5 px-3">Contact Phone</th>
+                      <th className="py-2.5 px-3">Check-In Date</th>
+                      <th className="py-2.5 px-3 text-right">Advance Paid</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
+                    {tenantRooms.filter(r => r.status === 'Occupied').map(r => (
+                      <tr key={r.id} className="text-slate-700 dark:text-slate-300">
+                        <td className="py-2.5 px-3 font-mono font-bold text-slate-900 dark:text-white">Room {r.roomNumber}</td>
+                        <td className="py-2.5 px-3 text-slate-500 font-medium">{r.category}</td>
+                        <td className="py-2.5 px-3 font-bold">{r.guestName || 'In-House Guest'}</td>
+                        <td className="py-2.5 px-3 font-mono text-slate-400">{r.guestPhone || '—'}</td>
+                        <td className="py-2.5 px-3 font-mono">{r.checkInDate || '—'}</td>
+                        <td className="py-2.5 px-3 text-right font-mono text-emerald-600 font-bold">₹{r.advancePaid || 0}</td>
+                      </tr>
+                    ))}
+                    {tenantRooms.filter(r => r.status === 'Occupied').length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="text-center py-6 text-slate-400">No rooms currently occupied.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
           </div>
         )}
 

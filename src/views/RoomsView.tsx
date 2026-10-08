@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useApp, Room, RoomStatus, RoomCategory, PreBooking } from '../context/AppContext';
+import { useApp, Room, RoomStatus, RoomCategory, PreBooking, BOOKING_SOURCES } from '../context/AppContext';
 import { 
   Plus, 
   ArrowRightLeft, 
@@ -83,6 +83,9 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [guestGst, setGuestGst] = useState('');
   const [noOfGuests, setNoOfGuests] = useState(1);
   const [advancePaid, setAdvancePaid] = useState(0);
+  const [checkInPrice, setCheckInPrice] = useState<number>(1500);
+  const [bookingSource, setBookingSource] = useState<string>('Direct / Walk-In');
+  const [isAcSwitchedOff, setIsAcSwitchedOff] = useState<boolean>(false);
 
   const [transferTargetRoomId, setTransferTargetRoomId] = useState('');
   const [extendDays, setExtendDays] = useState(1);
@@ -188,6 +191,9 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       setGuestGst(booking.gstNumber || '');
       setNoOfGuests(booking.noOfGuests || 1);
       setAdvancePaid(booking.advancePaid || 0);
+      setCheckInPrice(booking.roomPrice || selectedRoom?.price || 1500);
+      setBookingSource(booking.bookingSource || 'MakeMyTrip');
+      setIsAcSwitchedOff(!!booking.isAcSwitchedOff);
     } else {
       setSelectedPreBookingId('');
       setGuestName('');
@@ -198,11 +204,19 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       setGuestGst('');
       setNoOfGuests(1);
       setAdvancePaid(0);
+      if (selectedRoom) {
+        setCheckInPrice(selectedRoom.price || 1500);
+        setBookingSource('Direct / Walk-In');
+        setIsAcSwitchedOff(false);
+      }
     }
   };
 
   const handleOpenCheckIn = (room: Room) => {
     setSelectedRoom(room);
+    setCheckInPrice(room.price || 1500);
+    setBookingSource('Direct / Walk-In');
+    setIsAcSwitchedOff(false);
 
     // Look for a matching prebooking for this exact room number or category for today
     const matchingPre = preBookings.find(pb => 
@@ -214,6 +228,9 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       applyPreBookingData(matchingPre);
     } else {
       applyPreBookingData(null);
+      setCheckInPrice(room.price || 1500);
+      setBookingSource('Direct / Walk-In');
+      setIsAcSwitchedOff(false);
     }
 
     setShowCheckInModal(true);
@@ -224,7 +241,20 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     if (!selectedRoom || !guestName || !guestPhone || !guestIdProof) return;
 
     if (selectedPreBookingId) {
-      await confirmPreBookingCheckIn(selectedPreBookingId, selectedRoom.id);
+      await checkInRoom(selectedRoom.id, {
+        name: guestName,
+        phone: guestPhone,
+        email: guestEmail,
+        address: guestAddress,
+        idProof: guestIdProof,
+        gstNumber: guestGst,
+        noOfGuests: noOfGuests,
+        advancePaid: Number(advancePaid),
+        price: Number(checkInPrice),
+        bookingSource: bookingSource,
+        isAcSwitchedOff: isAcSwitchedOff
+      });
+      await updatePreBookingStatus(selectedPreBookingId, 'CheckedIn');
     } else {
       await checkInRoom(selectedRoom.id, {
         name: guestName,
@@ -234,7 +264,10 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         idProof: guestIdProof,
         gstNumber: guestGst,
         noOfGuests: noOfGuests,
-        advancePaid: Number(advancePaid)
+        advancePaid: Number(advancePaid),
+        price: Number(checkInPrice),
+        bookingSource: bookingSource,
+        isAcSwitchedOff: isAcSwitchedOff
       });
     }
     
@@ -531,13 +564,28 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-1 uppercase font-semibold tracking-wider flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px] text-slate-400 uppercase font-semibold tracking-wider">
                       <span>Floor {room.floor}</span>
                       <span>●</span>
                       <span>{room.category}</span>
                       <span>●</span>
-                      <span className="font-mono font-bold text-slate-600 dark:text-slate-300">₹{room.price}/day</span>
-                    </p>
+                      <span className="font-mono font-bold text-slate-700 dark:text-slate-200">₹{room.price}/day</span>
+                    </div>
+
+                    {isOccupied && (room.isAcSwitchedOff || (room.bookingSource && room.bookingSource !== 'Direct / Walk-In')) && (
+                      <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                        {room.isAcSwitchedOff && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold border border-emerald-200/50 dark:border-emerald-800/50">
+                            🍃 Non-AC Rate
+                          </span>
+                        )}
+                        {room.bookingSource && room.bookingSource !== 'Direct / Walk-In' && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200/50 dark:border-indigo-800/50">
+                            {room.bookingSource}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${getStatusBadgeClass(room.status)}`}>
@@ -869,6 +917,111 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                     ✓ All guest details, ID proof, contact & ₹{advancePaid} advance deposit auto-fetched!
                   </p>
                 )}
+              </div>
+
+              {/* Room Nightly Tariff & Booking Channel */}
+              <div className="p-3.5 bg-indigo-50/40 dark:bg-indigo-950/30 border border-indigo-200/60 dark:border-indigo-800/60 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 text-xs">
+                    <span>💰</span>
+                    <span>Room Nightly Rate & Booking Source</span>
+                  </label>
+                  <span className="text-[10px] font-bold font-mono text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                    Base Standard: ₹{selectedRoom.basePrice || selectedRoom.price}/day
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Editable Check-In Nightly Rate */}
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 dark:text-slate-300 text-[11px] block">
+                      Agreed Room Rate (₹/Night) *
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2 font-mono font-bold text-slate-400">₹</span>
+                      <input
+                        type="number"
+                        required
+                        min={1}
+                        value={checkInPrice}
+                        onChange={e => setCheckInPrice(Number(e.target.value))}
+                        className="w-full pl-7 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg font-bold font-mono text-indigo-600 dark:text-indigo-400 text-sm focus:ring-2 focus:ring-indigo-500/20"
+                        placeholder="e.g. 1500, 1000, 1850..."
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-400">
+                      Adjust for online OTA rates, discounts, or Non-AC usage.
+                    </p>
+                  </div>
+
+                  {/* Booking Channel / Source */}
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 dark:text-slate-300 text-[11px] block">
+                      Booking Channel / Source
+                    </label>
+                    <select
+                      value={bookingSource}
+                      onChange={e => setBookingSource(e.target.value)}
+                      className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg font-semibold text-slate-800 dark:text-slate-200 text-xs"
+                    >
+                      {BOOKING_SOURCES.map(source => (
+                        <option key={source} value={source}>
+                          {source === 'Direct / Walk-In' ? '🚶 ' : ''}
+                          {source === 'MakeMyTrip' ? '🌐 ' : ''}
+                          {source === 'Booking.com' ? '🏨 ' : ''}
+                          {source === 'Agoda' ? '✈️ ' : ''}
+                          {source === 'Goibibo' ? '🌍 ' : ''}
+                          {source === 'Airbnb' ? '🏡 ' : ''}
+                          {source === 'Corporate / Travel Agent' ? '🏢 ' : ''}
+                          {source === 'Phone / WhatsApp Booking' ? '📞 ' : ''}
+                          {source}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-slate-400">
+                      Channel helps track OTA vs Walk-in rate variations.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Quick AC / Non-AC Mode Toggle Button */}
+                <div className="pt-2 border-t border-indigo-100 dark:border-indigo-900/40 flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                    Room AC Usage Mode:
+                  </span>
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAcSwitchedOff(false);
+                        setCheckInPrice(selectedRoom.basePrice || selectedRoom.price || 1500);
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                        !isAcSwitchedOff
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      ❄️ Standard AC Tariff (₹{selectedRoom.basePrice || selectedRoom.price})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAcSwitchedOff(true);
+                        const base = selectedRoom.basePrice || selectedRoom.price || 1500;
+                        const discounted = Math.max(500, Math.round(base * 0.67));
+                        setCheckInPrice(discounted);
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                        isAcSwitchedOff
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      🍃 Non-AC Tariff (AC Off)
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">

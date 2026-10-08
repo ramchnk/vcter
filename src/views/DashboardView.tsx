@@ -42,6 +42,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
     laundryOrders, 
     hallBookings, 
     preBookings, 
+    auditLogs,
     getBillSummary, 
     currentTenant, 
     activeTenantId,
@@ -105,10 +106,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
   // DYNAMIC CALCULATIONS BASED ON FILTER RANGE
   // ==========================================
 
-  // ==========================================
-  // DYNAMIC CALCULATIONS BASED ON FILTER RANGE
-  // ==========================================
-
   // Filter raw collections strictly for this tenant
   const tenantRooms = useMemo(() => {
     return rooms.filter(r => !effectiveTenantId || !r.tenantId || r.tenantId === effectiveTenantId);
@@ -125,6 +122,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
   const tenantHalls = useMemo(() => {
     return hallBookings.filter(h => !effectiveTenantId || !h.tenantId || h.tenantId === effectiveTenantId);
   }, [hallBookings, effectiveTenantId]);
+
+  const tenantPreBookings = useMemo(() => {
+    return (preBookings || []).filter(pb => !effectiveTenantId || !pb.tenantId || pb.tenantId === effectiveTenantId);
+  }, [preBookings, effectiveTenantId]);
+
+  const tenantAuditLogs = useMemo(() => {
+    return (auditLogs || []).filter(a => !effectiveTenantId || !a.tenantId || a.tenantId === effectiveTenantId);
+  }, [auditLogs, effectiveTenantId]);
 
   // 1. Rooms Status Counters (Live in-house state)
   const totalRooms = tenantRooms.length;
@@ -151,6 +156,67 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
   }, [tenantHalls, startDate, endDate]);
 
   // 3. Departmental Sales in Selected Period
+  // Room Bookings / Rent Sales (including active occupied rooms, checked out rooms, and past checkout records)
+  const roomSales = useMemo(() => {
+    let total = 0;
+    // 1. In-house / currently occupied rooms in this tenant
+    tenantRooms.forEach(r => {
+      if (r.status === 'Occupied' || (r.checkInDate && r.guestName)) {
+        if (isStayInRange(r.checkInDate, r.checkOutDate, startDate, endDate)) {
+          const summary = getBillSummary(r.roomNumber);
+          total += summary ? summary.roomRentTotal : (r.price || 0);
+        }
+      } else if (r.advancePaid && r.advancePaid > 0 && isDateInRange(r.checkInDate, startDate, endDate)) {
+        total += r.advancePaid;
+      }
+    });
+
+    // 2. Completed / Checked-Out stays and Pre-Bookings
+    tenantPreBookings.forEach(pb => {
+      const matchDate = pb.checkOutDate || pb.checkInDate || pb.bookingDate;
+      if (isDateInRange(matchDate, startDate, endDate)) {
+        if (pb.status === 'CheckedOut') {
+          let stayDays = 1;
+          if (pb.checkInDate && pb.checkOutDate) {
+            const s = new Date(pb.checkInDate).getTime();
+            const e = new Date(pb.checkOutDate).getTime();
+            stayDays = Math.max(1, Math.ceil((e - s) / (1000 * 60 * 60 * 24)));
+          }
+          const matchedRoom = tenantRooms.find(r => r.roomNumber === pb.roomNumber || r.category === pb.roomCategory);
+          const roomPrice = matchedRoom ? matchedRoom.price : 2000;
+          const rent = pb.roomRentTotal || (pb.totalAmount ? pb.totalAmount : (stayDays * roomPrice));
+          total += rent;
+        } else if (pb.status === 'Confirmed' || pb.status === 'Pending') {
+          if (pb.advancePaid > 0 && !tenantRooms.some(r => r.guestPhone === pb.phone && (r.status === 'Occupied' || r.guestName))) {
+            total += pb.advancePaid;
+          }
+        }
+      }
+    });
+
+    // 3. Fallback: Parse check-out audit logs for past check-outs not already in preBookings
+    tenantAuditLogs.forEach(a => {
+      if (a.action === 'Check-Out' && isDateInRange(a.timestamp, startDate, endDate)) {
+        const matchRoom = a.details?.match(/Room\s+([A-Za-z0-9_-]+)/i);
+        const roomNo = matchRoom ? matchRoom[1] : '';
+        const alreadyInPre = tenantPreBookings.some(pb => pb.status === 'CheckedOut' && pb.roomNumber === roomNo && isDateInRange(pb.checkOutDate || pb.bookingDate, startDate, endDate));
+        if (!alreadyInPre) {
+          const matchRent = a.details?.match(/Room Rent:\s*₹?([0-9]+(?:\.[0-9]+)?)/i);
+          const matchTotal = a.details?.match(/Total Folio:\s*₹?([0-9]+(?:\.[0-9]+)?)/i) || a.details?.match(/Total Bill:\s*₹?([0-9]+(?:\.[0-9]+)?)/i);
+          const matchPrice = matchRent ? parseFloat(matchRent[1]) : (matchTotal ? parseFloat(matchTotal[1]) : 0);
+          if (matchPrice > 0) {
+            total += matchPrice;
+          } else {
+            const matchedRoom = tenantRooms.find(r => r.roomNumber === roomNo);
+            if (matchedRoom) total += (matchedRoom.price || 0);
+          }
+        }
+      }
+    });
+
+    return total;
+  }, [tenantRooms, tenantPreBookings, tenantAuditLogs, startDate, endDate, getBillSummary]);
+
   const restaurantSales = useMemo(() => {
     return filteredOrders
       .filter(o => !o.isBar)
@@ -179,29 +245,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
 
   // 4. Period Revenue Calculation
   const periodRevenue = useMemo(() => {
-    // Room advance / collection for occupied rooms checked in during range
-    const roomCollections = tenantRooms
-      .filter(r => isDateInRange(r.checkInDate, startDate, endDate) && (r.status === 'Occupied' || r.guestName))
-      .reduce((acc, r) => acc + (r.advancePaid || 0), 0);
-    
-    // Direct Paid POS Sales
-    const directPOS = filteredOrders
-      .filter(o => o.status === 'Paid')
-      .reduce((acc, o) => acc + (o.total || 0), 0);
-
-    // Direct Hall Advances
-    const hallAdvances = filteredHalls
-      .filter(h => h.status !== 'Cancelled')
-      .reduce((acc, h) => acc + (h.advancePaid || 0), 0);
-
-    // Completed Laundry Collections
-    const laundryCompleted = filteredLaundry
-      .filter(l => l.status === 'Completed' || l.status === 'Delivered')
-      .reduce((acc, l) => acc + (l.totalPrice || 0), 0);
-
-    const total = roomCollections + directPOS + hallAdvances + laundryCompleted;
-    return total > 0 ? total : (restaurantSales + barSales + hallSales + laundrySales);
-  }, [tenantRooms, filteredOrders, filteredHalls, filteredLaundry, restaurantSales, barSales, hallSales, laundrySales, startDate, endDate]);
+    return roomSales + restaurantSales + barSales + hallSales + laundrySales;
+  }, [roomSales, restaurantSales, barSales, hallSales, laundrySales]);
 
   // 5. Outstanding Balances for Occupied Rooms
   const outstandingPayments = useMemo(() => {
@@ -418,8 +463,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
       </div>
 
       {/* Secondary Department Sales Breakdown */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         
+        {/* Room Sales */}
+        {isMenuEnabled('rooms') && (
+          <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/60 rounded-xl flex items-center gap-3 shadow-sm">
+            <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
+              <Bed className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Room Bookings</p>
+              <p className="text-base font-bold font-mono text-slate-800 dark:text-slate-200">₹{roomSales.toLocaleString()}</p>
+            </div>
+          </div>
+        )}
+
         {/* Restaurant Sales */}
         {isMenuEnabled('restaurant') && (
           <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/60 rounded-xl flex items-center gap-3 shadow-sm">
@@ -459,7 +517,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
           </div>
         )}
 
-        {/* Laundry Pending */}
+        {/* Laundry Sales */}
         {isMenuEnabled('laundry') && (
           <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/60 rounded-xl flex items-center gap-3 shadow-sm">
             <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400">

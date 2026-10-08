@@ -120,7 +120,7 @@ export const PnLStatementReport: React.FC<PnLStatementReportProps> = ({ startDat
   }, [preBookings, effectiveTenantId]);
 
   const filteredPreBookings = useMemo(() => {
-    return tenantPreBookings.filter(pb => isDateInRange(pb.bookingDate || pb.checkInDate, startDate, endDate));
+    return tenantPreBookings.filter(pb => isDateInRange(pb.checkOutDate || pb.checkInDate || pb.bookingDate, startDate, endDate));
   }, [tenantPreBookings, startDate, endDate]);
 
   const tenantRooms = useMemo(() => {
@@ -177,8 +177,8 @@ export const PnLStatementReport: React.FC<PnLStatementReportProps> = ({ startDat
     let roomTotalSales = 0;
     let roomNightsSold = 0;
 
+    // 1. In-House currently occupied rooms
     filteredRooms.forEach(r => {
-      // ONLY count actual occupied rooms or rooms with active guest stays
       if (r.status === 'Occupied' || (r.checkInDate && r.guestName)) {
         const summary = getBillSummary(r.roomNumber);
         const rent = summary ? summary.roomRentTotal : (r.price || 0);
@@ -199,10 +199,59 @@ export const PnLStatementReport: React.FC<PnLStatementReportProps> = ({ startDat
       }
     });
 
+    // 2. Completed / Checked-Out Stays & Pre-Bookings
     filteredPreBookings.forEach(pb => {
-      if (pb.advancePaid > 0 && !filteredRooms.some(r => r.guestPhone === pb.phone && (r.status === 'Occupied' || r.guestName))) {
-        otaAdvanceSales += pb.advancePaid;
-        roomTotalSales += pb.advancePaid;
+      if (pb.status === 'CheckedOut') {
+        let stayDays = 1;
+        if (pb.checkInDate && pb.checkOutDate) {
+          const s = new Date(pb.checkInDate).getTime();
+          const e = new Date(pb.checkOutDate).getTime();
+          stayDays = Math.max(1, Math.ceil((e - s) / (1000 * 60 * 60 * 24)));
+        }
+        const matchedRoom = tenantRooms.find(r => r.roomNumber === pb.roomNumber || r.category === pb.roomCategory);
+        const roomPrice = matchedRoom ? matchedRoom.price : 2000;
+        const rent = (pb as any).roomRentTotal || ((pb as any).totalAmount ? (pb as any).totalAmount : (stayDays * roomPrice));
+
+        roomTotalSales += rent;
+        roomNightsSold += stayDays;
+        if (pb.advancePaid > 0) otaAdvanceSales += pb.advancePaid;
+        const balance = Math.max(0, rent - (pb.advancePaid || 0));
+        bankSales += balance * 0.65;
+        cashSales += balance * 0.35;
+      } else if (pb.status === 'Confirmed' || pb.status === 'Pending') {
+        if (pb.advancePaid > 0 && !filteredRooms.some(r => r.guestPhone === pb.phone && (r.status === 'Occupied' || r.guestName))) {
+          otaAdvanceSales += pb.advancePaid;
+          roomTotalSales += pb.advancePaid;
+        }
+      }
+    });
+
+    // 3. Fallback: Parse check-out audit logs for past checkouts not already in preBookings
+    filteredAuditLogs.forEach(a => {
+      if (a.action === 'Check-Out') {
+        const matchRoom = a.details?.match(/Room\s+([A-Za-z0-9_-]+)/i);
+        const roomNo = matchRoom ? matchRoom[1] : '';
+        const alreadyInPre = filteredPreBookings.some(pb => pb.status === 'CheckedOut' && pb.roomNumber === roomNo);
+        if (!alreadyInPre) {
+          const matchRent = a.details?.match(/Room Rent:\s*₹?([0-9]+(?:\.[0-9]+)?)/i);
+          const matchTotal = a.details?.match(/Total Folio:\s*₹?([0-9]+(?:\.[0-9]+)?)/i) || a.details?.match(/Total Bill:\s*₹?([0-9]+(?:\.[0-9]+)?)/i);
+          const matchPrice = matchRent ? parseFloat(matchRent[1]) : (matchTotal ? parseFloat(matchTotal[1]) : 0);
+          if (matchPrice > 0) {
+            roomTotalSales += matchPrice;
+            roomNightsSold += 1;
+            bankSales += matchPrice * 0.65;
+            cashSales += matchPrice * 0.35;
+          } else {
+            const matchedRoom = tenantRooms.find(r => r.roomNumber === roomNo);
+            if (matchedRoom) {
+              const p = matchedRoom.price || 0;
+              roomTotalSales += p;
+              roomNightsSold += 1;
+              bankSales += p * 0.65;
+              cashSales += p * 0.35;
+            }
+          }
+        }
       }
     });
 
