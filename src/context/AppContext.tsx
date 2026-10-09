@@ -407,6 +407,7 @@ interface AppContextType {
   addAudit: (action: string, details: string, oldValue?: string, newValue?: string) => any;
   clearNotification: (id: string) => any;
   addUserAccount: (user: Omit<ClientUserAccount, 'id' | 'createdAt'>) => void;
+  updateUserAccount: (id: string, updates: Partial<ClientUserAccount>) => Promise<void>;
   deleteUserAccount: (id: string) => void;
   addTenantAccount: (tenant: Omit<TenantAccount, 'id' | 'createdAt'>, adminPassword?: string) => void;
   updateTenantStatus: (id: string, status: 'Active' | 'Provisioning' | 'Suspended') => void;
@@ -839,6 +840,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addAudit('User Account Created', `Created client account ${user.email} (${user.role}) for ${user.tenantName}`);
     } catch (e) {
       console.error('Failed to save user account:', e);
+    }
+  };
+
+  const updateUserAccount = async (id: string, updates: Partial<ClientUserAccount>) => {
+    try {
+      await api.put(`/users/${id}`, updates);
+      setUserAccounts(prev => prev.map(x => x.id === id ? { ...x, ...updates } : x));
+      if (currentUser?.id === id) {
+        const updatedUser = { ...currentUser, ...updates };
+        setCurrentUser(updatedUser);
+        localStorage.setItem('hv_current_user', JSON.stringify(updatedUser));
+      }
+      addAudit('User Account Updated', `Updated credentials/details for user account ${updates.email || id}`);
+    } catch (e) {
+      console.error('Failed to update user account:', e);
+      throw e;
     }
   };
 
@@ -1803,6 +1820,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addAudit,
         clearNotification,
         addUserAccount,
+        updateUserAccount,
         deleteUserAccount,
         addTenantAccount,
         updateTenantStatus,
