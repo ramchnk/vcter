@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useApp, MenuItem, RecipeItem } from '../context/AppContext';
 import { 
   Search, 
@@ -94,6 +94,17 @@ export const MenuView: React.FC = () => {
 
   // Dropdown menu state
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+
+  // Close modal on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isModalOpen) {
+        setIsModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isModalOpen]);
 
   // Compute Categories from database + standard lists
   const availableCategories = useMemo(() => {
@@ -787,17 +798,25 @@ export const MenuView: React.FC = () => {
       {/* 5. CREATE / EDIT MENU MODAL (Matching Image 2 exact layout & design) */}
       {/* ========================================================================= */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto animate-in fade-in">
-          <div className="relative w-full max-w-md bg-[#FAF7F2] dark:bg-slate-900 rounded-[28px] shadow-2xl border border-amber-200/50 dark:border-slate-700 overflow-hidden my-8">
+        <div 
+          onClick={() => setIsModalOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto animate-in fade-in cursor-pointer"
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            className="relative w-full max-w-md bg-[#FAF7F2] dark:bg-slate-900 rounded-[28px] shadow-2xl border border-amber-200/50 dark:border-slate-700 overflow-hidden my-8 cursor-default"
+          >
             
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 pt-6 pb-2">
+            <div className="flex items-center justify-between px-6 pt-6 pb-3 border-b border-amber-200/40 dark:border-slate-800">
               <h2 className="text-xl font-black text-[#451A03] dark:text-amber-400 tracking-tight">
                 {editingItem ? 'Edit Menu Item' : 'Create Menu'}
               </h2>
               <button
+                type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                className="p-2 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white rounded-full bg-slate-200/70 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 transition-all shadow-sm"
+                title="Close (Esc)"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1244,11 +1263,18 @@ export const MenuView: React.FC = () => {
                 </div>
               </div>
 
-              {/* 8. CREATE / UPDATE ITEM SUBMIT BUTTON (Terracotta Orange matching Image 2) */}
-              <div className="pt-4">
+              {/* 8. CREATE / UPDATE ITEM SUBMIT BUTTON & CANCEL BUTTON */}
+              <div className="pt-4 flex items-center gap-3 border-t border-amber-200/40 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="w-1/3 py-3.5 px-4 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-bold rounded-2xl transition-all active:scale-[0.98] text-center"
+                >
+                  Cancel
+                </button>
                 <button
                   type="submit"
-                  className="w-full py-3.5 px-4 bg-[#C2410C] hover:bg-[#9A3412] text-white text-sm font-black rounded-2xl shadow-lg shadow-amber-950/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                  className="flex-1 py-3.5 px-4 bg-[#C2410C] hover:bg-[#9A3412] text-white text-sm font-black rounded-2xl shadow-lg shadow-amber-950/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                 >
                   <span>{editingItem ? 'Save Changes' : 'Create Item'}</span>
                 </button>
