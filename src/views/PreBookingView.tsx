@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp, PreBooking, RoomCategory, Room, BOOKING_SOURCES, BulkRoomItem, isOnlineBookingSource } from '../context/AppContext';
 import { 
   Calendar, UserPlus, XCircle, CheckCircle, Clock, AlertTriangle, 
@@ -86,8 +86,46 @@ export const PreBookingView: React.FC = () => {
 
   const categories: RoomCategory[] = ['Deluxe AC', 'Deluxe Superior', 'Elite', 'Superior', 'Family Suite', 'Non AC'];
 
+  // Helper: Get actual room rate configured for a category from rooms inventory
+  const getCategoryDefaultPrice = (cat: RoomCategory, isNonAc: boolean = false): number => {
+    const match = rooms.find(r => r.category === cat);
+    if (match) {
+      return isNonAc ? Math.max(500, Math.round(match.price * 0.67)) : match.price;
+    }
+    const fallbackPrices: Record<RoomCategory, number> = {
+      'Deluxe AC': 1500,
+      'Deluxe Superior': 2500,
+      'Elite': 4000,
+      'Superior': 5500,
+      'Family Suite': 8000,
+      'Non AC': 1000
+    };
+    const base = fallbackPrices[cat] || 1500;
+    return isNonAc ? Math.max(500, Math.round(base * 0.67)) : base;
+  };
+
   // Helper: Format Date
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+
+  // Sync room price with actual room catalog price when rooms load or category changes
+  useEffect(() => {
+    if (rooms.length > 0) {
+      if (selectedSpecificRoomId) {
+        const specificRoom = rooms.find(r => r.id === selectedSpecificRoomId);
+        if (specificRoom) {
+          setRoomPrice(isAcSwitchedOff ? Math.max(500, Math.round(specificRoom.price * 0.67)) : specificRoom.price);
+        }
+      } else {
+        setRoomPrice(getCategoryDefaultPrice(roomCategory, isAcSwitchedOff));
+      }
+    }
+  }, [rooms, roomCategory, isAcSwitchedOff, selectedSpecificRoomId]);
+
+  useEffect(() => {
+    if (rooms.length > 0) {
+      setBatchRoomPrice(getCategoryDefaultPrice(batchCategory, batchIsNonAc));
+    }
+  }, [rooms, batchCategory, batchIsNonAc]);
 
   // Check if two date ranges overlap: [A_start, A_end) and [B_start, B_end)
   const isDateRangeOverlapping = (
@@ -248,7 +286,7 @@ export const PreBookingView: React.FC = () => {
   // Form Submit Handler (Single Mode)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!guestName || !phone || !checkInDate || !checkOutDate || !idProof) return;
+    if (!guestName || !phone || !checkInDate || !checkOutDate) return;
 
     if (checkInDate >= checkOutDate) {
       alert('Check-out date must be after check-in date.');
@@ -279,7 +317,7 @@ export const PreBookingView: React.FC = () => {
       phone,
       email,
       address,
-      idProof,
+      idProof: idProof || undefined,
       gstNumber: gstNumber || undefined,
       roomCategory,
       roomNumber: assignedRoomNumber,
@@ -307,7 +345,7 @@ export const PreBookingView: React.FC = () => {
     setCheckOutDate('');
     setNoOfGuests(1);
     setAdvancePaid(0);
-    setRoomPrice(1500);
+    setRoomPrice(getCategoryDefaultPrice('Deluxe AC', false));
     setBookingSource('Direct / Walk-In');
     setBookingReference('');
     setIsAcSwitchedOff(false);
@@ -319,9 +357,8 @@ export const PreBookingView: React.FC = () => {
   // Bulk / Group Room Category Batch Handlers
   const handleBatchCategoryChange = (cat: RoomCategory) => {
     setBatchCategory(cat);
-    const match = rooms.find(r => r.category === cat);
-    const base = match?.price || 1500;
-    setBatchRoomPrice(batchIsNonAc ? Math.max(500, Math.round(base * 0.67)) : base);
+    const price = getCategoryDefaultPrice(cat, batchIsNonAc);
+    setBatchRoomPrice(price);
     
     // Auto-adjust batch count if remaining is lower
     const avail = getCategoryAvailability(cat, checkInDate, checkOutDate);
@@ -440,8 +477,7 @@ export const PreBookingView: React.FC = () => {
       if (r.id !== id) return r;
       const updated = { ...r, [field]: value };
       if (field === 'roomCategory') {
-        const match = rooms.find(rm => rm.category === value);
-        if (match) updated.roomPrice = match.price || 1500;
+        updated.roomPrice = getCategoryDefaultPrice(value as RoomCategory, updated.isAcSwitchedOff);
         updated.roomNumber = '';
       }
       return updated;
@@ -454,8 +490,8 @@ export const PreBookingView: React.FC = () => {
 
   const handleBulkSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!guestName || !phone || !checkInDate || !checkOutDate || !idProof) {
-      alert('Please fill all mandatory organizer fields (Name, Phone, ID Proof, Dates).');
+    if (!guestName || !phone || !checkInDate || !checkOutDate) {
+      alert('Please fill all mandatory organizer fields (Name, Phone, Dates).');
       return;
     }
     if (checkInDate >= checkOutDate) {
@@ -486,7 +522,7 @@ export const PreBookingView: React.FC = () => {
       phone,
       email,
       address,
-      idProof,
+      idProof: idProof || undefined,
       gstNumber: gstNumber || undefined,
       bookingSource,
       bookingReference: bulkBookingReference.trim() || undefined,
@@ -766,14 +802,20 @@ export const PreBookingView: React.FC = () => {
                     <label className="font-bold text-slate-600 dark:text-slate-300">Room Category *</label>
                     <select
                       value={roomCategory}
-                      onChange={e => setRoomCategory(e.target.value as RoomCategory)}
+                      onChange={e => {
+                        const newCat = e.target.value as RoomCategory;
+                        setRoomCategory(newCat);
+                        setSelectedSpecificRoomId('');
+                        setRoomPrice(getCategoryDefaultPrice(newCat, isAcSwitchedOff));
+                      }}
                       className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-bold text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
                     >
                       {categories.map(cat => {
                         const count = rooms.filter(r => r.category === cat).length;
+                        const defaultPrice = getCategoryDefaultPrice(cat, false);
                         return (
                           <option key={cat} value={cat}>
-                            {cat} ({count} Total Rooms in Property)
+                            {cat} ({count} Total Rooms • ₹{defaultPrice}/night)
                           </option>
                         );
                       })}
@@ -854,7 +896,18 @@ export const PreBookingView: React.FC = () => {
                       {assignSpecificRoom && (
                         <select
                           value={selectedSpecificRoomId}
-                          onChange={e => setSelectedSpecificRoomId(e.target.value)}
+                          onChange={e => {
+                            const rId = e.target.value;
+                            setSelectedSpecificRoomId(rId);
+                            if (rId) {
+                              const specificRoom = rooms.find(r => r.id === rId);
+                              if (specificRoom) {
+                                setRoomPrice(isAcSwitchedOff ? Math.max(500, Math.round(specificRoom.price * 0.67)) : specificRoom.price);
+                              }
+                            } else {
+                              setRoomPrice(getCategoryDefaultPrice(roomCategory, isAcSwitchedOff));
+                            }
+                          }}
                           className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-bold"
                         >
                           <option value="">-- Auto-assign on Arrival (Default) --</option>
@@ -954,8 +1007,10 @@ export const PreBookingView: React.FC = () => {
                         type="button"
                         onClick={() => {
                           setIsAcSwitchedOff(false);
-                          const match = rooms.find(r => r.category === roomCategory);
-                          setRoomPrice(match?.price || 1500);
+                          const base = selectedSpecificRoomId 
+                            ? (rooms.find(r => r.id === selectedSpecificRoomId)?.price || getCategoryDefaultPrice(roomCategory, false))
+                            : getCategoryDefaultPrice(roomCategory, false);
+                          setRoomPrice(base);
                         }}
                         className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
                           !isAcSwitchedOff
@@ -969,8 +1024,9 @@ export const PreBookingView: React.FC = () => {
                         type="button"
                         onClick={() => {
                           setIsAcSwitchedOff(true);
-                          const match = rooms.find(r => r.category === roomCategory);
-                          const base = match?.price || 1500;
+                          const base = selectedSpecificRoomId 
+                            ? (rooms.find(r => r.id === selectedSpecificRoomId)?.price || getCategoryDefaultPrice(roomCategory, false))
+                            : getCategoryDefaultPrice(roomCategory, false);
                           setRoomPrice(Math.max(500, Math.round(base * 0.67)));
                         }}
                         className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
@@ -1024,10 +1080,9 @@ export const PreBookingView: React.FC = () => {
 
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="space-y-1">
-                    <label className="font-bold text-slate-500">ID Proof (Aadhaar / Passport) *</label>
+                    <label className="font-bold text-slate-500">ID Proof (Aadhaar / Passport) (Optional)</label>
                     <input
                       type="text"
-                      required
                       value={idProof}
                       onChange={e => setIdProof(e.target.value)}
                       className="w-full p-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl"
@@ -1152,14 +1207,13 @@ export const PreBookingView: React.FC = () => {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="font-bold text-slate-600 dark:text-slate-300">Organizer ID Proof *</label>
+                      <label className="font-bold text-slate-600 dark:text-slate-300">Organizer ID Proof (Optional)</label>
                       <input
                         type="text"
-                        required
                         value={idProof}
                         onChange={e => setIdProof(e.target.value)}
                         className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl"
-                        placeholder="Aadhaar / Corporate ID"
+                        placeholder="Aadhaar / Corporate ID (Optional)"
                       />
                     </div>
                   </div>

@@ -260,13 +260,16 @@ export const ReportsView: React.FC = () => {
   const totalOutflow = purchaseExpenses + operationalExpenses;
   const netOperatingIncome = totalSales - totalOutflow;
 
-  // GST calculations
+  // GST calculations (Inclusive Model)
   const generalTaxRate = settings?.taxRate || 18;
   const barTaxRate = settings?.barTaxRate || 20;
 
-  const generalTaxableBase = roomRev + restSales + laundrySales + hallSales;
-  const generalGstTax = (generalTaxableBase * generalTaxRate) / 100;
-  const barVatTax = (barSales * barTaxRate) / 100;
+  const generalGrossSales = roomRev + restSales + laundrySales + hallSales;
+  const generalTaxableBase = generalGrossSales > 0 ? parseFloat((generalGrossSales / (1 + generalTaxRate / 100)).toFixed(2)) : 0;
+  const generalGstTax = generalGrossSales > 0 ? parseFloat((generalGrossSales - generalTaxableBase).toFixed(2)) : 0;
+
+  const barTaxableBase = barSales > 0 ? parseFloat((barSales / (1 + barTaxRate / 100)).toFixed(2)) : 0;
+  const barVatTax = barSales > 0 ? parseFloat((barSales - barTaxableBase).toFixed(2)) : 0;
   const totalTax = generalGstTax + barVatTax;
 
   // Outstanding bills list

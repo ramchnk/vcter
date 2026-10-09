@@ -118,7 +118,7 @@ export interface PreBooking {
   phone: string;
   email: string;
   address: string;
-  idProof: string;
+  idProof?: string;
   gstNumber?: string;
   groupBookingId?: string;
   groupBookingName?: string;
@@ -154,7 +154,7 @@ export interface BulkPreBookingPayload {
   phone: string;
   email?: string;
   address?: string;
-  idProof: string;
+  idProof?: string;
   gstNumber?: string;
   bookingSource?: string;
   bookingReference?: string;
@@ -193,6 +193,34 @@ export interface OrderItem {
   name: string;
   price: number;
   quantity: number;
+  notes?: string;
+}
+
+export interface KotRound {
+  kotNumber: string;
+  roundNumber: number;
+  timestamp: string;
+  instructions?: string;
+  items: OrderItem[];
+}
+
+export interface RestaurantTable {
+  id: string;
+  tenantId?: string;
+  tableNumber: string;
+  section: string;
+  capacity: number;
+  status: 'Available' | 'Occupied' | 'Billed';
+  guestName?: string;
+  pax?: number;
+  seatedAt?: string;
+  serverName?: string;
+  isBar?: boolean;
+  kotRounds: KotRound[];
+  runningItems: OrderItem[];
+  subtotal: number;
+  tax: number;
+  total: number;
 }
 
 export interface Order {
@@ -415,7 +443,7 @@ interface AppContextType {
     phone: string; 
     email?: string; 
     address?: string; 
-    idProof: string; 
+    idProof?: string; 
     gstNumber?: string; 
     noOfGuests: number; 
     advancePaid: number;
@@ -470,6 +498,12 @@ interface AppContextType {
   switchTenantContext: (tenantId: string) => void;
   loginUser: (email: string, password: string) => { success: boolean; error?: string };
   logoutUser: () => void;
+
+  tables: RestaurantTable[];
+  parkTableKot: (tableId: string, payload: { items: OrderItem[]; instructions?: string; guestName?: string; pax?: number; isBar?: boolean; serverName?: string }) => Promise<{ success: boolean; table?: RestaurantTable; newRound?: KotRound; error?: string }>;
+  settleTableTab: (tableId: string, paymentDetails: { paymentMethod: 'Cash' | 'Card' | 'UPI' | 'Room' | 'Split'; roomNumber?: string; guestName?: string; discount?: number; splitDetails?: string }) => Promise<{ success: boolean; order?: Order; table?: RestaurantTable; error?: string }>;
+  clearTableTab: (tableId: string) => Promise<void>;
+  transferTableTab: (sourceTableId: string, targetTableId: string) => Promise<{ success: boolean; error?: string }>;
 
   addMenuItem: (item: MenuItem) => Promise<void>;
   updateMenuItem: (id: string, updates: Partial<MenuItem>) => Promise<void>;
@@ -535,6 +569,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [tenants, setTenants] = useState<TenantAccount[]>([]);
   const [userAccounts, setUserAccounts] = useState<ClientUserAccount[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [tables, setTables] = useState<RestaurantTable[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -617,7 +652,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         preBookRes,
         auditRes,
         settingsRes,
-        notifRes
+        notifRes,
+        tablesRes
       ] = await Promise.all([
         api.get(`/rooms?tenantId=${tId}`),
         api.get(`/orders?tenantId=${tId}`),
@@ -631,10 +667,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         api.get(`/pre-bookings?tenantId=${tId}`),
         api.get(`/audit-logs?tenantId=${tId}`),
         api.get(`/settings?tenantId=${tId}`),
-        api.get(`/notifications?tenantId=${tId}`)
+        api.get(`/notifications?tenantId=${tId}`),
+        api.get(`/tables?tenantId=${tId}`)
       ]);
 
       setRooms(roomsRes.data || []);
+      setTables(tablesRes.data || []);
       setOrders(ordersRes.data || []);
       setMenuItems(menuRes.data || []);
       setInventory(invRes.data || []);
@@ -706,6 +744,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     socket.on('order_created', (o: Order) => setOrders(prev => [o, ...prev.filter(x => x.id !== o.id)]));
     socket.on('orders_bulk_updated', (updated: Order[]) => setOrders(updated));
     socket.on('order_deleted', (id: string) => setOrders(prev => prev.filter(x => x.id !== id)));
+
+    socket.on('table_created', (t: RestaurantTable) => setTables(prev => [...prev.filter(x => x.id !== t.id), t]));
+    socket.on('table_updated', (t: RestaurantTable) => setTables(prev => prev.map(x => x.id === t.id ? t : x)));
 
     socket.on('menu_item_created', (m: MenuItem) => setMenuItems(prev => [...prev.filter(x => x.id !== m.id), m]));
     socket.on('menu_item_updated', (m: MenuItem) => setMenuItems(prev => prev.map(x => x.id === m.id ? m : x)));
@@ -1042,7 +1083,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     phone: string; 
     email?: string; 
     address?: string; 
-    idProof: string; 
+    idProof?: string; 
     gstNumber?: string; 
     noOfGuests: number; 
     advancePaid: number;
@@ -1303,15 +1344,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const prefix = order.isBar ? 'BAR-' : 'KOT-';
     const orderNo = prefix + Math.floor(1000 + Math.random() * 9000);
     const taxRate = order.isBar ? (settings.barTaxRate ?? 20) : (settings.taxRate ?? 18);
-    const subtotal = Number(order.subtotal) || 0;
-    const taxAmount = parseFloat(((subtotal * taxRate) / 100).toFixed(2));
-    const grandTotal = parseFloat((subtotal + taxAmount).toFixed(2));
+    const grossTotal = Number(order.subtotal) || 0;
+    const taxableSubtotal = grossTotal > 0 ? parseFloat((grossTotal / (1 + taxRate / 100)).toFixed(2)) : 0;
+    const taxAmount = grossTotal > 0 ? parseFloat((grossTotal - taxableSubtotal).toFixed(2)) : 0;
+    const grandTotal = grossTotal;
     const isPostedToRoom = order.type === 'Room' && Boolean(order.roomNumber);
 
     const finalOrder: Order = {
       ...order,
       tenantId: tId,
-      subtotal,
+      subtotal: taxableSubtotal,
       id: newId,
       orderNumber: orderNo,
       timestamp: new Date().toISOString(),
@@ -1370,6 +1412,82 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     } catch (e) {
       console.error('Error adding POS order:', e);
+    }
+  };
+
+  // TABLE PARKING & KOT MANAGEMENT
+  const parkTableKot = async (tableId: string, payload: { items: OrderItem[]; instructions?: string; guestName?: string; pax?: number; isBar?: boolean; serverName?: string }) => {
+    const tId = effectiveTenantId;
+    if (!tId) return { success: false, error: 'No active tenant' };
+    try {
+      const res = await api.post(`/tables/${tableId}/park-kot?tenantId=${tId}`, payload);
+      if (res.data?.table) {
+        setTables(prev => prev.map(t => t.id === tableId ? res.data.table : t));
+        addAudit('KOT Generated', `KOT #${res.data.newRound?.kotNumber || 'Round'} parked to Table ${res.data.table.tableNumber} (₹${res.data.table.total})`);
+        return { success: true, table: res.data.table, newRound: res.data.newRound };
+      }
+      return { success: false, error: 'Failed to park KOT' };
+    } catch (e: any) {
+      console.error(e);
+      return { success: false, error: e.response?.data?.error || e.message };
+    }
+  };
+
+  const settleTableTab = async (tableId: string, paymentDetails: { paymentMethod: 'Cash' | 'Card' | 'UPI' | 'Room' | 'Split'; roomNumber?: string; guestName?: string; discount?: number; splitDetails?: string }) => {
+    const tId = effectiveTenantId;
+    if (!tId) return { success: false, error: 'No active tenant' };
+    try {
+      const res = await api.post(`/tables/${tableId}/settle?tenantId=${tId}`, paymentDetails);
+      if (res.data?.success) {
+        if (res.data.table) {
+          setTables(prev => prev.map(t => t.id === tableId ? res.data.table : t));
+        }
+        if (res.data.order) {
+          setOrders(prev => [res.data.order, ...prev.filter(o => o.id !== res.data.order.id)]);
+        }
+        const methodTag = paymentDetails.paymentMethod === 'Room' ? `Posted to Room ${paymentDetails.roomNumber}` : `Paid via ${paymentDetails.paymentMethod}`;
+        addAudit('Table Settled', `Table bill settled (${methodTag}) for ₹${res.data.order?.total || 0}`);
+        return { success: true, order: res.data.order, table: res.data.table };
+      }
+      return { success: false, error: 'Failed to settle table' };
+    } catch (e: any) {
+      console.error(e);
+      return { success: false, error: e.response?.data?.error || e.message };
+    }
+  };
+
+  const clearTableTab = async (tableId: string) => {
+    const tId = effectiveTenantId;
+    if (!tId) return;
+    try {
+      const res = await api.post(`/tables/${tableId}/clear?tenantId=${tId}`);
+      if (res.data?.table) {
+        setTables(prev => prev.map(t => t.id === tableId ? res.data.table : t));
+        addAudit('Table Cleared', `Active tab cleared/cancelled for Table ${res.data.table.tableNumber}`);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const transferTableTab = async (sourceTableId: string, targetTableId: string) => {
+    const tId = effectiveTenantId;
+    if (!tId) return { success: false, error: 'No active tenant' };
+    try {
+      const res = await api.post(`/tables/transfer?tenantId=${tId}`, { sourceTableId, targetTableId });
+      if (res.data?.success) {
+        setTables(prev => prev.map(t => {
+          if (t.id === sourceTableId) return res.data.source;
+          if (t.id === targetTableId) return res.data.target;
+          return t;
+        }));
+        addAudit('Table Transferred', `Transferred tab from Table ${res.data.source?.tableNumber} to Table ${res.data.target?.tableNumber}`);
+        return { success: true };
+      }
+      return { success: false, error: 'Transfer failed' };
+    } catch (e: any) {
+      console.error(e);
+      return { success: false, error: e.response?.data?.error || e.message };
     }
   };
 
@@ -1912,11 +2030,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const laundryTotal = Number(room.laundryCharges) || 0;
     const hallTotal = Number(room.hallCharges) || 0;
     const otherCharges = Number(room.otherCharges) || 0;
-    const subtotal = roomRentTotal + restaurantTotal + barTotal + laundryTotal + hallTotal + otherCharges;
-    
+    const grossTotal = roomRentTotal + restaurantTotal + barTotal + laundryTotal + hallTotal + otherCharges;
     const taxRate = settings?.taxRate ?? 18;
-    const taxAmount = parseFloat(((subtotal * taxRate) / 100).toFixed(2));
-    const grandTotal = subtotal + taxAmount;
+    const taxableSubtotal = grossTotal > 0 ? parseFloat((grossTotal / (1 + taxRate / 100)).toFixed(2)) : 0;
+    const taxAmount = grossTotal > 0 ? parseFloat((grossTotal - taxableSubtotal).toFixed(2)) : 0;
+    const grandTotal = grossTotal;
     const advancePaid = Number(room.advancePaid) || 0;
     const pendingAmount = Math.max(0, grandTotal - advancePaid);
 
@@ -1931,7 +2049,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       laundryTotal,
       hallTotal,
       otherCharges,
-      subtotal,
+      subtotal: taxableSubtotal,
       taxRate,
       taxAmount,
       discount: 0,
@@ -1956,6 +2074,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         darkMode,
         toggleDarkMode,
         rooms,
+        tables,
         preBookings,
         menuItems,
         orders,
@@ -1998,6 +2117,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updatePreBookingStatus,
 
         addRestaurantBarOrder,
+        parkTableKot,
+        settleTableTab,
+        clearTableTab,
+        transferTableTab,
         addLaundryOrder,
         updateLaundryStatus,
 

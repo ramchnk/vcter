@@ -316,6 +316,44 @@ const expenseSchema = new mongoose.Schema({
   recordedBy: { type: String, default: 'Staff' }
 }, { timestamps: true });
 
+const restaurantTableSchema = new mongoose.Schema({
+  id: { type: String, required: true },
+  tenantId: { type: String, required: true },
+  tableNumber: { type: String, required: true },
+  section: { type: String, default: 'Main Dining' },
+  capacity: { type: Number, default: 4 },
+  status: { type: String, enum: ['Available', 'Occupied', 'Billed'], default: 'Available' },
+  guestName: { type: String, default: '' },
+  pax: { type: Number, default: 2 },
+  seatedAt: String,
+  serverName: String,
+  isBar: { type: Boolean, default: false },
+  kotRounds: [{
+    kotNumber: String,
+    roundNumber: Number,
+    timestamp: { type: String, default: () => new Date().toISOString() },
+    instructions: String,
+    items: [{
+      menuItemId: String,
+      name: String,
+      price: Number,
+      quantity: Number,
+      notes: String
+    }]
+  }],
+  runningItems: [{
+    menuItemId: String,
+    name: String,
+    price: Number,
+    quantity: Number,
+    notes: String
+  }],
+  subtotal: { type: Number, default: 0 },
+  tax: { type: Number, default: 0 },
+  total: { type: Number, default: 0 }
+}, { timestamps: true });
+restaurantTableSchema.index({ id: 1, tenantId: 1 }, { unique: true });
+
 export const Tenant = mongoose.model('Tenant', tenantSchema);
 export const User = mongoose.model('User', userSchema);
 export const Room = mongoose.model('Room', roomSchema);
@@ -331,6 +369,7 @@ export const Expense = mongoose.model('Expense', expenseSchema);
 export const AuditLog = mongoose.model('AuditLog', auditLogSchema);
 export const Settings = mongoose.model('Settings', settingsSchema);
 export const Notification = mongoose.model('Notification', notificationSchema);
+export const RestaurantTable = mongoose.model('RestaurantTable', restaurantTableSchema);
 
 // ==========================================
 // SEED INITIAL DEFAULTS IF EMPTY
@@ -694,6 +733,280 @@ app.delete('/api/orders/:id', async (req, res) => {
     await Order.deleteOne({ id: req.params.id });
     io.emit('order_deleted', req.params.id);
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- RESTAURANT & BAR TABLES & KOT PARKING ---
+const defaultRestaurantTables = [
+  { id: 'tbl_1', tableNumber: 'T-1', section: 'Main Dining', capacity: 2, isBar: false },
+  { id: 'tbl_2', tableNumber: 'T-2', section: 'Main Dining', capacity: 4, isBar: false },
+  { id: 'tbl_3', tableNumber: 'T-3', section: 'Main Dining', capacity: 4, isBar: false },
+  { id: 'tbl_4', tableNumber: 'T-4', section: 'Main Dining', capacity: 6, isBar: false },
+  { id: 'tbl_5', tableNumber: 'T-5', section: 'Main Dining', capacity: 4, isBar: false },
+  { id: 'tbl_6', tableNumber: 'T-6', section: 'VIP Cabana', capacity: 8, isBar: false },
+  { id: 'tbl_b1', tableNumber: 'B-1', section: 'Bar Lounge', capacity: 2, isBar: true },
+  { id: 'tbl_b2', tableNumber: 'B-2', section: 'Bar Lounge', capacity: 2, isBar: true },
+  { id: 'tbl_b3', tableNumber: 'B-3', section: 'Bar Lounge', capacity: 4, isBar: true },
+  { id: 'tbl_b4', tableNumber: 'B-4', section: 'Bar Lounge', capacity: 4, isBar: true },
+  { id: 'tbl_g1', tableNumber: 'G-1', section: 'Outdoor', capacity: 4, isBar: false },
+  { id: 'tbl_g2', tableNumber: 'G-2', section: 'Outdoor', capacity: 6, isBar: false }
+];
+
+app.get('/api/tables', async (req, res) => {
+  const { tenantId } = req.query;
+  try {
+    const filter = tenantId ? { tenantId } : {};
+    let tables = await RestaurantTable.find(filter).sort({ tableNumber: 1 });
+    
+    // Auto-seed default tables for tenant if empty
+    if (tables.length === 0 && tenantId) {
+      for (const t of defaultRestaurantTables) {
+        await RestaurantTable.create({ ...t, tenantId });
+      }
+      tables = await RestaurantTable.find(filter).sort({ tableNumber: 1 });
+    }
+    res.json(tables);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tables', async (req, res) => {
+  try {
+    const table = await RestaurantTable.create(req.body);
+    io.emit('table_created', table);
+    res.json(table);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/tables/:id', async (req, res) => {
+  const { tenantId } = req.query;
+  try {
+    const filter = tenantId ? { id: req.params.id, tenantId } : { id: req.params.id };
+    const updateData = { ...req.body };
+    delete updateData._id;
+    const table = await RestaurantTable.findOneAndUpdate(filter, updateData, { new: true });
+    io.emit('table_updated', table);
+    res.json(table);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tables/:id/park-kot', async (req, res) => {
+  const { tenantId } = req.query;
+  const { items, instructions, guestName, pax, isBar, serverName } = req.body;
+  try {
+    const filter = tenantId ? { id: req.params.id, tenantId } : { id: req.params.id };
+    const table = await RestaurantTable.findOne(filter);
+    if (!table) return res.status(404).json({ error: 'Table not found' });
+
+    const roundNo = (table.kotRounds?.length || 0) + 1;
+    const prefix = isBar || table.isBar ? 'BAR-' : 'KOT-';
+    const kotNo = `${prefix}${table.tableNumber}-R${roundNo}-${Math.floor(100 + Math.random() * 900)}`;
+
+    const newRound = {
+      kotNumber: kotNo,
+      roundNumber: roundNo,
+      timestamp: new Date().toISOString(),
+      instructions: instructions || '',
+      items: items || []
+    };
+
+    if (!table.kotRounds) table.kotRounds = [];
+    table.kotRounds.push(newRound);
+
+    // Merge into running items
+    const mergedMap = new Map();
+    (table.runningItems || []).forEach(it => {
+      mergedMap.set(it.menuItemId || it.name, { ...it.toObject?.() || it });
+    });
+
+    (items || []).forEach(it => {
+      const key = it.menuItemId || it.name;
+      if (mergedMap.has(key)) {
+        const existing = mergedMap.get(key);
+        existing.quantity = (Number(existing.quantity) || 0) + (Number(it.quantity) || 1);
+        if (it.notes) existing.notes = [existing.notes, it.notes].filter(Boolean).join(', ');
+      } else {
+        mergedMap.set(key, { ...it });
+      }
+    });
+
+    table.runningItems = Array.from(mergedMap.values());
+
+    // Calculate totals (Inclusive GST)
+    const settingsDoc = await Settings.findOne({ tenantId: table.tenantId });
+    const taxRate = (isBar || table.isBar) ? (settingsDoc?.barTaxRate ?? 20) : (settingsDoc?.taxRate ?? 18);
+    const grossTotal = table.runningItems.reduce((acc, it) => acc + ((Number(it.price) || 0) * (Number(it.quantity) || 1)), 0);
+    const taxableBase = grossTotal > 0 ? parseFloat((grossTotal / (1 + taxRate / 100)).toFixed(2)) : 0;
+    const taxAmt = grossTotal > 0 ? parseFloat((grossTotal - taxableBase).toFixed(2)) : 0;
+
+    table.total = grossTotal;
+    table.subtotal = taxableBase;
+    table.tax = taxAmt;
+    table.status = 'Occupied';
+    if (guestName) table.guestName = guestName;
+    if (pax) table.pax = Number(pax);
+    if (serverName) table.serverName = serverName;
+    if (!table.seatedAt) table.seatedAt = new Date().toISOString();
+
+    await table.save();
+
+    // Auto-deduct ingredient stock for new round items
+    if (items && Array.isArray(items)) {
+      for (const item of items) {
+        const inv = await Inventory.findOne({
+          tenantId: table.tenantId,
+          name: new RegExp(`^${item.name}$`, 'i')
+        });
+        if (inv) {
+          inv.stock = Math.max(0, inv.stock - (Number(item.quantity) || 1));
+          await inv.save();
+          io.emit('inventory_updated', inv);
+        }
+      }
+    }
+
+    io.emit('table_updated', table);
+    res.json({ success: true, table, newRound });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tables/:id/settle', async (req, res) => {
+  const { tenantId } = req.query;
+  const { paymentMethod, roomNumber, guestName, discount, splitDetails } = req.body;
+  try {
+    const filter = tenantId ? { id: req.params.id, tenantId } : { id: req.params.id };
+    const table = await RestaurantTable.findOne(filter);
+    if (!table) return res.status(404).json({ error: 'Table not found' });
+
+    const orderId = 'ord_' + Date.now();
+    const prefix = table.isBar ? 'BAR-' : 'POS-';
+    const orderNo = `${prefix}${table.tableNumber}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const totalBill = table.total;
+    const subtotal = table.subtotal;
+    const tax = table.tax;
+    const isPostedToRoom = paymentMethod === 'Room' && Boolean(roomNumber);
+
+    const order = await Order.create({
+      id: orderId,
+      tenantId: table.tenantId,
+      orderNumber: orderNo,
+      type: isPostedToRoom ? 'Room' : 'WalkIn',
+      roomNumber: isPostedToRoom ? roomNumber : undefined,
+      guestName: guestName || table.guestName || (isPostedToRoom ? `Room ${roomNumber}` : `Table ${table.tableNumber}`),
+      items: table.runningItems,
+      subtotal,
+      tax,
+      total: totalBill,
+      status: isPostedToRoom ? 'PostedToRoom' : 'Paid',
+      isBar: table.isBar,
+      timestamp: new Date().toISOString()
+    });
+
+    if (isPostedToRoom) {
+      const room = await Room.findOne({ roomNumber, tenantId: table.tenantId });
+      if (room) {
+        if (table.isBar) {
+          room.barCharges = (Number(room.barCharges) || 0) + totalBill;
+        } else {
+          room.restaurantCharges = (Number(room.restaurantCharges) || 0) + totalBill;
+        }
+        await room.save();
+        io.emit('room_updated', room);
+      }
+    }
+
+    // Reset Table to Available
+    table.status = 'Available';
+    table.guestName = '';
+    table.pax = 2;
+    table.seatedAt = undefined;
+    table.serverName = '';
+    table.runningItems = [];
+    table.kotRounds = [];
+    table.subtotal = 0;
+    table.tax = 0;
+    table.total = 0;
+    await table.save();
+
+    io.emit('order_created', order);
+    io.emit('table_updated', table);
+    res.json({ success: true, order, table });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tables/:id/clear', async (req, res) => {
+  const { tenantId } = req.query;
+  try {
+    const filter = tenantId ? { id: req.params.id, tenantId } : { id: req.params.id };
+    const table = await RestaurantTable.findOne(filter);
+    if (!table) return res.status(404).json({ error: 'Table not found' });
+
+    table.status = 'Available';
+    table.guestName = '';
+    table.pax = 2;
+    table.seatedAt = undefined;
+    table.serverName = '';
+    table.runningItems = [];
+    table.kotRounds = [];
+    table.subtotal = 0;
+    table.tax = 0;
+    table.total = 0;
+    await table.save();
+
+    io.emit('table_updated', table);
+    res.json({ success: true, table });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tables/transfer', async (req, res) => {
+  const { tenantId } = req.query;
+  const { sourceTableId, targetTableId } = req.body;
+  try {
+    const src = await RestaurantTable.findOne({ id: sourceTableId, tenantId });
+    const tgt = await RestaurantTable.findOne({ id: targetTableId, tenantId });
+    if (!src || !tgt) return res.status(404).json({ error: 'Source or target table not found' });
+
+    tgt.status = 'Occupied';
+    tgt.guestName = src.guestName;
+    tgt.pax = src.pax;
+    tgt.seatedAt = src.seatedAt;
+    tgt.serverName = src.serverName;
+    tgt.runningItems = src.runningItems;
+    tgt.kotRounds = src.kotRounds;
+    tgt.subtotal = src.subtotal;
+    tgt.tax = src.tax;
+    tgt.total = src.total;
+    await tgt.save();
+
+    src.status = 'Available';
+    src.guestName = '';
+    src.pax = 2;
+    src.seatedAt = undefined;
+    src.serverName = '';
+    src.runningItems = [];
+    src.kotRounds = [];
+    src.subtotal = 0;
+    src.tax = 0;
+    src.total = 0;
+    await src.save();
+
+    io.emit('table_updated', src);
+    io.emit('table_updated', tgt);
+    res.json({ success: true, source: src, target: tgt });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -217,6 +217,25 @@
     page-break-inside: avoid !important;
   }
 
+  /* Thermal KOT (Kitchen & Bar Order Ticket) 80mm / 58mm Thermal Print */
+  #printable-kot-slip,
+  .printable-kot-slip {
+    visibility: visible !important;
+    display: block !important;
+    width: 76mm !important;
+    max-width: 80mm !important;
+    margin: 0 auto !important;
+    padding: 2mm 1mm !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace !important;
+    font-size: 12px !important;
+    line-height: 1.3 !important;
+    page-break-inside: avoid !important;
+  }
+
   /* Thermal / POS Receipts */
   .receipt-print,
   #printable-pos-receipt {
@@ -229,6 +248,9 @@
     box-shadow: none !important;
     border: none !important;
     background: white !important;
+    color: black !important;
+    font-family: 'Courier New', Courier, monospace !important;
+    page-break-inside: avoid !important;
   }
 
   /* Expenses Sheet */

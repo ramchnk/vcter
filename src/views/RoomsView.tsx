@@ -245,7 +245,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
 
   const handleCheckInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedRoom || !guestName || !guestPhone || !guestIdProof) return;
+    if (!selectedRoom || !guestName || !guestPhone) return;
 
     if (isOnlineBookingSource(bookingSource) && !bookingReference.trim()) {
       alert(`Please enter the Online Booking Reference Number (e.g. OTA Confirmation / Voucher ID for ${bookingSource}).`);
@@ -1111,14 +1111,13 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="font-bold text-slate-500">ID Proof Details *</label>
+                  <label className="font-bold text-slate-500">ID Proof Details (Aadhaar / Passport) (Optional)</label>
                   <input
                     type="text"
-                    required
                     value={guestIdProof}
                     onChange={e => setGuestIdProof(e.target.value)}
                     className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg"
-                    placeholder="Aadhaar / Passport Details"
+                    placeholder="Aadhaar / Passport Details (Optional)"
                   />
                 </div>
               </div>
@@ -1360,13 +1359,13 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                       )}
 
                       <div className="border-t border-slate-100 dark:border-slate-800/80 my-1 pt-1.5 flex justify-between font-bold">
-                        <span className="text-slate-500 font-sans">Subtotal</span>
-                        <span>₹{summary.subtotal}</span>
+                        <span className="text-slate-500 font-sans">Total Folio (Incl. GST)</span>
+                        <span>₹{summary.grandTotal}</span>
                       </div>
 
                       <div className="flex justify-between text-slate-500 text-[10px]">
-                        <span>Taxes (GST @{summary.taxRate}%)</span>
-                        <span>₹{summary.taxAmount}</span>
+                        <span>Taxable Base: ₹{summary.subtotal}</span>
+                        <span>GST @{summary.taxRate}%: ₹{summary.taxAmount}</span>
                       </div>
 
                       <div className="flex justify-between text-slate-500 text-[10px]">

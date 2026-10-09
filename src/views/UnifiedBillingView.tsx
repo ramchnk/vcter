@@ -167,9 +167,11 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
   const hallTotal = summary?.hallTotal || 0;
   const otherCharges = summary?.otherCharges || 0;
   
-  const subtotal = roomRentTotal + restaurantTotal + barTotal + laundryTotal + hallTotal + otherCharges;
-  const taxAmount = summary ? parseFloat(((subtotal * summary.taxRate) / 100).toFixed(2)) : 0;
-  const grandTotal = subtotal + taxAmount;
+  const grossFolioTotal = roomRentTotal + restaurantTotal + barTotal + laundryTotal + hallTotal + otherCharges;
+  const taxRate = summary?.taxRate || 12;
+  const taxableSubtotal = summary?.subtotal ?? (grossFolioTotal > 0 ? parseFloat((grossFolioTotal / (1 + taxRate / 100)).toFixed(2)) : 0);
+  const taxAmount = summary?.taxAmount ?? (grossFolioTotal > 0 ? parseFloat((grossFolioTotal - taxableSubtotal).toFixed(2)) : 0);
+  const grandTotal = grossFolioTotal;
   
   const advancePaid = summary?.advancePaid || 0;
   const outstandingAmount = Math.max(0, grandTotal - advancePaid - discount);
@@ -209,8 +211,8 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
       laundryTotal: laundryTotal,
       hallTotal: hallTotal,
       otherCharges: otherCharges,
-      subtotal: subtotal,
-      taxRate: summary.taxRate || 12,
+      subtotal: taxableSubtotal,
+      taxRate: taxRate,
       taxAmount: taxAmount,
       grandTotal: grandTotal,
       advancePaid: advancePaid,
@@ -290,8 +292,8 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
       laundryTotal: laundryTotal,
       hallTotal: hallTotal,
       otherCharges: otherCharges,
-      subtotal: subtotal,
-      taxRate: summary.taxRate || 12,
+      subtotal: taxableSubtotal,
+      taxRate: taxRate,
       taxAmount: taxAmount,
       grandTotal: grandTotal,
       advancePaid: advancePaid,
@@ -366,10 +368,10 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
         const rm = tenantRooms.find(r => r.roomNumber === roomNo || r.category === pb.roomCategory);
         const roomPrice = rm?.price || 2000;
         const roomRent = (pb as any).roomRentTotal || ((pb as any).totalAmount ? (pb as any).totalAmount : (stayNights * roomPrice));
-        const totalFolio = (pb as any).totalAmount || roomRent;
+        const grandTot = (pb as any).totalAmount || roomRent;
         const taxR = 12;
-        const taxAmt = parseFloat(((roomRent * taxR) / 100).toFixed(2));
-        const grandTot = totalFolio + taxAmt;
+        const taxableSubtotal = parseFloat((grandTot / (1 + taxR / 100)).toFixed(2));
+        const taxAmt = parseFloat((grandTot - taxableSubtotal).toFixed(2));
         const advPaid = pb.advancePaid || 0;
         const netPay = Math.max(0, grandTot - advPaid);
 
@@ -396,7 +398,7 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
           laundryTotal: 0,
           hallTotal: 0,
           otherCharges: 0,
-          subtotal: roomRent,
+          subtotal: taxableSubtotal,
           taxRate: taxR,
           taxAmount: taxAmt,
           grandTotal: grandTot,
@@ -428,12 +430,12 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
           seenMap.add(key);
           const rm = tenantRooms.find(r => r.roomNumber === roomNo);
           const rent = rentMatch ? parseFloat(rentMatch[1]) : (rm?.price || 2000);
-          const totalFolio = folioMatch ? parseFloat(folioMatch[1]) : rent;
+          const grandTot = folioMatch ? parseFloat(folioMatch[1]) : rent;
           const disc = discMatch ? parseFloat(discMatch[1]) : 0;
           const payMode = payMatch ? payMatch[1].trim() : 'UPI';
           const taxR = 12;
-          const taxAmt = parseFloat(((rent * taxR) / 100).toFixed(2));
-          const grandTot = totalFolio + taxAmt;
+          const taxableSubtotal = parseFloat((grandTot / (1 + taxR / 100)).toFixed(2));
+          const taxAmt = parseFloat((grandTot - taxableSubtotal).toFixed(2));
           const netPay = Math.max(0, grandTot - disc);
 
           list.push({
@@ -456,7 +458,7 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
             laundryTotal: 0,
             hallTotal: 0,
             otherCharges: 0,
-            subtotal: rent,
+            subtotal: taxableSubtotal,
             taxRate: taxR,
             taxAmount: taxAmt,
             grandTotal: grandTot,
@@ -743,12 +745,17 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                     )}
 
                     <div className="flex justify-between border-t-2 border-slate-200 dark:border-slate-700 pt-2 font-bold">
-                      <span>Subtotal (Before Tax)</span>
-                      <span>₹{subtotal}</span>
+                      <span>Total Gross Folio (Incl. GST)</span>
+                      <span>₹{grandTotal}</span>
                     </div>
 
-                    <div className="flex justify-between text-slate-500">
-                      <span>GST Taxes ({summary.taxRate}%)</span>
+                    <div className="flex justify-between text-slate-500 text-[11px]">
+                      <span>Taxable Value (Base)</span>
+                      <span>₹{taxableSubtotal}</span>
+                    </div>
+
+                    <div className="flex justify-between text-slate-500 text-[11px]">
+                      <span>GST Taxes ({taxRate}% Inclusive)</span>
                       <span>₹{taxAmount}</span>
                     </div>
 
@@ -1485,9 +1492,9 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                       <span>₹{(activePrintInvoice.taxAmount / 2).toFixed(2)}</span>
                     </div>
 
-                    <div className="flex justify-between text-slate-600 border-t border-slate-200 pt-1">
-                      <span>Gross Amount:</span>
-                      <span className="font-bold">₹{activePrintInvoice.grandTotal.toLocaleString()}</span>
+                    <div className="flex justify-between text-slate-900 border-t border-slate-200 pt-1 font-bold">
+                      <span>Total Amount (Incl. GST):</span>
+                      <span className="font-bold text-slate-900">₹{activePrintInvoice.grandTotal.toLocaleString()}</span>
                     </div>
 
                     {activePrintInvoice.advancePaid > 0 && (
@@ -1574,8 +1581,9 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                 </div>
 
                 <div className="text-[9px] space-y-1">
-                  <div className="flex justify-between"><span>SUBTOTAL</span><span>₹{activePrintInvoice.subtotal}</span></div>
-                  <div className="flex justify-between text-slate-500"><span>GST Tax ({activePrintInvoice.taxRate}%)</span><span>₹{activePrintInvoice.taxAmount}</span></div>
+                  <div className="flex justify-between"><span>TAXABLE VALUE</span><span>₹{activePrintInvoice.subtotal}</span></div>
+                  <div className="flex justify-between text-slate-500"><span>GST ({activePrintInvoice.taxRate}% INCL.)</span><span>₹{activePrintInvoice.taxAmount}</span></div>
+                  <div className="flex justify-between font-bold border-t border-slate-200 pt-0.5"><span>GROSS TOTAL</span><span>₹{activePrintInvoice.grandTotal}</span></div>
                   {activePrintInvoice.advancePaid > 0 && <div className="flex justify-between text-emerald-600"><span>Pre-Paid Advance</span><span>-₹{activePrintInvoice.advancePaid}</span></div>}
                   {activePrintInvoice.discount > 0 && <div className="flex justify-between text-emerald-600"><span>Discount</span><span>-₹{activePrintInvoice.discount}</span></div>}
                   <div className="flex justify-between font-extrabold text-sm border-t border-dashed border-slate-400 pt-1 text-slate-950">
