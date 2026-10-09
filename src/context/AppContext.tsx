@@ -60,10 +60,25 @@ export const BOOKING_SOURCES = [
   'Agoda',
   'Goibibo',
   'Airbnb',
+  'Online / OTA',
   'Corporate / Travel Agent',
   'Phone / WhatsApp Booking',
   'Other'
 ];
+
+export const isOnlineBookingSource = (source?: string): boolean => {
+  if (!source) return false;
+  const s = source.toLowerCase();
+  return (
+    s.includes('makemytrip') ||
+    s.includes('booking.com') ||
+    s.includes('agoda') ||
+    s.includes('goibibo') ||
+    s.includes('airbnb') ||
+    s.includes('online') ||
+    s.includes('ota')
+  );
+};
 
 export interface Room {
   id: string;
@@ -73,8 +88,11 @@ export interface Room {
   price: number;
   basePrice?: number;
   bookingSource?: string;
+  bookingReference?: string;
   isAcSwitchedOff?: boolean;
   status: RoomStatus;
+  groupBookingId?: string;
+  groupBookingName?: string;
   tenantId?: string;
   guestName?: string;
   guestPhone?: string;
@@ -102,10 +120,14 @@ export interface PreBooking {
   address: string;
   idProof: string;
   gstNumber?: string;
+  groupBookingId?: string;
+  groupBookingName?: string;
+  occupantName?: string;
   roomCategory: RoomCategory;
   roomNumber?: string;
   roomPrice?: number;
   bookingSource?: string;
+  bookingReference?: string;
   isAcSwitchedOff?: boolean;
   bookingDate: string;
   checkInDate: string;
@@ -116,6 +138,31 @@ export interface PreBooking {
   roomRentTotal?: number;
   specialRequests?: string;
   status: 'Pending' | 'Confirmed' | 'CheckedIn' | 'CheckedOut' | 'Cancelled';
+}
+
+export interface BulkRoomItem {
+  roomCategory: RoomCategory;
+  roomNumber?: string;
+  roomPrice: number;
+  noOfGuests: number;
+  occupantName?: string;
+  isAcSwitchedOff?: boolean;
+}
+
+export interface BulkPreBookingPayload {
+  guestName: string;
+  phone: string;
+  email?: string;
+  address?: string;
+  idProof: string;
+  gstNumber?: string;
+  bookingSource?: string;
+  bookingReference?: string;
+  checkInDate: string;
+  checkOutDate: string;
+  totalAdvancePaid: number;
+  specialRequests?: string;
+  rooms: BulkRoomItem[];
 }
 
 export interface RecipeItem {
@@ -374,7 +421,12 @@ interface AppContextType {
     advancePaid: number;
     price?: number;
     bookingSource?: string;
+    bookingReference?: string;
     isAcSwitchedOff?: boolean;
+    groupBookingId?: string;
+    groupBookingName?: string;
+    checkInDate?: string;
+    checkOutDate?: string;
   }) => Promise<void>;
   checkOutRoom: (roomId: string, paymentDetails: { method: 'Cash' | 'Card' | 'UPI' | 'Split'; discount: number; splitDetails?: string }) => Promise<void>;
   transferRoom: (fromRoomId: string, toRoomId: string) => Promise<void>;
@@ -383,8 +435,10 @@ interface AppContextType {
   addRoomCharge: (roomId: string, amount: number, description?: string) => Promise<void>;
   
   addPreBooking: (booking: Omit<PreBooking, 'id' | 'status' | 'bookingDate'>) => Promise<void>;
+  addBulkPreBooking: (payload: BulkPreBookingPayload) => Promise<{ groupBookingId: string; createdCount: number }>;
   cancelPreBooking: (id: string) => Promise<void>;
   confirmPreBookingCheckIn: (id: string, roomId: string) => Promise<void>;
+  bulkConfirmPreBookingCheckIn: (groupBookingId: string, roomAssignments?: { [preBookingId: string]: string }) => Promise<void>;
   updatePreBookingStatus: (id: string, status: PreBooking['status']) => Promise<void>;
   
   addRestaurantBarOrder: (order: Omit<Order, 'id' | 'orderNumber' | 'timestamp' | 'tax' | 'total' | 'status'>) => Promise<void>;
@@ -994,7 +1048,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     advancePaid: number;
     price?: number;
     bookingSource?: string;
+    bookingReference?: string;
     isAcSwitchedOff?: boolean;
+    groupBookingId?: string;
+    groupBookingName?: string;
+    checkInDate?: string;
+    checkOutDate?: string;
   }) => {
     const tId = effectiveTenantId;
     if (!tId) return;
@@ -1010,15 +1069,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         basePrice: basePrice,
         price: stayPrice,
         bookingSource: guestInfo.bookingSource || 'Direct / Walk-In',
+        bookingReference: guestInfo.bookingReference || '',
         isAcSwitchedOff: !!guestInfo.isAcSwitchedOff,
+        groupBookingId: guestInfo.groupBookingId || '',
+        groupBookingName: guestInfo.groupBookingName || '',
         guestName: guestInfo.name,
         guestPhone: guestInfo.phone,
         guestEmail: guestInfo.email || '',
         guestAddress: guestInfo.address || '',
         guestIdProof: guestInfo.idProof || '',
         gstNumber: guestInfo.gstNumber || '',
-        checkInDate: new Date().toISOString().split('T')[0],
-        checkOutDate: new Date(Date.now() + 86400000).toISOString().split('T')[0],
+        checkInDate: guestInfo.checkInDate || new Date().toISOString().split('T')[0],
+        checkOutDate: guestInfo.checkOutDate || new Date(Date.now() + 86400000).toISOString().split('T')[0],
         noOfGuests: guestInfo.noOfGuests,
         advancePaid: guestInfo.advancePaid,
         restaurantCharges: 0,
@@ -1031,7 +1093,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setRooms(prev => prev.map(r => r.id === roomId ? { ...r, ...roomUpdate } as Room : r));
       const sourceTag = guestInfo.bookingSource ? ` via ${guestInfo.bookingSource}` : '';
       const acTag = guestInfo.isAcSwitchedOff ? ' (Non-AC Mode)' : '';
-      addAudit('Check-In', `Guest ${guestInfo.name} checked into Room ${room?.roomNumber || roomId} @ ₹${stayPrice}/night${sourceTag}${acTag}`, undefined, 'Occupied');
+      const groupTag = guestInfo.groupBookingId ? ` [Group: ${guestInfo.groupBookingId}]` : '';
+      addAudit('Check-In', `Guest ${guestInfo.name} checked into Room ${room?.roomNumber || roomId} @ ₹${stayPrice}/night${sourceTag}${acTag}${groupTag}`, undefined, 'Occupied');
     } catch (e) {
       console.error(e);
     }
@@ -1409,6 +1472,76 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const addBulkPreBooking = async (payload: BulkPreBookingPayload): Promise<{ groupBookingId: string; createdCount: number }> => {
+    const tId = effectiveTenantId;
+    if (!tId || !payload.rooms || payload.rooms.length === 0) return { groupBookingId: '', createdCount: 0 };
+    
+    const groupBookingId = 'GRP-' + Math.floor(100000 + Math.random() * 900000);
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Calculate nights
+    const s = new Date(payload.checkInDate).getTime();
+    const e = new Date(payload.checkOutDate).getTime();
+    const stayNights = Math.max(1, Math.ceil((e - s) / (1000 * 60 * 60 * 24)));
+
+    // Distribute advance evenly across rooms
+    const totalAdvance = Number(payload.totalAdvancePaid) || 0;
+    const advancePerRoom = payload.rooms.length > 0 ? parseFloat((totalAdvance / payload.rooms.length).toFixed(2)) : 0;
+
+    const newBookings: PreBooking[] = payload.rooms.map((rm, idx) => {
+      const nightlyRate = Number(rm.roomPrice) || 1500;
+      const totalAmount = nightlyRate * stayNights;
+      return {
+        id: 'pb_grp_' + Date.now() + '_' + idx + '_' + Math.floor(Math.random() * 1000),
+        tenantId: tId,
+        guestName: payload.guestName,
+        phone: payload.phone,
+        email: payload.email || '',
+        address: payload.address || '',
+        idProof: payload.idProof || '',
+        gstNumber: payload.gstNumber || '',
+        roomCategory: rm.roomCategory,
+        roomNumber: rm.roomNumber || undefined,
+        roomPrice: nightlyRate,
+        groupBookingId: groupBookingId,
+        groupBookingName: payload.guestName,
+        occupantName: rm.occupantName || payload.guestName,
+        bookingSource: payload.bookingSource || 'Group / Bulk Booking',
+        bookingReference: payload.bookingReference || '',
+        isAcSwitchedOff: !!rm.isAcSwitchedOff,
+        bookingDate: today,
+        checkInDate: payload.checkInDate,
+        checkOutDate: payload.checkOutDate,
+        noOfGuests: rm.noOfGuests || 1,
+        advancePaid: advancePerRoom,
+        totalAmount: totalAmount,
+        roomRentTotal: totalAmount,
+        specialRequests: payload.specialRequests,
+        status: 'Confirmed'
+      };
+    });
+
+    try {
+      let createdList: PreBooking[] = [];
+      try {
+        const res = await api.post('/pre-bookings/bulk', { bookings: newBookings });
+        createdList = res.data && Array.isArray(res.data) ? res.data : newBookings;
+      } catch (err) {
+        for (const b of newBookings) {
+          await api.post('/pre-bookings', b);
+        }
+        createdList = newBookings;
+      }
+
+      setPreBookings(prev => [...createdList, ...prev.filter(p => !createdList.some(c => c.id === p.id))]);
+      addAudit('Bulk Pre-Booking', `Created group reservation ${groupBookingId} with ${newBookings.length} rooms for ${payload.guestName}`);
+      return { groupBookingId, createdCount: newBookings.length };
+    } catch (e) {
+      console.error('Error adding bulk pre-booking:', e);
+      return { groupBookingId, createdCount: 0 };
+    }
+  };
+
   const cancelPreBooking = async (id: string) => {
     const tId = effectiveTenantId;
     if (!tId) return;
@@ -1442,7 +1575,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     try {
       await checkInRoom(roomId, {
-        name: pb.guestName,
+        name: pb.occupantName || pb.guestName,
         phone: pb.phone,
         email: pb.email,
         address: pb.address,
@@ -1452,7 +1585,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         advancePaid: pb.advancePaid || 0,
         price: stayPrice,
         bookingSource: pb.bookingSource || 'Pre-Booking / Online OTA',
-        isAcSwitchedOff: pb.isAcSwitchedOff
+        bookingReference: pb.bookingReference || '',
+        isAcSwitchedOff: pb.isAcSwitchedOff,
+        groupBookingId: pb.groupBookingId,
+        groupBookingName: pb.groupBookingName || pb.guestName,
+        checkInDate: pb.checkInDate,
+        checkOutDate: pb.checkOutDate
       });
       await api.put(`/pre-bookings/${id}?tenantId=${tId}`, { 
         status: 'CheckedIn', 
@@ -1461,6 +1599,63 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setPreBookings(prev => prev.map(p => p.id === id ? { ...p, status: 'CheckedIn', roomNumber: targetRoom ? targetRoom.roomNumber : undefined } : p));
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const bulkConfirmPreBookingCheckIn = async (groupBookingId: string, roomAssignments?: { [preBookingId: string]: string }) => {
+    const tId = effectiveTenantId;
+    if (!tId) return;
+    const groupBookings = preBookings.filter(p => p.groupBookingId === groupBookingId && (p.status === 'Confirmed' || p.status === 'Pending'));
+    if (groupBookings.length === 0) return;
+
+    // Track assigned rooms in this run to avoid assigning the same room twice
+    const occupiedInRun = new Set<string>();
+
+    for (const pb of groupBookings) {
+      let targetRoomId = roomAssignments ? roomAssignments[pb.id] : undefined;
+      if (!targetRoomId && pb.roomNumber) {
+        const match = rooms.find(r => r.roomNumber === pb.roomNumber);
+        if (match && match.status === 'Available' && !occupiedInRun.has(match.id)) {
+          targetRoomId = match.id;
+        }
+      }
+      if (!targetRoomId) {
+        // Auto assign available room matching category
+        const available = rooms.find(r => r.category === pb.roomCategory && r.status === 'Available' && !occupiedInRun.has(r.id));
+        if (available) {
+          targetRoomId = available.id;
+        }
+      }
+
+      if (targetRoomId) {
+        occupiedInRun.add(targetRoomId);
+        const targetRoom = rooms.find(r => r.id === targetRoomId);
+        let stayPrice = pb.roomPrice || targetRoom?.price || 1500;
+        await checkInRoom(targetRoomId, {
+          name: pb.occupantName || pb.guestName,
+          phone: pb.phone,
+          email: pb.email,
+          address: pb.address,
+          idProof: pb.idProof,
+          gstNumber: pb.gstNumber,
+          noOfGuests: pb.noOfGuests || 1,
+          advancePaid: pb.advancePaid || 0,
+          price: stayPrice,
+          bookingSource: pb.bookingSource || 'Group / Bulk Booking',
+          bookingReference: pb.bookingReference || '',
+          isAcSwitchedOff: pb.isAcSwitchedOff,
+          groupBookingId: pb.groupBookingId,
+          groupBookingName: pb.groupBookingName || pb.guestName,
+          checkInDate: pb.checkInDate,
+          checkOutDate: pb.checkOutDate
+        });
+
+        await api.put(`/pre-bookings/${pb.id}?tenantId=${tId}`, { 
+          status: 'CheckedIn', 
+          roomNumber: targetRoom ? targetRoom.roomNumber : undefined 
+        });
+        setPreBookings(prev => prev.map(p => p.id === pb.id ? { ...p, status: 'CheckedIn', roomNumber: targetRoom ? targetRoom.roomNumber : undefined } : p));
+      }
     }
   };
 
@@ -1796,8 +1991,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addRoomCharge,
 
         addPreBooking,
+        addBulkPreBooking,
         cancelPreBooking,
         confirmPreBookingCheckIn,
+        bulkConfirmPreBookingCheckIn,
         updatePreBookingStatus,
 
         addRestaurantBarOrder,

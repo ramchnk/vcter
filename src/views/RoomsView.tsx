@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useApp, Room, RoomStatus, RoomCategory, PreBooking, BOOKING_SOURCES } from '../context/AppContext';
+import { useApp, Room, RoomStatus, RoomCategory, PreBooking, BOOKING_SOURCES, isOnlineBookingSource } from '../context/AppContext';
 import { 
   Plus, 
   ArrowRightLeft, 
@@ -17,7 +17,8 @@ import {
   BellRing,
   AlertTriangle,
   BedDouble,
-  Pencil
+  Pencil,
+  Globe
 } from 'lucide-react';
 import { getRoomCheckoutAlert, formatTime12h, RoomCheckoutAlert } from '../utils/dateUtils';
 
@@ -86,6 +87,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [advancePaid, setAdvancePaid] = useState(0);
   const [checkInPrice, setCheckInPrice] = useState<number>(1500);
   const [bookingSource, setBookingSource] = useState<string>('Direct / Walk-In');
+  const [bookingReference, setBookingReference] = useState<string>('');
   const [isAcSwitchedOff, setIsAcSwitchedOff] = useState<boolean>(false);
 
   const [transferTargetRoomId, setTransferTargetRoomId] = useState('');
@@ -194,6 +196,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       setAdvancePaid(booking.advancePaid || 0);
       setCheckInPrice(booking.roomPrice || selectedRoom?.price || 1500);
       setBookingSource(booking.bookingSource || 'MakeMyTrip');
+      setBookingReference(booking.bookingReference || '');
       setIsAcSwitchedOff(!!booking.isAcSwitchedOff);
     } else {
       setSelectedPreBookingId('');
@@ -205,6 +208,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       setGuestGst('');
       setNoOfGuests(1);
       setAdvancePaid(0);
+      setBookingReference('');
       if (selectedRoom) {
         setCheckInPrice(selectedRoom.price || 1500);
         setBookingSource('Direct / Walk-In');
@@ -217,6 +221,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     setSelectedRoom(room);
     setCheckInPrice(room.price || 1500);
     setBookingSource('Direct / Walk-In');
+    setBookingReference('');
     setIsAcSwitchedOff(false);
 
     // Look for a matching prebooking for this exact room number or category for today
@@ -231,6 +236,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       applyPreBookingData(null);
       setCheckInPrice(room.price || 1500);
       setBookingSource('Direct / Walk-In');
+      setBookingReference('');
       setIsAcSwitchedOff(false);
     }
 
@@ -240,6 +246,11 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const handleCheckInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRoom || !guestName || !guestPhone || !guestIdProof) return;
+
+    if (isOnlineBookingSource(bookingSource) && !bookingReference.trim()) {
+      alert(`Please enter the Online Booking Reference Number (e.g. OTA Confirmation / Voucher ID for ${bookingSource}).`);
+      return;
+    }
 
     if (selectedPreBookingId) {
       await checkInRoom(selectedRoom.id, {
@@ -253,6 +264,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         advancePaid: Number(advancePaid),
         price: Number(checkInPrice),
         bookingSource: bookingSource,
+        bookingReference: bookingReference.trim() || undefined,
         isAcSwitchedOff: isAcSwitchedOff
       });
       await updatePreBookingStatus(selectedPreBookingId, 'CheckedIn');
@@ -268,6 +280,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         advancePaid: Number(advancePaid),
         price: Number(checkInPrice),
         bookingSource: bookingSource,
+        bookingReference: bookingReference.trim() || undefined,
         isAcSwitchedOff: isAcSwitchedOff
       });
     }
@@ -573,8 +586,13 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                       <span className="font-mono font-bold text-slate-700 dark:text-slate-200">₹{room.price}/day</span>
                     </div>
 
-                    {isOccupied && (room.isAcSwitchedOff || (room.bookingSource && room.bookingSource !== 'Direct / Walk-In')) && (
+                    {isOccupied && (room.isAcSwitchedOff || (room.bookingSource && room.bookingSource !== 'Direct / Walk-In') || room.groupBookingId || room.bookingReference) && (
                       <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                        {room.groupBookingId && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-bold border border-purple-200/50 dark:border-purple-800/50">
+                            👥 Group: {room.groupBookingId}
+                          </span>
+                        )}
                         {room.isAcSwitchedOff && (
                           <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold border border-emerald-200/50 dark:border-emerald-800/50">
                             🍃 Non-AC Rate
@@ -583,6 +601,11 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                         {room.bookingSource && room.bookingSource !== 'Direct / Walk-In' && (
                           <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200/50 dark:border-indigo-800/50">
                             {room.bookingSource}
+                          </span>
+                        )}
+                        {room.bookingReference && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 font-mono font-bold border border-amber-200/60 dark:border-amber-800/60 flex items-center gap-0.5">
+                            <Globe className="w-2.5 h-2.5" /> Ref: #{room.bookingReference}
                           </span>
                         )}
                       </div>
@@ -984,6 +1007,32 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                     </p>
                   </div>
                 </div>
+
+                {/* Online OTA Booking Reference Number Field */}
+                {isOnlineBookingSource(bookingSource) && (
+                  <div className="p-3 bg-amber-50/80 dark:bg-amber-950/40 border-2 border-amber-300 dark:border-amber-700/80 rounded-xl space-y-1.5 animate-fadeIn">
+                    <div className="flex items-center justify-between">
+                      <label className="font-black text-amber-900 dark:text-amber-200 text-[11px] flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Online Booking Reference / Voucher ID *</span>
+                      </label>
+                      <span className="text-[9px] font-bold bg-amber-200 dark:bg-amber-900 text-amber-900 dark:text-amber-100 px-1.5 py-0.2 rounded">
+                        Mandatory OTA Field
+                      </span>
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      value={bookingReference}
+                      onChange={e => setBookingReference(e.target.value)}
+                      className="w-full p-2 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-lg font-mono font-bold text-amber-950 dark:text-amber-100 text-xs uppercase"
+                      placeholder="e.g. MMT98234120, BDC-88491, AGD-10294..."
+                    />
+                    <p className="text-[10px] text-amber-800 dark:text-amber-300">
+                      OTA reservation / confirmation reference for guest billing & channel audit.
+                    </p>
+                  </div>
+                )}
 
                 {/* Quick AC / Non-AC Mode Toggle Button */}
                 <div className="pt-2 border-t border-indigo-100 dark:border-indigo-900/40 flex flex-wrap items-center justify-between gap-2">

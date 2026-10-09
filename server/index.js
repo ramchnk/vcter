@@ -80,8 +80,11 @@ const roomSchema = new mongoose.Schema({
   price: { type: Number, default: 1500 },
   basePrice: { type: Number, default: 1500 },
   bookingSource: { type: String, default: 'Direct / Walk-In' },
+  bookingReference: { type: String, default: '' },
   isAcSwitchedOff: { type: Boolean, default: false },
   status: { type: String, default: 'Available' },
+  groupBookingId: { type: String, default: '' },
+  groupBookingName: { type: String, default: '' },
   guestName: { type: String, default: '' },
   guestPhone: { type: String, default: '' },
   guestEmail: { type: String, default: '' },
@@ -245,7 +248,11 @@ const preBookingSchema = new mongoose.Schema({
   roomCategory: String,
   roomNumber: String,
   roomPrice: Number,
+  groupBookingId: { type: String, default: '' },
+  groupBookingName: { type: String, default: '' },
+  occupantName: { type: String, default: '' },
   bookingSource: { type: String, default: 'Direct / Walk-In' },
+  bookingReference: { type: String, default: '' },
   isAcSwitchedOff: { type: Boolean, default: false },
   checkInDate: String,
   checkOutDate: String,
@@ -963,6 +970,73 @@ app.post('/api/pre-bookings', async (req, res) => {
     const booking = await PreBooking.create(req.body);
     io.emit('pre_booking_created', booking);
     res.json(booking);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/pre-bookings/bulk', async (req, res) => {
+  try {
+    const { bookings } = req.body;
+    if (!Array.isArray(bookings) || bookings.length === 0) {
+      return res.status(400).json({ error: 'No bookings provided' });
+    }
+
+    const tenantId = bookings[0].tenantId;
+    const roomFilter = tenantId ? { tenantId } : {};
+    const preBookingFilter = tenantId 
+      ? { tenantId, status: { $in: ['Confirmed', 'Pending'] } } 
+      : { status: { $in: ['Confirmed', 'Pending'] } };
+
+    const allRooms = await Room.find(roomFilter);
+    const existingBookings = await PreBooking.find(preBookingFilter);
+
+    // Group incoming batch demands by category and date range
+    const categoryDemands = {};
+    for (const b of bookings) {
+      const key = `${b.roomCategory}___${b.checkInDate}___${b.checkOutDate}`;
+      if (!categoryDemands[key]) {
+        categoryDemands[key] = {
+          category: b.roomCategory,
+          checkInDate: b.checkInDate,
+          checkOutDate: b.checkOutDate,
+          count: 0
+        };
+      }
+      categoryDemands[key].count += 1;
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const isOverlapping = (sA, eA, sB, eB) => Boolean(sA && eA && sB && eB && sA < eB && sB < eA);
+
+    for (const key of Object.keys(categoryDemands)) {
+      const demand = categoryDemands[key];
+      const categoryRooms = allRooms.filter(r => r.category === demand.category);
+      const totalRooms = categoryRooms.length;
+
+      const overlapBookings = existingBookings.filter(eb =>
+        eb.roomCategory === demand.category &&
+        isOverlapping(demand.checkInDate, demand.checkOutDate, eb.checkInDate, eb.checkOutDate)
+      );
+
+      const overlapOccupied = categoryRooms.filter(r => {
+        if (r.status !== 'Occupied') return false;
+        const rIn = r.checkInDate || todayStr;
+        const rOut = r.checkOutDate || '9999-12-31';
+        return isOverlapping(demand.checkInDate, demand.checkOutDate, rIn, rOut);
+      });
+
+      const available = Math.max(0, totalRooms - (overlapBookings.length + overlapOccupied.length));
+      if (demand.count > available) {
+        return res.status(400).json({
+          error: `Overbooking prevented: Category "${demand.category}" only has ${available} room(s) available between ${demand.checkInDate} and ${demand.checkOutDate}, but ${demand.count} were requested.`
+        });
+      }
+    }
+
+    const created = await PreBooking.insertMany(bookings);
+    created.forEach(b => io.emit('pre_booking_created', b));
+    res.json(created);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
