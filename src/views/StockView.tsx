@@ -14,8 +14,12 @@ import {
   TrendingUp,
   DollarSign,
   Search,
-  Trash2
+  Trash2,
+  Edit2,
+  X,
+  Check
 } from 'lucide-react';
+import { InventoryItem } from '../context/AppContext';
 
 export const StockView: React.FC = () => {
   const { 
@@ -23,6 +27,7 @@ export const StockView: React.FC = () => {
     purchaseLogs, 
     stockAdjustmentLogs,
     addInventoryItem, 
+    updateInventoryItem,
     deleteInventoryItem,
     recordPurchase, 
     updateStockLevel 
@@ -55,6 +60,30 @@ export const StockView: React.FC = () => {
   const [newItemMinStock, setNewItemMinStock] = useState(5);
   const [newItemUnit, setNewItemUnit] = useState('pcs');
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Edit Stock Item State
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [editFormData, setEditFormData] = useState<{
+    name: string;
+    category: string;
+    stock: number;
+    minStock: number;
+    unit: string;
+    barcode: string;
+    bottleSizeMl?: number;
+    pricePerUnit?: number;
+    expiryDate?: string;
+  }>({
+    name: '',
+    category: 'Room Supplies',
+    stock: 0,
+    minStock: 5,
+    unit: 'pcs',
+    barcode: ''
+  });
+  const [isAddingEditCustomCategory, setIsAddingEditCustomCategory] = useState(false);
+  const [editCustomCategoryInput, setEditCustomCategoryInput] = useState('');
+  const [editError, setEditError] = useState('');
 
   // Custom categories state persisted in localStorage
   const [customCategories, setCustomCategories] = useState<string[]>(() => {
@@ -108,6 +137,54 @@ export const StockView: React.FC = () => {
       console.error('Failed saving custom categories to localStorage', err);
     }
     return trimmed;
+  };
+
+  const handleOpenEdit = (item: InventoryItem) => {
+    setEditingItem(item);
+    setEditFormData({
+      name: item.name || '',
+      category: item.category || 'Room Supplies',
+      stock: item.stock || 0,
+      minStock: item.minStock || 5,
+      unit: item.unit || 'pcs',
+      barcode: item.barcode || '',
+      bottleSizeMl: item.bottleSizeMl,
+      pricePerUnit: item.pricePerUnit,
+      expiryDate: item.expiryDate || ''
+    });
+    setIsAddingEditCustomCategory(false);
+    setEditCustomCategoryInput('');
+    setEditError('');
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingItem) return;
+    if (!editFormData.name.trim()) {
+      setEditError('Item name is required');
+      return;
+    }
+
+    const updates: Partial<InventoryItem> = {
+      name: editFormData.name.trim(),
+      category: editFormData.category,
+      stock: Number(editFormData.stock),
+      minStock: Number(editFormData.minStock),
+      unit: editFormData.unit.trim(),
+      barcode: editFormData.barcode.trim(),
+      bottleSizeMl: editFormData.bottleSizeMl ? Number(editFormData.bottleSizeMl) : undefined,
+      pricePerUnit: editFormData.pricePerUnit ? Number(editFormData.pricePerUnit) : undefined,
+      expiryDate: editFormData.expiryDate || undefined
+    };
+
+    const res = await updateInventoryItem(editingItem.id, updates);
+    if (res?.success !== false) {
+      setEditingItem(null);
+      setSuccessMsg(`Stock item "${editFormData.name}" updated successfully!`);
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } else {
+      setEditError(res?.error || 'Failed to update stock item');
+    }
   };
 
   // Tabs for sub-views (persisted on reload)
@@ -688,18 +765,30 @@ export const StockView: React.FC = () => {
                           </span>
                         </td>
                         <td className="py-3 text-right">
-                          <button
-                            onClick={() => {
-                              if (window.confirm(`Are you sure you want to delete SKU "${item.name}"? This action cannot be undone.`)) {
-                                deleteInventoryItem(item.id);
-                              }
-                            }}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors inline-flex items-center gap-1 text-xs font-semibold"
-                            title={`Delete SKU "${item.name}"`}
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                            <span className="text-[11px] text-rose-600 dark:text-rose-400">Delete</span>
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEdit(item)}
+                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 rounded-lg transition-colors inline-flex items-center gap-1 text-xs font-semibold"
+                              title={`Edit SKU "${item.name}"`}
+                            >
+                              <Edit2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                              <span className="text-[11px] text-indigo-600 dark:text-indigo-400">Edit</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm(`Are you sure you want to delete SKU "${item.name}"? This action cannot be undone.`)) {
+                                  deleteInventoryItem(item.id);
+                                }
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors inline-flex items-center gap-1 text-xs font-semibold"
+                              title={`Delete SKU "${item.name}"`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                              <span className="text-[11px] text-rose-600 dark:text-rose-400">Delete</span>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1379,6 +1468,7 @@ export const StockView: React.FC = () => {
                       <th className="py-2">Category</th>
                       <th className="py-2 text-right">Min / Current</th>
                       <th className="py-2 text-center">Status</th>
+                      <th className="py-2 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
@@ -1403,6 +1493,17 @@ export const StockView: React.FC = () => {
                             }`}>
                               {isLow ? 'Low Stock' : 'Optimal'}
                             </span>
+                          </td>
+                          <td className="py-2.5 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEdit(item)}
+                              className="p-1 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 rounded-lg transition-colors inline-flex items-center gap-1 text-xs font-semibold"
+                              title={`Edit SKU "${item.name}"`}
+                            >
+                              <Edit2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                              <span className="text-[11px] text-indigo-600 dark:text-indigo-400">Edit</span>
+                            </button>
                           </td>
                         </tr>
                       );
@@ -1454,6 +1555,224 @@ export const StockView: React.FC = () => {
 
           </div>
 
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL: EDIT INVENTORY STOCK ITEM
+          ========================================================================= */}
+      {editingItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden p-5 space-y-4">
+            
+            <div className="flex items-center justify-between border-b pb-3 border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 rounded-xl">
+                  <Package className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                    Edit Stock Item: {editingItem.name}
+                  </h3>
+                  <p className="text-[10px] text-slate-400">Modify SKU details, stock levels, unit, or category</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setEditingItem(null)}
+                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {editError && (
+              <div className="p-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/40 rounded-xl text-rose-600 text-xs font-medium flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{editError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveEdit} className="space-y-3.5 text-xs">
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 block">Item Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={editFormData.name}
+                  onChange={e => setEditFormData(prev => ({ ...prev, name: e.target.value }))}
+                  className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-bold"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 block">Category *</label>
+                {!isAddingEditCustomCategory ? (
+                  <select
+                    value={editFormData.category}
+                    onChange={e => {
+                      if (e.target.value === '__ADD_NEW__') {
+                        setIsAddingEditCustomCategory(true);
+                        setEditCustomCategoryInput('');
+                      } else {
+                        setEditFormData(prev => ({ ...prev, category: e.target.value }));
+                      }
+                    }}
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-bold"
+                  >
+                    {categories.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                    <option value="__ADD_NEW__" className="text-indigo-600 font-bold bg-indigo-50 dark:bg-slate-900">
+                      + Add Custom Category...
+                    </option>
+                  </select>
+                ) : (
+                  <div className="space-y-1 animate-in fade-in duration-150">
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={editCustomCategoryInput}
+                        onChange={e => setEditCustomCategoryInput(e.target.value)}
+                        placeholder="Type custom category..."
+                        className="flex-1 p-2 bg-slate-50 dark:bg-slate-950 border border-indigo-400 dark:border-indigo-600 rounded-xl font-bold text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (editCustomCategoryInput.trim()) {
+                            const saved = saveCustomCategory(editCustomCategoryInput.trim());
+                            setEditFormData(prev => ({ ...prev, category: saved }));
+                            setIsAddingEditCustomCategory(false);
+                            setEditCustomCategoryInput('');
+                          }
+                        }}
+                        disabled={!editCustomCategoryInput.trim()}
+                        className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-bold rounded-xl text-xs shrink-0"
+                      >
+                        Add
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsAddingEditCustomCategory(false)}
+                        className="px-2 py-2 border dark:border-slate-800 rounded-xl text-slate-400 hover:bg-slate-100"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 block">Current Stock *</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    required
+                    value={editFormData.stock}
+                    onChange={e => setEditFormData(prev => ({ ...prev, stock: parseFloat(e.target.value) || 0 }))}
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-bold font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 block">Min Level Alert *</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    required
+                    value={editFormData.minStock}
+                    onChange={e => setEditFormData(prev => ({ ...prev, minStock: parseFloat(e.target.value) || 0 }))}
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-bold font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 block">Stock Unit *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editFormData.unit}
+                    onChange={e => setEditFormData(prev => ({ ...prev, unit: e.target.value }))}
+                    placeholder="pcs, bottle, kg..."
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 block">Barcode / SKU Code</label>
+                  <input
+                    type="text"
+                    value={editFormData.barcode}
+                    onChange={e => setEditFormData(prev => ({ ...prev, barcode: e.target.value }))}
+                    placeholder="Optional barcode / SKU"
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-xs"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 block">Bottle Volume (ml)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={editFormData.bottleSizeMl || ''}
+                    onChange={e => setEditFormData(prev => ({ ...prev, bottleSizeMl: e.target.value ? parseInt(e.target.value) : undefined }))}
+                    placeholder="e.g. 750 (for bar/drinks)"
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 block">Price Per Unit (₹)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={editFormData.pricePerUnit || ''}
+                    onChange={e => setEditFormData(prev => ({ ...prev, pricePerUnit: e.target.value ? parseFloat(e.target.value) : undefined }))}
+                    placeholder="Cost price ₹"
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-xs"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 block">Expiry Date</label>
+                  <input
+                    type="date"
+                    value={editFormData.expiryDate || ''}
+                    onChange={e => setEditFormData(prev => ({ ...prev, expiryDate: e.target.value }))}
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingItem(null)}
+                  className="px-4 py-2 border dark:border-slate-800 rounded-xl font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md transition-all flex items-center gap-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  Save Changes
+                </button>
+              </div>
+            </form>
+
+          </div>
         </div>
       )}
 

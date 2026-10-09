@@ -797,6 +797,18 @@ app.put('/api/tables/:id', async (req, res) => {
   }
 });
 
+app.delete('/api/tables/:id', async (req, res) => {
+  const { tenantId } = req.query;
+  try {
+    const filter = tenantId ? { id: req.params.id, tenantId } : { id: req.params.id };
+    await RestaurantTable.findOneAndDelete(filter);
+    io.emit('table_deleted', { id: req.params.id });
+    res.json({ success: true, message: 'Table deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/tables/:id/park-kot', async (req, res) => {
   const { tenantId } = req.query;
   const { items, instructions, guestName, pax, isBar, serverName } = req.body;

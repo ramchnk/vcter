@@ -28,6 +28,7 @@ import {
   Users,
   AlertCircle,
   Trash2,
+  Edit2,
   ArrowRight,
   ShieldCheck,
   Flame,
@@ -45,6 +46,9 @@ export const RestaurantBarView: React.FC = () => {
     tables = [], 
     orders = [], 
     addRestaurantBarOrder, 
+    addTable,
+    updateTable,
+    deleteTable,
     parkTableKot, 
     settleTableTab, 
     clearTableTab, 
@@ -112,6 +116,22 @@ export const RestaurantBarView: React.FC = () => {
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferSourceTable, setTransferSourceTable] = useState<RestaurantTable | null>(null);
   const [transferTargetTableId, setTransferTargetTableId] = useState('');
+
+  // Add / Edit Table Modal
+  const [showTableModal, setShowTableModal] = useState(false);
+  const [editingTable, setEditingTable] = useState<RestaurantTable | null>(null);
+  const [tableFormData, setTableFormData] = useState<{
+    tableNumber: string;
+    section: 'Main Dining' | 'Bar Lounge' | 'Outdoor' | 'VIP Cabana';
+    capacity: number;
+    isBar: boolean;
+  }>({
+    tableNumber: '',
+    section: 'Main Dining',
+    capacity: 4,
+    isBar: false
+  });
+  const [tableFormError, setTableFormError] = useState('');
 
   // Selected Order for Receipt / History Modal
   const [selectedOrderForReceipt, setSelectedOrderForReceipt] = useState<Order | null>(null);
@@ -257,6 +277,100 @@ export const RestaurantBarView: React.FC = () => {
     setSelectedTableForDetails(table);
     setTableDetailsTab('rounds');
     setShowTableDetailsModal(true);
+  };
+
+  // Helper: Add / Edit / Delete Table Handlers
+  const handleOpenAddTable = () => {
+    const existingNums = tables.map(t => parseInt(t.tableNumber.replace(/\D/g, ''))).filter(n => !isNaN(n));
+    const nextNum = existingNums.length > 0 ? Math.max(...existingNums) + 1 : tables.length + 1;
+    setEditingTable(null);
+    setTableFormData({
+      tableNumber: isBarMode ? `B-${nextNum}` : `T-${nextNum}`,
+      section: isBarMode ? 'Bar Lounge' : 'Main Dining',
+      capacity: 4,
+      isBar: isBarMode
+    });
+    setTableFormError('');
+    setShowTableModal(true);
+  };
+
+  const handleOpenEditTable = (table: RestaurantTable, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setEditingTable(table);
+    setTableFormData({
+      tableNumber: table.tableNumber,
+      section: (table.section as any) || 'Main Dining',
+      capacity: table.capacity || 4,
+      isBar: !!table.isBar
+    });
+    setTableFormError('');
+    setShowTableModal(true);
+  };
+
+  const handleSaveTable = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tableFormData.tableNumber.trim()) {
+      setTableFormError('Table number or name is required');
+      return;
+    }
+
+    const duplicate = tables.find(t => 
+      t.tableNumber.trim().toLowerCase() === tableFormData.tableNumber.trim().toLowerCase() &&
+      (!editingTable || t.id !== editingTable.id)
+    );
+    if (duplicate) {
+      setTableFormError(`Table "${tableFormData.tableNumber}" already exists!`);
+      return;
+    }
+
+    if (editingTable) {
+      const res = await updateTable(editingTable.id, {
+        tableNumber: tableFormData.tableNumber.trim(),
+        section: tableFormData.section,
+        capacity: Number(tableFormData.capacity) || 4,
+        isBar: tableFormData.isBar
+      });
+      if (res.success) {
+        setShowTableModal(false);
+        setSuccessMessage(`Table ${tableFormData.tableNumber} updated successfully!`);
+        setTimeout(() => setSuccessMessage(''), 3000);
+      } else {
+        setTableFormError(res.error || 'Failed to update table');
+      }
+    } else {
+      const res = await addTable({
+        tableNumber: tableFormData.tableNumber.trim(),
+        section: tableFormData.section,
+        capacity: Number(tableFormData.capacity) || 4,
+        isBar: tableFormData.isBar
+      });
+      if (res.success) {
+        setShowTableModal(false);
+        setSuccessMessage(`Table ${tableFormData.tableNumber} created successfully!`);
+        setTimeout(() => setSuccessMessage(''), 3000);
+      } else {
+        setTableFormError(res.error || 'Failed to create table');
+      }
+    }
+  };
+
+  const handleDeleteTable = async (table: RestaurantTable, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const isOccupied = table.status === 'Occupied' || (table.runningItems && table.runningItems.length > 0);
+    if (isOccupied) {
+      alert(`Cannot delete Table ${table.tableNumber} while it has an active tab / parked items. Please settle or clear the table first.`);
+      return;
+    }
+    if (window.confirm(`Are you sure you want to delete Table ${table.tableNumber}?`)) {
+      const res = await deleteTable(table.id);
+      if (res.success) {
+        if (showTableModal) setShowTableModal(false);
+        setSuccessMessage(`Table ${table.tableNumber} deleted successfully.`);
+        setTimeout(() => setSuccessMessage(''), 3000);
+      } else {
+        alert(res.error || 'Failed to delete table');
+      }
+    }
   };
 
   // =========================================================================
@@ -911,8 +1025,8 @@ export const RestaurantBarView: React.FC = () => {
             </div>
           </div>
 
-          {/* Section Filter Pills */}
-          <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200/50 dark:border-slate-800/50 shadow-sm flex flex-wrap items-center justify-between gap-2">
+          {/* Section Filter Pills & Add Table Header */}
+          <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200/50 dark:border-slate-800/50 shadow-sm flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
               <span className="text-slate-400 font-bold uppercase text-[10px] mr-1">Floor Section:</span>
               {(['All', 'Main Dining', 'Bar Lounge', 'Outdoor', 'VIP Cabana'] as const).map(sec => (
@@ -930,10 +1044,19 @@ export const RestaurantBarView: React.FC = () => {
               ))}
             </div>
 
-            <div className="flex items-center gap-3 text-[11px] font-medium text-slate-500">
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> Available</span>
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block"></span> Parked Tab / KOT Active</span>
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span> Billed / Ready to Settle</span>
+            <div className="flex items-center gap-3">
+              <div className="hidden sm:flex items-center gap-3 text-[11px] font-medium text-slate-500">
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> Available</span>
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block"></span> Parked Tab / KOT</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenAddTable}
+                className="px-3.5 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-lg text-xs font-bold shadow-sm hover:shadow flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Table</span>
+              </button>
             </div>
           </div>
 
@@ -955,13 +1078,13 @@ export const RestaurantBarView: React.FC = () => {
                   }`}
                 >
                   {/* Card Header & Content */}
-                  <div 
-                    onClick={() => isOccupied ? handleOpenTableDetails(table) : handleOpenTableInPOS(table)}
-                    className="cursor-pointer"
-                    title={isOccupied ? "Click to view already bought items & tab details" : "Click to seat guests and start order"}
-                  >
+                  <div>
                     <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2">
+                      <div 
+                        onClick={() => isOccupied ? handleOpenTableDetails(table) : handleOpenTableInPOS(table)}
+                        className="flex items-center gap-2 cursor-pointer flex-1"
+                        title={isOccupied ? "Click to view already bought items & tab details" : "Click to seat guests and start order"}
+                      >
                         <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm ${
                           isOccupied 
                             ? 'bg-purple-600 text-white shadow-md' 
@@ -978,13 +1101,33 @@ export const RestaurantBarView: React.FC = () => {
                         </div>
                       </div>
 
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        isOccupied 
-                          ? 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800' 
-                          : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-                      }`}>
-                        {isOccupied ? 'Occupied' : 'Available'}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={(e) => handleOpenEditTable(table, e)}
+                          className="p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+                          title="Edit Table Details"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        {!isOccupied && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteTable(table, e)}
+                            className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-all"
+                            title="Delete Table"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          isOccupied 
+                            ? 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800' 
+                            : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                        }`}>
+                          {isOccupied ? 'Occupied' : 'Available'}
+                        </span>
+                      </div>
                     </div>
 
                     {/* Table Status Details */}
@@ -2542,6 +2685,129 @@ export const RestaurantBarView: React.FC = () => {
                 <Printer className="w-3.5 h-3.5" /> Print Thermal Receipt
               </button>
             </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL 4: ADD / EDIT RESTAURANT OR BAR TABLE
+          ========================================================================= */}
+      {showTableModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden p-5 space-y-4">
+            
+            <div className="flex items-center justify-between border-b pb-3 border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-purple-50 dark:bg-purple-950/40 text-purple-600 rounded-xl">
+                  <LayoutGrid className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                    {editingTable ? `Edit Table ${editingTable.tableNumber}` : 'Add New Dining / Bar Table'}
+                  </h3>
+                  <p className="text-[10px] text-slate-400">Configure floor location, capacity, and service type</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowTableModal(false)}
+                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {tableFormError && (
+              <div className="p-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/40 rounded-xl text-rose-600 text-xs font-medium flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{tableFormError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveTable} className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 block">Table Number / Code *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. T-1, B-4, VIP-2"
+                    value={tableFormData.tableNumber}
+                    onChange={e => setTableFormData(prev => ({ ...prev, tableNumber: e.target.value }))}
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-bold uppercase"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 block">Seating Capacity (Pax) *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="50"
+                    required
+                    value={tableFormData.capacity}
+                    onChange={e => setTableFormData(prev => ({ ...prev, capacity: parseInt(e.target.value) || 1 }))}
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 block">Floor / Dining Section *</label>
+                <select
+                  value={tableFormData.section}
+                  onChange={e => setTableFormData(prev => ({ ...prev, section: e.target.value as any }))}
+                  className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-bold"
+                >
+                  <option value="Main Dining">Main Dining</option>
+                  <option value="Bar Lounge">Bar Lounge</option>
+                  <option value="Outdoor">Outdoor / Garden</option>
+                  <option value="VIP Cabana">VIP Cabana / AC Section</option>
+                </select>
+              </div>
+
+              <div className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-slate-800 dark:text-slate-200 block">Bar Counter / High Top</span>
+                  <span className="text-[10px] text-slate-400">Mark as bar-specific table with cocktail focus</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={tableFormData.isBar}
+                  onChange={e => setTableFormData(prev => ({ ...prev, isBar: e.target.checked }))}
+                  className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
+                {editingTable ? (
+                  <button
+                    type="button"
+                    onClick={(e) => handleDeleteTable(editingTable, e)}
+                    className="px-3 py-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl font-bold transition-all flex items-center gap-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Delete
+                  </button>
+                ) : <div />}
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowTableModal(false)}
+                    className="px-4 py-2 border dark:border-slate-800 rounded-xl font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold shadow-md transition-all flex items-center gap-1.5"
+                  >
+                    <Check className="w-4 h-4" />
+                    {editingTable ? 'Update Table' : 'Create Table'}
+                  </button>
+                </div>
+              </div>
+            </form>
 
           </div>
         </div>

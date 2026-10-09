@@ -477,6 +477,7 @@ interface AppContextType {
   cancelHallBooking: (id: string) => Promise<void>;
   
   addInventoryItem: (item: Omit<InventoryItem, 'id'>) => any;
+  updateInventoryItem: (id: string, updates: Partial<InventoryItem>) => Promise<{ success: boolean; item?: InventoryItem; error?: string }>;
   deleteInventoryItem: (id: string) => Promise<void>;
   recordPurchase: (purchase: Omit<PurchaseLog, 'id' | 'date'>) => any;
   updateStockLevel: (itemId: string, amount: number, direction: 'in' | 'out', category?: string, description?: string) => any;
@@ -500,6 +501,9 @@ interface AppContextType {
   logoutUser: () => void;
 
   tables: RestaurantTable[];
+  addTable: (table: Partial<RestaurantTable>) => Promise<{ success: boolean; table?: RestaurantTable; error?: string }>;
+  updateTable: (id: string, updates: Partial<RestaurantTable>) => Promise<{ success: boolean; table?: RestaurantTable; error?: string }>;
+  deleteTable: (id: string) => Promise<{ success: boolean; error?: string }>;
   parkTableKot: (tableId: string, payload: { items: OrderItem[]; instructions?: string; guestName?: string; pax?: number; isBar?: boolean; serverName?: string }) => Promise<{ success: boolean; table?: RestaurantTable; newRound?: KotRound; error?: string }>;
   settleTableTab: (tableId: string, paymentDetails: { paymentMethod: 'Cash' | 'Card' | 'UPI' | 'Room' | 'Split'; roomNumber?: string; guestName?: string; discount?: number; splitDetails?: string }) => Promise<{ success: boolean; order?: Order; table?: RestaurantTable; error?: string }>;
   clearTableTab: (tableId: string) => Promise<void>;
@@ -747,6 +751,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     socket.on('table_created', (t: RestaurantTable) => setTables(prev => [...prev.filter(x => x.id !== t.id), t]));
     socket.on('table_updated', (t: RestaurantTable) => setTables(prev => prev.map(x => x.id === t.id ? t : x)));
+    socket.on('table_deleted', ({ id }: { id: string }) => setTables(prev => prev.filter(x => x.id !== id)));
 
     socket.on('menu_item_created', (m: MenuItem) => setMenuItems(prev => [...prev.filter(x => x.id !== m.id), m]));
     socket.on('menu_item_updated', (m: MenuItem) => setMenuItems(prev => prev.map(x => x.id === m.id ? m : x)));
@@ -1491,6 +1496,65 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const addTable = async (tableData: Partial<RestaurantTable>) => {
+    const tId = effectiveTenantId;
+    if (!tId) return { success: false, error: 'No active tenant' };
+    const newId = tableData.id || ('tbl_' + Date.now());
+    const newTable: RestaurantTable = {
+      id: newId,
+      tenantId: tId,
+      tableNumber: tableData.tableNumber || 'T-1',
+      section: tableData.section || 'Main Dining',
+      capacity: Number(tableData.capacity) || 4,
+      status: 'Available',
+      isBar: !!tableData.isBar,
+      runningItems: [],
+      subtotal: 0,
+      tax: 0,
+      total: 0,
+      kotRounds: []
+    };
+    try {
+      const res = await api.post('/tables', newTable);
+      const saved = res.data || newTable;
+      setTables(prev => [...prev.filter(x => x.id !== saved.id), saved]);
+      addAudit('Table Added', `Created table ${saved.tableNumber} (${saved.section}, Capacity: ${saved.capacity})`);
+      return { success: true, table: saved };
+    } catch (e: any) {
+      console.error('Error creating table:', e);
+      return { success: false, error: e.response?.data?.error || e.message };
+    }
+  };
+
+  const updateTable = async (id: string, updates: Partial<RestaurantTable>) => {
+    const tId = effectiveTenantId;
+    if (!tId) return { success: false, error: 'No active tenant' };
+    try {
+      const res = await api.put(`/tables/${id}?tenantId=${tId}`, updates);
+      const saved = res.data || { id, ...updates };
+      setTables(prev => prev.map(x => x.id === id ? { ...x, ...saved } : x));
+      addAudit('Table Updated', `Updated table ${updates.tableNumber || id}`);
+      return { success: true, table: saved };
+    } catch (e: any) {
+      console.error('Error updating table:', e);
+      return { success: false, error: e.response?.data?.error || e.message };
+    }
+  };
+
+  const deleteTable = async (id: string) => {
+    const tId = effectiveTenantId;
+    if (!tId) return { success: false, error: 'No active tenant' };
+    try {
+      await api.delete(`/tables/${id}?tenantId=${tId}`);
+      setTables(prev => prev.filter(x => x.id !== id));
+      addAudit('Table Deleted', `Deleted table ID ${id}`);
+      return { success: true };
+    } catch (e: any) {
+      console.error('Error deleting table:', e);
+      return { success: false, error: e.response?.data?.error || e.message };
+    }
+  };
+
   // LAUNDRY ORDERS
   const addLaundryOrder = async (order: Omit<LaundryOrder, 'id' | 'orderNumber' | 'timestamp' | 'status'>) => {
     const tId = effectiveTenantId;
@@ -1809,6 +1873,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const updateInventoryItem = async (id: string, updates: Partial<InventoryItem>) => {
+    const tId = effectiveTenantId;
+    if (!tId) return { success: false, error: 'No active tenant' };
+    try {
+      const res = await api.put(`/inventory/${id}?tenantId=${tId}`, updates);
+      const saved = res.data || { id, ...updates };
+      setInventory(prev => prev.map(i => i.id === id ? { ...i, ...saved } : i));
+      addAudit('Inventory Updated', `Updated SKU ${updates.name || id} details`);
+      return { success: true, item: saved };
+    } catch (e: any) {
+      console.error('Error updating inventory item:', e);
+      return { success: false, error: e.response?.data?.error || e.message };
+    }
+  };
+
   const deleteInventoryItem = async (id: string) => {
     const tId = effectiveTenantId;
     if (!tId) return;
@@ -2117,6 +2196,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updatePreBookingStatus,
 
         addRestaurantBarOrder,
+        addTable,
+        updateTable,
+        deleteTable,
         parkTableKot,
         settleTableTab,
         clearTableTab,
@@ -2128,6 +2210,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cancelHallBooking,
 
         addInventoryItem,
+        updateInventoryItem,
         deleteInventoryItem,
         recordPurchase,
         updateStockLevel,
