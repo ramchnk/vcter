@@ -672,6 +672,194 @@ app.get('/api/orders', async (req, res) => {
   }
 });
 
+// Helper: Deduct inventory stock for order/KOT items based on MenuItem recipe mappings or 1:1 match
+async function deductInventoryForOrderItems(tenantId, items, referenceNo) {
+  if (!items || !Array.isArray(items) || !tenantId) return;
+
+  for (const item of items) {
+    const itemQty = Number(item.quantity) || 1;
+    let menuItem = null;
+
+    if (item.menuItemId) {
+      menuItem = await MenuItem.findOne({ tenantId, id: item.menuItemId });
+    }
+    if (!menuItem && item.name) {
+      menuItem = await MenuItem.findOne({
+        tenantId,
+        name: new RegExp(`^${item.name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+      });
+    }
+    if (!menuItem && item.name) {
+      menuItem = await MenuItem.findOne({
+        tenantId,
+        name: new RegExp(item.name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+      });
+    }
+
+    let deducted = false;
+
+    // 1. If MenuItem has mapped recipes / combo items
+    if (menuItem && menuItem.recipe && Array.isArray(menuItem.recipe) && menuItem.recipe.length > 0) {
+      for (const recipeItem of menuItem.recipe) {
+        let inv = null;
+        if (recipeItem.inventoryItemId) {
+          inv = await Inventory.findOne({ tenantId, id: recipeItem.inventoryItemId });
+        }
+        if (!inv && recipeItem.itemName) {
+          inv = await Inventory.findOne({
+            tenantId,
+            name: new RegExp(`^${recipeItem.itemName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+          });
+        }
+        if (!inv && recipeItem.itemName) {
+          inv = await Inventory.findOne({
+            tenantId,
+            name: new RegExp(recipeItem.itemName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+          });
+        }
+
+        if (inv) {
+          deducted = true;
+          const recipeQty = Number(recipeItem.quantity) || 1;
+          const totalDeduct = recipeQty * itemQty;
+          let deductAmount = totalDeduct;
+          let unitLabel = recipeItem.unit || inv.unit || 'units';
+
+          if (recipeItem.deductionType === 'ml') {
+            const isTrackedInMl = (inv.unit || '').toLowerCase() === 'ml';
+            if (!isTrackedInMl) {
+              const bottleSize = Number(inv.bottleSizeMl) || 750;
+              deductAmount = parseFloat((totalDeduct / bottleSize).toFixed(4));
+              unitLabel = `${inv.unit || 'bottle'} (${totalDeduct}ml)`;
+            } else {
+              deductAmount = totalDeduct;
+              unitLabel = 'ml';
+            }
+          }
+
+          const updatedStock = Math.max(0, parseFloat(((inv.stock || 0) - deductAmount).toFixed(4)));
+          inv.stock = updatedStock;
+          await inv.save();
+
+          try {
+            const adjLog = await StockAdjustmentLog.create({
+              id: 'adj_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
+              tenantId,
+              itemId: inv.id,
+              itemName: inv.name,
+              category: inv.category,
+              amount: deductAmount,
+              unit: inv.unit,
+              direction: 'out',
+              description: `POS [${referenceNo || 'SALE'}]: ${itemQty}x ${item.name} (${deductAmount} ${unitLabel})`,
+              date: new Date().toISOString().split('T')[0]
+            });
+            io.emit('stock_adjustment_created', adjLog);
+
+            const audit = await AuditLog.create({
+              id: 'aud_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
+              tenantId,
+              username: 'POS Auto-Stock',
+              role: 'System',
+              action: 'Stock Auto-Deduction',
+              details: `Auto-deducted ${deductAmount} ${unitLabel} of ${inv.name} for ${referenceNo || 'POS Bill'}`
+            });
+            io.emit('audit_log_created', audit);
+          } catch (logErr) {
+            console.error('Stock adjustment log error:', logErr);
+          }
+
+          io.emit('inventory_updated', inv);
+        }
+      }
+    }
+
+    // 2. Fallback: Intelligent liquor volume / direct SKU matching
+    if (!deducted) {
+      const mlRegex = /(\d+)\s*(ml|ML)/i;
+      const mlMatch = (item.name || '').match(mlRegex);
+      const extractedMl = mlMatch ? parseInt(mlMatch[1]) : null;
+      const baseName = (item.name || '').replace(mlRegex, '').replace(/[()\-–]/g, ' ').trim();
+
+      let inv = null;
+      if (item.menuItemId) {
+        inv = await Inventory.findOne({ tenantId, id: item.menuItemId });
+      }
+      if (!inv && item.name) {
+        inv = await Inventory.findOne({
+          tenantId,
+          name: new RegExp(`^${item.name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+        });
+      }
+      if (!inv && baseName) {
+        inv = await Inventory.findOne({
+          tenantId,
+          name: new RegExp(`^${baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+        });
+      }
+      if (!inv && baseName) {
+        inv = await Inventory.findOne({
+          tenantId,
+          name: new RegExp(baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+        });
+      }
+
+      if (inv) {
+        const isLiquor = (inv.category || '').toLowerCase() === 'liquor' || Boolean(inv.bottleSizeMl && inv.bottleSizeMl > 0);
+        let deductAmount = itemQty;
+        let unitLabel = inv.unit || 'units';
+
+        if (isLiquor && extractedMl && extractedMl > 0) {
+          const totalMl = extractedMl * itemQty;
+          const isTrackedInMl = (inv.unit || '').toLowerCase() === 'ml';
+          if (!isTrackedInMl) {
+            const bottleSize = Number(inv.bottleSizeMl) || 750;
+            deductAmount = parseFloat((totalMl / bottleSize).toFixed(4));
+            unitLabel = `${inv.unit || 'bottle'} (${totalMl}ml)`;
+          } else {
+            deductAmount = totalMl;
+            unitLabel = 'ml';
+          }
+        }
+
+        const updatedStock = Math.max(0, parseFloat(((inv.stock || 0) - deductAmount).toFixed(4)));
+        inv.stock = updatedStock;
+        await inv.save();
+
+        try {
+          const adjLog = await StockAdjustmentLog.create({
+            id: 'adj_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
+            tenantId,
+            itemId: inv.id,
+            itemName: inv.name,
+            category: inv.category,
+            amount: deductAmount,
+            unit: inv.unit,
+            direction: 'out',
+            description: `POS [${referenceNo || 'SALE'}]: ${itemQty}x ${item.name} (${deductAmount} ${unitLabel})`,
+            date: new Date().toISOString().split('T')[0]
+          });
+          io.emit('stock_adjustment_created', adjLog);
+
+          const audit = await AuditLog.create({
+            id: 'aud_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
+            tenantId,
+            username: 'POS Auto-Stock',
+            role: 'System',
+            action: 'Stock Auto-Deduction',
+            details: `Auto-deducted ${deductAmount} ${unitLabel} of ${inv.name} for ${referenceNo || 'POS Bill'}`
+          });
+          io.emit('audit_log_created', audit);
+        } catch (logErr) {
+          console.error('Stock adjustment log error:', logErr);
+        }
+
+        io.emit('inventory_updated', inv);
+      }
+    }
+  }
+}
+
 app.post('/api/orders', async (req, res) => {
   try {
     const orderData = req.body;
@@ -690,19 +878,8 @@ app.post('/api/orders', async (req, res) => {
       }
     }
 
-    if (order.items && Array.isArray(order.items)) {
-      for (const item of order.items) {
-        const inv = await Inventory.findOne({ 
-          tenantId: order.tenantId, 
-          name: new RegExp(`^${item.name}$`, 'i') 
-        });
-        if (inv) {
-          inv.stock = Math.max(0, inv.stock - (Number(item.quantity) || 1));
-          await inv.save();
-          io.emit('inventory_updated', inv);
-        }
-      }
-    }
+    // Deduct stock using recipe mappings
+    await deductInventoryForOrderItems(order.tenantId, order.items, order.orderNumber);
 
     io.emit('order_created', order);
     res.json(order);
@@ -869,20 +1046,8 @@ app.post('/api/tables/:id/park-kot', async (req, res) => {
 
     await table.save();
 
-    // Auto-deduct ingredient stock for new round items
-    if (items && Array.isArray(items)) {
-      for (const item of items) {
-        const inv = await Inventory.findOne({
-          tenantId: table.tenantId,
-          name: new RegExp(`^${item.name}$`, 'i')
-        });
-        if (inv) {
-          inv.stock = Math.max(0, inv.stock - (Number(item.quantity) || 1));
-          await inv.save();
-          io.emit('inventory_updated', inv);
-        }
-      }
-    }
+    // Auto-deduct ingredient stock for new round items using recipe mappings
+    await deductInventoryForOrderItems(table.tenantId, items, newRound.kotNumber);
 
     io.emit('table_updated', table);
     res.json({ success: true, table, newRound });

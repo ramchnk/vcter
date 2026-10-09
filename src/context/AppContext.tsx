@@ -1377,44 +1377,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addAudit('POS Sale', `Cash/Direct Sale ${orderNo} of ₹${grandTotal}`);
       }
 
-      // Auto-deduct inventory stock if menu items have recipe mappings or combos configured
-      if (order.items && order.items.length > 0) {
-        for (const orderItem of order.items) {
-          const menuItem = menuItems.find(m => m.id === orderItem.menuItemId);
-          if (menuItem && menuItem.recipe && menuItem.recipe.length > 0) {
-            for (const recipeItem of menuItem.recipe) {
-              const invItem = inventory.find(i => i.id === recipeItem.inventoryItemId);
-              if (invItem) {
-                const totalDeduct = (recipeItem.quantity || 1) * (orderItem.quantity || 1);
-                let deductAmount = totalDeduct;
-                let unitLabel = recipeItem.unit || invItem.unit || 'units';
 
-                // If recipe specifies ml and inventory is tracked in bottles
-                if (recipeItem.deductionType === 'ml') {
-                  const isBottleUnit = (invItem.unit || '').toLowerCase().includes('bottle') || 
-                                       (invItem.unit || '').toLowerCase().includes('btl');
-                  if (isBottleUnit) {
-                    const bottleSize = invItem.bottleSizeMl || 750;
-                    deductAmount = parseFloat((totalDeduct / bottleSize).toFixed(3));
-                    unitLabel = `bottles (${totalDeduct}ml)`;
-                  } else {
-                    deductAmount = totalDeduct;
-                    unitLabel = 'ml';
-                  }
-                }
-
-                await updateStockLevel(
-                  invItem.id,
-                  deductAmount,
-                  'out',
-                  invItem.category,
-                  `POS Sale [${orderNo}]: ${orderItem.quantity}x ${menuItem.name} (${deductAmount} ${unitLabel})`
-                );
-              }
-            }
-          }
-        }
-      }
     } catch (e) {
       console.error('Error adding POS order:', e);
     }

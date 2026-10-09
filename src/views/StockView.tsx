@@ -55,11 +55,58 @@ export const StockView: React.FC = () => {
   // New Item Track Form
   const [newItemName, setNewItemName] = useState('');
   const [newItemCategory, setNewItemCategory] = useState<string>('Room Supplies');
+  const [newItemBottleSizeMl, setNewItemBottleSizeMl] = useState<number>(750);
+  const [isCustomMl, setIsCustomMl] = useState(false);
   const [isAddingCustomCategory, setIsAddingCustomCategory] = useState(false);
   const [customCategoryInput, setCustomCategoryInput] = useState('');
   const [newItemMinStock, setNewItemMinStock] = useState(5);
   const [newItemUnit, setNewItemUnit] = useState('pcs');
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const LIQUOR_ML_PRESETS = [180, 375, 500, 650, 750, 1000];
+  const isLiquorCategory = (cat: string) => (cat || '').trim().toLowerCase() === 'liquor';
+
+  const formatStockBreakdown = (stock: number, unit: string, bottleSizeMl?: number, category?: string) => {
+    const isLiquor = isLiquorCategory(category || '') || Boolean(bottleSizeMl && bottleSizeMl > 0);
+    const bottleSize = bottleSizeMl || 750;
+    const isBottleUnit = (unit || '').toLowerCase().includes('bottle') || 
+                         (unit || '').toLowerCase().includes('btl') || 
+                         (unit || '').toLowerCase().includes('pcs') ||
+                         (unit || '').toLowerCase().includes('units') ||
+                         (unit || '').toLowerCase().includes('nos');
+
+    if (isLiquor && bottleSize > 0 && isBottleUnit && stock >= 0) {
+      const fullBottles = Math.floor(stock);
+      const decimal = parseFloat((stock - fullBottles).toFixed(4));
+      const remainingMl = Math.round(decimal * bottleSize);
+
+      if (fullBottles > 0 && remainingMl > 0) {
+        return {
+          primary: `${fullBottles} Btl + ${remainingMl}ml`,
+          secondary: `${stock} btl`,
+          hasBreakdown: true
+        };
+      } else if (fullBottles === 0 && remainingMl > 0) {
+        return {
+          primary: `${remainingMl}ml`,
+          secondary: `${stock} btl`,
+          hasBreakdown: true
+        };
+      } else {
+        return {
+          primary: `${fullBottles} ${unit || 'btl'}`,
+          secondary: null,
+          hasBreakdown: false
+        };
+      }
+    }
+
+    return {
+      primary: `${parseFloat(Number(stock).toFixed(2))} ${unit}`,
+      secondary: null,
+      hasBreakdown: false
+    };
+  };
 
   // Edit Stock Item State
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
@@ -325,12 +372,21 @@ export const StockView: React.FC = () => {
       ['Total GST Duties Paid (INR)', totalPurchaseGst],
       [],
       ['2. ACTIVE INVENTORY STOCK LEVELS'],
-      ['SKU / Item Name', 'Category', 'Barcode', 'Current Stock', 'Min Stock Threshold', 'Unit', 'Stock Status'],
+      ['SKU / Item Name', 'Category', 'Bottle Size (ML)', 'Barcode', 'Current Stock', 'Min Stock Threshold', 'Unit', 'Stock Status'],
     ];
 
     filteredInventory.forEach(i => {
       const isLow = i.stock < i.minStock;
-      rows.push([i.name, i.category, i.barcode || 'N/A', i.stock, i.minStock, i.unit, isLow ? 'LOW STOCK' : 'Good']);
+      rows.push([
+        i.name, 
+        i.category, 
+        i.bottleSizeMl ? `${i.bottleSizeMl} ML` : 'N/A', 
+        i.barcode || 'N/A', 
+        i.stock, 
+        i.minStock, 
+        i.unit, 
+        isLow ? 'LOW STOCK' : 'Good'
+      ]);
     });
 
     rows.push([]);
@@ -465,21 +521,27 @@ export const StockView: React.FC = () => {
     }
 
     const itemName = newItemName.trim();
+    const isLiquor = isLiquorCategory(finalCategory);
+    const bottleSize = isLiquor ? (Number(newItemBottleSizeMl) || 750) : undefined;
+
     await addInventoryItem({
       name: itemName,
       category: finalCategory,
       stock: 0,
       minStock: Number(newItemMinStock) || 5,
-      unit: newItemUnit.trim() || 'pcs',
+      unit: newItemUnit.trim() || (isLiquor ? 'bottle' : 'pcs'),
+      bottleSizeMl: bottleSize,
       barcode: 'BAR-' + Math.floor(100000 + Math.random() * 900000)
     });
 
-    setSuccessMsg(`✓ Successfully tracked SKU: "${itemName}" in category "${finalCategory}"`);
+    setSuccessMsg(`✓ Successfully tracked SKU: "${itemName}" in category "${finalCategory}"${isLiquor && bottleSize ? ` (${bottleSize}ML)` : ''}`);
     setTimeout(() => setSuccessMsg(null), 4000);
 
     setNewItemName('');
     setNewItemMinStock(5);
     setNewItemUnit('pcs');
+    setNewItemBottleSizeMl(750);
+    setIsCustomMl(false);
   };
 
   const lowStockItems = inventory.filter(item => item.stock < item.minStock);
@@ -511,11 +573,14 @@ export const StockView: React.FC = () => {
               The following inventory items are below minimum replenishment threshold. Please log stock purchases to restore levels:
             </p>
             <div className="flex flex-wrap gap-1.5 pt-1.5">
-              {lowStockItems.map(item => (
-                <span key={item.id} className="bg-rose-500 text-white font-bold px-2 py-0.5 rounded font-mono">
-                  {item.name} ({item.stock}/{item.minStock} {item.unit})
-                </span>
-              ))}
+              {lowStockItems.map(item => {
+                const stockInfo = formatStockBreakdown(item.stock, item.unit, item.bottleSizeMl, item.category);
+                return (
+                  <span key={item.id} className="bg-rose-500 text-white font-bold px-2 py-0.5 rounded font-mono text-[11px]">
+                    {item.name} ({stockInfo.primary} / {item.minStock} {item.unit})
+                  </span>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -629,11 +694,15 @@ export const StockView: React.FC = () => {
                   <select
                     value={newItemCategory}
                     onChange={e => {
-                      if (e.target.value === '__ADD_NEW__') {
+                      const val = e.target.value;
+                      if (val === '__ADD_NEW__') {
                         setIsAddingCustomCategory(true);
                         setCustomCategoryInput('');
                       } else {
-                        setNewItemCategory(e.target.value);
+                        setNewItemCategory(val);
+                        if (isLiquorCategory(val) && (newItemUnit === 'pcs' || !newItemUnit)) {
+                          setNewItemUnit('bottle');
+                        }
                       }
                     }}
                     className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-bold"
@@ -659,6 +728,9 @@ export const StockView: React.FC = () => {
                             if (customCategoryInput.trim()) {
                               const saved = saveCustomCategory(customCategoryInput.trim());
                               setNewItemCategory(saved);
+                              if (isLiquorCategory(saved) && (newItemUnit === 'pcs' || !newItemUnit)) {
+                                setNewItemUnit('bottle');
+                              }
                               setIsAddingCustomCategory(false);
                               setCustomCategoryInput('');
                             }
@@ -675,6 +747,9 @@ export const StockView: React.FC = () => {
                           if (customCategoryInput.trim()) {
                             const saved = saveCustomCategory(customCategoryInput.trim());
                             setNewItemCategory(saved);
+                            if (isLiquorCategory(saved) && (newItemUnit === 'pcs' || !newItemUnit)) {
+                              setNewItemUnit('bottle');
+                            }
                             setIsAddingCustomCategory(false);
                             setCustomCategoryInput('');
                           }
@@ -691,6 +766,84 @@ export const StockView: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {/* Liquor Bottle Volume (ML) Selector */}
+              {isLiquorCategory(newItemCategory) && (
+                <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/40 rounded-xl space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-amber-900 dark:text-amber-200 text-xs flex items-center gap-1.5">
+                      <span>Bottle Volume (ML) *</span>
+                    </label>
+                    <span className="text-[10px] font-mono font-bold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/60 px-2 py-0.5 rounded-md border border-amber-300/60 dark:border-amber-700/60">
+                      {newItemBottleSizeMl ? `${newItemBottleSizeMl} ML` : 'Select ML'}
+                    </span>
+                  </div>
+
+                  {/* Quick selection chips for 180ML, 375ML, 500ML, 650ML, 750ML, 1000ML */}
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {LIQUOR_ML_PRESETS.map(ml => (
+                      <button
+                        key={ml}
+                        type="button"
+                        onClick={() => {
+                          setNewItemBottleSizeMl(ml);
+                          setIsCustomMl(false);
+                        }}
+                        className={`py-1.5 px-1 rounded-lg text-xs font-bold font-mono transition-all text-center border ${
+                          !isCustomMl && newItemBottleSizeMl === ml
+                            ? 'bg-amber-600 text-white border-amber-600 shadow-sm ring-2 ring-amber-500/30'
+                            : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-amber-400 hover:text-amber-600 dark:hover:text-amber-400'
+                        }`}
+                      >
+                        {ml}ML
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Dropdown & Custom ML Option */}
+                  <div className="space-y-1.5 pt-0.5">
+                    <select
+                      value={isCustomMl ? '__CUSTOM__' : newItemBottleSizeMl}
+                      onChange={e => {
+                        if (e.target.value === '__CUSTOM__') {
+                          setIsCustomMl(true);
+                        } else {
+                          setIsCustomMl(false);
+                          setNewItemBottleSizeMl(Number(e.target.value));
+                        }
+                      }}
+                      className="w-full p-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg font-bold text-xs text-slate-800 dark:text-slate-200"
+                    >
+                      <option value={180}>180 ML (Quarter / Nip)</option>
+                      <option value={375}>375 ML (Pint / Half)</option>
+                      <option value={500}>500 ML (Can / 500ml)</option>
+                      <option value={650}>650 ML (Beer Bottle / 650ml)</option>
+                      <option value={750}>750 ML (Full Bottle / 750ml)</option>
+                      <option value={1000}>1000 ML (1 Litre Bottle)</option>
+                      <option value="__CUSTOM__">Other / Custom ML...</option>
+                    </select>
+
+                    {isCustomMl && (
+                      <div className="animate-in fade-in duration-150">
+                        <input
+                          type="number"
+                          min={1}
+                          required
+                          autoFocus
+                          placeholder="Enter volume in ML (e.g. 200, 330)"
+                          value={newItemBottleSizeMl || ''}
+                          onChange={e => setNewItemBottleSizeMl(Number(e.target.value) || 0)}
+                          className="w-full p-2 bg-white dark:bg-slate-950 border border-amber-400 dark:border-amber-600 rounded-lg font-mono font-bold text-xs"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="text-[10px] text-amber-700/90 dark:text-amber-400/90 leading-tight">
+                    Enables accurate peg shot deductions (30ml / 60ml) and inventory balance.
+                  </p>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
@@ -749,13 +902,34 @@ export const StockView: React.FC = () => {
                     return (
                       <tr key={item.id} className="text-slate-700 dark:text-slate-300">
                         <td className="py-3">
-                          <p className="font-bold text-slate-800 dark:text-slate-150 leading-tight">{item.name}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-bold text-slate-800 dark:text-slate-150 leading-tight">{item.name}</p>
+                            {isLiquorCategory(item.category) && item.bottleSizeMl && (
+                              <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 rounded border border-amber-300/60 dark:border-amber-800/60">
+                                {item.bottleSizeMl}ML
+                              </span>
+                            )}
+                          </div>
                           <p className="text-[9px] font-mono text-slate-400 mt-0.5">{item.barcode || 'NO-BARCODE'}</p>
                         </td>
-                        <td className="py-3 font-semibold text-slate-500">{item.category}</td>
+                        <td className="py-3 font-semibold text-slate-500">
+                          <span>{item.category}</span>
+                        </td>
                         <td className="py-3 text-center font-mono text-slate-400">{item.minStock} {item.unit}</td>
                         <td className={`py-3 text-right font-mono font-bold ${isLow ? 'text-rose-600 dark:text-rose-400 animate-pulse-soft' : 'text-slate-800 dark:text-slate-200'}`}>
-                          {item.stock} {item.unit}
+                          {(() => {
+                            const stockInfo = formatStockBreakdown(item.stock, item.unit, item.bottleSizeMl, item.category);
+                            return (
+                              <div className="flex flex-col items-end">
+                                <span className={stockInfo.hasBreakdown ? 'text-amber-600 dark:text-amber-400 font-extrabold text-xs' : ''}>
+                                  {stockInfo.primary}
+                                </span>
+                                {stockInfo.secondary && (
+                                  <span className="text-[10px] text-slate-400 font-normal">({stockInfo.secondary})</span>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="py-3 text-center">
                           <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
@@ -1096,11 +1270,14 @@ export const StockView: React.FC = () => {
                 className="w-full p-2.5 border dark:border-slate-850 dark:bg-slate-900 rounded-xl font-bold"
               >
                 <option value="">-- Select SKU --</option>
-                {inventory.map(i => (
-                  <option key={i.id} value={i.id}>
-                    {i.name} (Current: {i.stock} {i.unit} - {i.category})
-                  </option>
-                ))}
+                {inventory.map(i => {
+                  const stockInfo = formatStockBreakdown(i.stock, i.unit, i.bottleSizeMl, i.category);
+                  return (
+                    <option key={i.id} value={i.id}>
+                      {i.name} {i.bottleSizeMl ? `(${i.bottleSizeMl}ML)` : ''} (Current: {stockInfo.primary} - {i.category})
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
@@ -1477,15 +1654,27 @@ export const StockView: React.FC = () => {
                       return (
                         <tr key={item.id} className="text-slate-700 dark:text-slate-300">
                           <td className="py-2.5">
-                            <span className="font-bold text-slate-800 dark:text-slate-200">{item.name}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-slate-800 dark:text-slate-200">{item.name}</span>
+                              {isLiquorCategory(item.category) && item.bottleSizeMl && (
+                                <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 rounded border border-amber-300/60 dark:border-amber-800/60">
+                                  {item.bottleSizeMl}ML
+                                </span>
+                              )}
+                            </div>
                             <span className="text-[10px] font-mono text-slate-400 block">{item.barcode || 'NO BARCODE'}</span>
                           </td>
                           <td className="py-2.5 font-medium text-slate-500">{item.category}</td>
                           <td className="py-2.5 text-right font-mono font-bold">
                             <span className="text-slate-400 font-normal">{item.minStock} / </span>
-                            <span className={isLow ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}>
-                              {item.stock} {item.unit}
-                            </span>
+                            {(() => {
+                              const stockInfo = formatStockBreakdown(item.stock, item.unit, item.bottleSizeMl, item.category);
+                              return (
+                                <span className={isLow ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}>
+                                  {stockInfo.primary} {stockInfo.secondary ? `(${stockInfo.secondary})` : ''}
+                                </span>
+                              );
+                            })()}
                           </td>
                           <td className="py-2.5 text-center">
                             <span className={`text-[9px] px-2 py-0.5 rounded font-bold uppercase ${
@@ -1704,18 +1893,51 @@ export const StockView: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-500 block">Barcode / SKU Code</label>
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 block">Barcode / SKU Code</label>
+                <input
+                  type="text"
+                  value={editFormData.barcode}
+                  onChange={e => setEditFormData(prev => ({ ...prev, barcode: e.target.value }))}
+                  placeholder="Optional barcode / SKU"
+                  className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-xs"
+                />
+              </div>
+
+              {isLiquorCategory(editFormData.category) ? (
+                <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/40 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-amber-900 dark:text-amber-200 text-xs">Bottle Volume (ML) *</label>
+                    <span className="text-[10px] font-mono font-bold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/60 px-2 py-0.5 rounded border border-amber-300/60 dark:border-amber-700/60">
+                      {editFormData.bottleSizeMl ? `${editFormData.bottleSizeMl} ML` : '750 ML'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-6 gap-1">
+                    {LIQUOR_ML_PRESETS.map(ml => (
+                      <button
+                        key={ml}
+                        type="button"
+                        onClick={() => setEditFormData(prev => ({ ...prev, bottleSizeMl: ml }))}
+                        className={`py-1.5 rounded text-[11px] font-bold font-mono transition-all text-center border ${
+                          editFormData.bottleSizeMl === ml
+                            ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                            : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-amber-400'
+                        }`}
+                      >
+                        {ml}
+                      </button>
+                    ))}
+                  </div>
                   <input
-                    type="text"
-                    value={editFormData.barcode}
-                    onChange={e => setEditFormData(prev => ({ ...prev, barcode: e.target.value }))}
-                    placeholder="Optional barcode / SKU"
-                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-xs"
+                    type="number"
+                    min={1}
+                    value={editFormData.bottleSizeMl || ''}
+                    onChange={e => setEditFormData(prev => ({ ...prev, bottleSizeMl: e.target.value ? parseInt(e.target.value) : undefined }))}
+                    placeholder="Custom volume in ML (e.g. 750)"
+                    className="w-full p-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg font-mono text-xs font-bold"
                   />
                 </div>
-
+              ) : (
                 <div className="space-y-1">
                   <label className="font-bold text-slate-500 block">Bottle Volume (ml)</label>
                   <input
@@ -1727,7 +1949,7 @@ export const StockView: React.FC = () => {
                     className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-xs"
                   />
                 </div>
-              </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">

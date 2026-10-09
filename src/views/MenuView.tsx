@@ -1121,11 +1121,23 @@ export const MenuView: React.FC = () => {
                         className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
                       >
                         <option value="">Select Inventory Stock Item...</option>
-                        {(inventory || []).map(inv => (
-                          <option key={inv.id} value={inv.id}>
-                            {inv.name} (Stock: {inv.stock} {inv.unit} - {inv.category})
-                          </option>
-                        ))}
+                        {(inventory || []).map(inv => {
+                          const isLiquor = (inv.category || '').toLowerCase() === 'liquor' || Boolean(inv.bottleSizeMl && inv.bottleSizeMl > 0);
+                          const bottleSize = inv.bottleSizeMl || 750;
+                          let stockStr = `${inv.stock} ${inv.unit}`;
+                          if (isLiquor && bottleSize > 0) {
+                            const full = Math.floor(inv.stock);
+                            const decimal = parseFloat((inv.stock - full).toFixed(4));
+                            const ml = Math.round(decimal * bottleSize);
+                            if (full > 0 && ml > 0) stockStr = `${full} Btl + ${ml}ml`;
+                            else if (full === 0 && ml > 0) stockStr = `${ml}ml`;
+                          }
+                          return (
+                            <option key={inv.id} value={inv.id}>
+                              {inv.name} {inv.bottleSizeMl ? `(${inv.bottleSizeMl}ML)` : ''} (Stock: {stockStr} - {inv.category})
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
 
