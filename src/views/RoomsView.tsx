@@ -94,6 +94,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [bookingSource, setBookingSource] = useState<string>('Direct / Walk-In');
   const [bookingReference, setBookingReference] = useState<string>('');
   const [isAcSwitchedOff, setIsAcSwitchedOff] = useState<boolean>(false);
+  const [checkOutDate, setCheckOutDate] = useState<string>('');
 
   const [transferTargetRoomId, setTransferTargetRoomId] = useState('');
 
@@ -202,6 +203,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       setBookingSource(booking.bookingSource || 'MakeMyTrip');
       setBookingReference(booking.bookingReference || '');
       setIsAcSwitchedOff(!!booking.isAcSwitchedOff);
+      setCheckOutDate(booking.checkOutDate || '');
     } else {
       setSelectedPreBookingId('');
       setGuestName('');
@@ -213,6 +215,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       setNoOfGuests(1);
       setAdvancePaid(0);
       setBookingReference('');
+      setCheckOutDate(new Date(Date.now() + 86400000).toISOString().split('T')[0]);
       if (selectedRoom) {
         setCheckInPrice(selectedRoom.price || 1500);
         setBookingSource('Direct / Walk-In');
@@ -228,7 +231,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     setBookingReference('');
     setIsAcSwitchedOff(false);
 
-    // Look for a matching prebooking for this exact room number or category for today
+    // Look for a matching prebooking for this exact room number or category for today or upcoming early arrival
     const matchingPre = preBookings.find(pb => 
       (pb.status === 'Confirmed' || pb.status === 'Pending') &&
       ((pb.roomNumber && pb.roomNumber === room.roomNumber) || (pb.roomCategory === room.category && pb.checkInDate === todayStr))
@@ -269,7 +272,9 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         price: Number(checkInPrice),
         bookingSource: bookingSource,
         bookingReference: bookingReference.trim() || undefined,
-        isAcSwitchedOff: isAcSwitchedOff
+        isAcSwitchedOff: isAcSwitchedOff,
+        checkInDate: todayStr,
+        checkOutDate: checkOutDate || undefined
       });
       await updatePreBookingStatus(selectedPreBookingId, 'CheckedIn');
     } else {
@@ -285,7 +290,9 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         price: Number(checkInPrice),
         bookingSource: bookingSource,
         bookingReference: bookingReference.trim() || undefined,
-        isAcSwitchedOff: isAcSwitchedOff
+        isAcSwitchedOff: isAcSwitchedOff,
+        checkInDate: todayStr,
+        checkOutDate: checkOutDate || undefined
       });
     }
     
@@ -958,12 +965,13 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                     .filter(b => b.status === 'Confirmed' || b.status === 'Pending')
                     .map(b => {
                       const isToday = b.checkInDate === todayStr;
+                      const isEarly = todayStr < b.checkInDate;
                       const isCatMatch = b.roomCategory === selectedRoom.category;
                       const isRoomMatch = b.roomNumber === selectedRoom.roomNumber;
                       
                       return (
                         <option key={b.id} value={b.id}>
-                          {isToday ? '🔥 [TODAY] ' : ''}
+                          {isToday ? '🔥 [TODAY] ' : isEarly ? `⚡ [EARLY - Reserved ${b.checkInDate}] ` : ''}
                           {b.guestName} ({b.phone}) — {b.roomCategory}
                           {isRoomMatch ? ` [Room ${b.roomNumber}]` : ''} 
                           {b.advancePaid ? ` • Adv: ₹${b.advancePaid}` : ''}
@@ -1170,7 +1178,18 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500">Expected Check-Out *</label>
+                  <input
+                    type="date"
+                    required
+                    min={todayStr}
+                    value={checkOutDate}
+                    onChange={e => setCheckOutDate(e.target.value)}
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg text-xs font-semibold"
+                  />
+                </div>
                 <div className="space-y-1">
                   <label className="font-bold text-slate-500">GST Number</label>
                   <input

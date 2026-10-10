@@ -80,6 +80,8 @@ export const PreBookingView: React.FC = () => {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<PreBooking | null>(null);
   const [assignRoomId, setAssignRoomId] = useState('');
+  const [assignCheckInDate, setAssignCheckInDate] = useState('');
+  const [assignCheckOutDate, setAssignCheckOutDate] = useState('');
 
   // Timeline Matrix Date Navigation (Default: today)
   const [matrixStartDate, setMatrixStartDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -565,13 +567,19 @@ export const PreBookingView: React.FC = () => {
     } else {
       setAssignRoomId('');
     }
+    const isEarly = todayStr < booking.checkInDate;
+    setAssignCheckInDate(isEarly ? todayStr : booking.checkInDate);
+    setAssignCheckOutDate(booking.checkOutDate);
     setShowAssignModal(true);
   };
 
   const handleAssignSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedBooking || !assignRoomId) return;
-    confirmPreBookingCheckIn(selectedBooking.id, assignRoomId);
+    confirmPreBookingCheckIn(selectedBooking.id, assignRoomId, {
+      checkInDate: assignCheckInDate || todayStr,
+      checkOutDate: assignCheckOutDate || selectedBooking.checkOutDate
+    });
     setShowAssignModal(false);
   };
 
@@ -2127,7 +2135,7 @@ export const PreBookingView: React.FC = () => {
                   <strong className="text-indigo-600 dark:text-indigo-400 font-bold">{selectedBooking.roomCategory}</strong>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-slate-400">Stay Duration:</span>
+                  <span className="text-slate-400">Original Booking:</span>
                   <strong className="text-slate-700 dark:text-slate-300 font-mono">
                     {selectedBooking.checkInDate} → {selectedBooking.checkOutDate}
                   </strong>
@@ -2139,6 +2147,57 @@ export const PreBookingView: React.FC = () => {
                   </strong>
                 </div>
               </div>
+
+              {/* Early Arrival Warning Banner */}
+              {todayStr < selectedBooking.checkInDate && (
+                <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-xl space-y-1">
+                  <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300 font-bold text-xs">
+                    <span>⚡</span>
+                    <span>Early Arrival Detected</span>
+                  </div>
+                  <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+                    Guest reserved for <strong>{selectedBooking.checkInDate}</strong>, but arrived today (<strong>{todayStr}</strong>). Check-in date has been set to today so daily room tariff and stay nights calculate accurately from day 1.
+                  </p>
+                </div>
+              )}
+
+              {/* Editable Dates */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-300 text-[11px] block">
+                    Actual Check-In Date *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={assignCheckInDate}
+                    onChange={e => setAssignCheckInDate(e.target.value)}
+                    className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg font-bold text-xs text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-300 text-[11px] block">
+                    Expected Check-Out Date *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    min={assignCheckInDate || todayStr}
+                    value={assignCheckOutDate}
+                    onChange={e => setAssignCheckOutDate(e.target.value)}
+                    className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg font-bold text-xs text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              {assignCheckInDate && assignCheckOutDate && assignCheckInDate < assignCheckOutDate && (
+                <div className="flex justify-between items-center px-2 py-1.5 text-[11px] bg-indigo-50/70 dark:bg-indigo-950/30 rounded-lg border border-indigo-200/50 dark:border-indigo-800/50">
+                  <span className="text-slate-500 font-medium">Calculated Stay Duration:</span>
+                  <span className="font-bold font-mono text-indigo-700 dark:text-indigo-300">
+                    {Math.max(1, Math.ceil((new Date(assignCheckOutDate).getTime() - new Date(assignCheckInDate).getTime()) / 86400000))} Night(s)
+                  </span>
+                </div>
+              )}
 
               <div className="space-y-1.5">
                 <label className="font-bold text-slate-600 dark:text-slate-300">

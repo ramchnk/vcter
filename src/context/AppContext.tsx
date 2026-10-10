@@ -469,7 +469,7 @@ interface AppContextType {
   addPreBooking: (booking: Omit<PreBooking, 'id' | 'status' | 'bookingDate'>) => Promise<void>;
   addBulkPreBooking: (payload: BulkPreBookingPayload) => Promise<{ groupBookingId: string; createdCount: number }>;
   cancelPreBooking: (id: string) => Promise<void>;
-  confirmPreBookingCheckIn: (id: string, roomId: string) => Promise<void>;
+  confirmPreBookingCheckIn: (id: string, roomId: string, customDates?: { checkInDate: string; checkOutDate: string }) => Promise<void>;
   bulkConfirmPreBookingCheckIn: (groupBookingId: string, roomAssignments?: { [preBookingId: string]: string }) => Promise<void>;
   updatePreBookingStatus: (id: string, status: PreBooking['status']) => Promise<void>;
   
@@ -1723,18 +1723,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const confirmPreBookingCheckIn = async (id: string, roomId: string) => {
+  const confirmPreBookingCheckIn = async (
+    id: string, 
+    roomId: string, 
+    customDates?: { checkInDate: string; checkOutDate: string }
+  ) => {
     const tId = effectiveTenantId;
     if (!tId) return;
     const pb = preBookings.find(p => p.id === id);
     if (!pb) return;
     const targetRoom = rooms.find(r => r.id === roomId);
     
+    const todayStr = new Date().toISOString().split('T')[0];
+    const finalCheckInDate = customDates?.checkInDate || (todayStr < pb.checkInDate ? todayStr : pb.checkInDate);
+    const finalCheckOutDate = customDates?.checkOutDate || pb.checkOutDate;
+
     // Calculate nightly price if custom roomPrice was given
     let stayPrice = pb.roomPrice;
-    if (!stayPrice && pb.totalAmount && pb.checkInDate && pb.checkOutDate) {
-      const s = new Date(pb.checkInDate).getTime();
-      const e = new Date(pb.checkOutDate).getTime();
+    if (!stayPrice && pb.totalAmount && finalCheckInDate && finalCheckOutDate) {
+      const s = new Date(finalCheckInDate).getTime();
+      const e = new Date(finalCheckOutDate).getTime();
       const nights = Math.max(1, Math.ceil((e - s) / 86400000));
       stayPrice = Math.round(pb.totalAmount / nights);
     }
@@ -1758,14 +1766,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isAcSwitchedOff: pb.isAcSwitchedOff,
         groupBookingId: pb.groupBookingId,
         groupBookingName: pb.groupBookingName || pb.guestName,
-        checkInDate: pb.checkInDate,
-        checkOutDate: pb.checkOutDate
+        checkInDate: finalCheckInDate,
+        checkOutDate: finalCheckOutDate
       });
       await api.put(`/pre-bookings/${id}?tenantId=${tId}`, { 
         status: 'CheckedIn', 
-        roomNumber: targetRoom ? targetRoom.roomNumber : undefined 
+        roomNumber: targetRoom ? targetRoom.roomNumber : undefined,
+        checkInDate: finalCheckInDate,
+        checkOutDate: finalCheckOutDate
       });
-      setPreBookings(prev => prev.map(p => p.id === id ? { ...p, status: 'CheckedIn', roomNumber: targetRoom ? targetRoom.roomNumber : undefined } : p));
+      setPreBookings(prev => prev.map(p => p.id === id ? { 
+        ...p, 
+        status: 'CheckedIn', 
+        roomNumber: targetRoom ? targetRoom.roomNumber : undefined,
+        checkInDate: finalCheckInDate,
+        checkOutDate: finalCheckOutDate
+      } : p));
     } catch (e) {
       console.error(e);
     }
@@ -1779,6 +1795,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Track assigned rooms in this run to avoid assigning the same room twice
     const occupiedInRun = new Set<string>();
+    const todayStr = new Date().toISOString().split('T')[0];
 
     for (const pb of groupBookings) {
       let targetRoomId = roomAssignments ? roomAssignments[pb.id] : undefined;
@@ -1800,6 +1817,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         occupiedInRun.add(targetRoomId);
         const targetRoom = rooms.find(r => r.id === targetRoomId);
         let stayPrice = pb.roomPrice || targetRoom?.price || 1500;
+        const finalCheckInDate = todayStr < pb.checkInDate ? todayStr : pb.checkInDate;
+        const finalCheckOutDate = pb.checkOutDate;
+
         await checkInRoom(targetRoomId, {
           name: pb.occupantName || pb.guestName,
           phone: pb.phone,
@@ -1815,15 +1835,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           isAcSwitchedOff: pb.isAcSwitchedOff,
           groupBookingId: pb.groupBookingId,
           groupBookingName: pb.groupBookingName || pb.guestName,
-          checkInDate: pb.checkInDate,
-          checkOutDate: pb.checkOutDate
+          checkInDate: finalCheckInDate,
+          checkOutDate: finalCheckOutDate
         });
 
         await api.put(`/pre-bookings/${pb.id}?tenantId=${tId}`, { 
           status: 'CheckedIn', 
-          roomNumber: targetRoom ? targetRoom.roomNumber : undefined 
+          roomNumber: targetRoom ? targetRoom.roomNumber : undefined,
+          checkInDate: finalCheckInDate,
+          checkOutDate: finalCheckOutDate
         });
-        setPreBookings(prev => prev.map(p => p.id === pb.id ? { ...p, status: 'CheckedIn', roomNumber: targetRoom ? targetRoom.roomNumber : undefined } : p));
+        setPreBookings(prev => prev.map(p => p.id === pb.id ? { 
+          ...p, 
+          status: 'CheckedIn', 
+          roomNumber: targetRoom ? targetRoom.roomNumber : undefined,
+          checkInDate: finalCheckInDate,
+          checkOutDate: finalCheckOutDate
+        } : p));
       }
     }
   };
