@@ -76,8 +76,10 @@ export const SettingsView: React.FC = () => {
 
   // Hotel settings local copy
   const [hotelName, setHotelName] = useState(settings.name);
+  const [tagline, setTagline] = useState(settings.tagline || '');
   const [address, setAddress] = useState(settings.address);
   const [phone, setPhone] = useState(settings.phone);
+  const [landline, setLandline] = useState(settings.landline || '');
   const [email, setEmail] = useState(settings.email);
   const [gstNumber, setGstNumber] = useState(settings.gstNumber);
   const [taxRate, setTaxRate] = useState(settings.taxRate);
@@ -91,8 +93,15 @@ export const SettingsView: React.FC = () => {
   React.useEffect(() => {
     if (settings) {
       setHotelName(settings.name || '');
+      const localCached = localStorage.getItem('hv_settings');
+      let cachedTagline = '';
+      if (localCached) {
+        try { cachedTagline = JSON.parse(localCached)?.tagline || ''; } catch {}
+      }
+      setTagline(settings.tagline || cachedTagline || '');
       setAddress(settings.address || '');
       setPhone(settings.phone || '');
+      setLandline(settings.landline || '');
       setEmail(settings.email || '');
       setGstNumber(settings.gstNumber || '');
       setTaxRate(settings.taxRate ?? 18);
@@ -228,8 +237,10 @@ export const SettingsView: React.FC = () => {
 
     const updatedSettings: HotelSettings = {
       name: hotelName,
+      tagline,
       address,
       phone,
+      landline,
       email,
       gstNumber,
       taxRate,
@@ -244,8 +255,10 @@ export const SettingsView: React.FC = () => {
       updateSettings(updatedSettings);
     }
     settings.name = hotelName;
+    settings.tagline = tagline;
     settings.address = address;
     settings.phone = phone;
+    settings.landline = landline;
     settings.email = email;
     settings.gstNumber = gstNumber;
     settings.taxRate = taxRate;
@@ -521,7 +534,7 @@ export const SettingsView: React.FC = () => {
 
                 <div className="flex flex-col sm:flex-row items-center gap-4">
                   {/* Logo Preview Box */}
-                  <div className="w-40 h-24 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl flex items-center justify-center p-2 bg-white dark:bg-slate-900 flex-shrink-0 shadow-inner">
+                  <div className="w-52 h-28 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl flex items-center justify-center p-2.5 bg-white dark:bg-slate-900 flex-shrink-0 shadow-inner">
                     {logoUrl ? (
                       <img
                         src={logoUrl}
@@ -530,7 +543,7 @@ export const SettingsView: React.FC = () => {
                       />
                     ) : (
                       <div className="text-center text-slate-400">
-                        <ImageIcon className="w-6 h-6 mx-auto mb-1 opacity-40" />
+                        <ImageIcon className="w-7 h-7 mx-auto mb-1 opacity-40" />
                         <span className="text-[10px] block">No Logo Uploaded</span>
                       </div>
                     )}
@@ -565,7 +578,7 @@ export const SettingsView: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="font-bold text-slate-500">Hotel Name *</label>
                   <input
@@ -573,9 +586,22 @@ export const SettingsView: React.FC = () => {
                     required
                     value={hotelName}
                     onChange={e => setHotelName(e.target.value)}
-                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg"
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-bold"
                   />
                 </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500">Invoice Tagline / Subtitle (Prints below Hotel Name)</label>
+                  <input
+                    type="text"
+                    value={tagline}
+                    onChange={e => setTagline(e.target.value)}
+                    placeholder="e.g. Luxury Suites & Coastal Resorts / A Unit of Subra Hospitality"
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg italic"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="font-bold text-slate-500">GST Registration Number *</label>
                   <input
@@ -586,28 +612,38 @@ export const SettingsView: React.FC = () => {
                     className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-mono font-bold"
                   />
                 </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="font-bold text-slate-500">Complete Address *</label>
-                <input
-                  type="text"
-                  required
-                  value={address}
-                  onChange={e => setAddress(e.target.value)}
-                  className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="font-bold text-slate-500">Contact Phone *</label>
+                  <label className="font-bold text-slate-500">Complete Address *</label>
+                  <input
+                    type="text"
+                    required
+                    value={address}
+                    onChange={e => setAddress(e.target.value)}
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500">Contact Phone (Mobile) *</label>
                   <input
                     type="text"
                     required
                     value={phone}
                     onChange={e => setPhone(e.target.value)}
                     className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg"
+                    placeholder="+91 98765 43210"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500">Landline Number (Optional)</label>
+                  <input
+                    type="text"
+                    value={landline}
+                    onChange={e => setLandline(e.target.value)}
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg"
+                    placeholder="e.g. 0451-2424000"
                   />
                 </div>
                 <div className="space-y-1">
@@ -618,6 +654,7 @@ export const SettingsView: React.FC = () => {
                     value={email}
                     onChange={e => setEmail(e.target.value)}
                     className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg"
+                    placeholder="billing@hotel.com"
                   />
                 </div>
               </div>

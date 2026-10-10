@@ -281,8 +281,10 @@ const auditLogSchema = new mongoose.Schema({
 const settingsSchema = new mongoose.Schema({
   tenantId: { type: String, required: true, unique: true },
   name: { type: String, default: 'HotelVista Grand' },
+  tagline: { type: String, default: '' },
   address: { type: String, default: '123 Beach Road, Resort City' },
   phone: { type: String, default: '+91 98765 43210' },
+  landline: { type: String, default: '' },
   email: { type: String, default: 'contact@hotelvistagrand.com' },
   gstNumber: { type: String, default: '33AAAAA0000A1Z5' },
   taxRate: { type: Number, default: 18 },
@@ -291,7 +293,7 @@ const settingsSchema = new mongoose.Schema({
   logoUrl: String,
   checkInTime: { type: String, default: '12:00 PM' },
   checkOutTime: { type: String, default: '11:00 AM' }
-}, { timestamps: true });
+}, { timestamps: true, strict: false });
 
 const notificationSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true },

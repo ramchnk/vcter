@@ -583,6 +583,8 @@ export const RestaurantBarView: React.FC = () => {
     const hotelName = settings.name || 'HOTEL SUBRA GRAND';
     const address = settings.address || '';
     const phone = settings.phone || '';
+    const landline = settings.landline || '';
+    const phoneDisplay = [phone ? `Mob: ${phone}` : '', landline ? `Tel: ${landline}` : ''].filter(Boolean).join(' | ') || (phone ? `Ph: ${phone}` : '');
     const gstNumber = settings.gstNumber || '';
     const dateStr = new Date(bill.timestamp || Date.now()).toLocaleDateString('en-GB');
     const timeStr = new Date(bill.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -603,10 +605,11 @@ export const RestaurantBarView: React.FC = () => {
     `).join('');
 
     const html = `
-      ${settings.logoUrl ? `<div class="center" style="margin-bottom: 6px;"><img src="${settings.logoUrl}" style="max-height: 48px; max-width: 130px; object-fit: contain; margin: 0 auto; display: block;" /></div>` : ''}
+      ${settings.logoUrl ? `<div class="center" style="margin-bottom: 6px;"><img src="${settings.logoUrl}" style="max-height: 56px; max-width: 160px; object-fit: contain; margin: 0 auto; display: block;" /></div>` : ''}
       <div class="center bold uppercase" style="font-size: 13px;">${hotelName}</div>
+      ${settings.tagline ? `<div class="center italic" style="font-size: 10px; margin-bottom: 2px;">${settings.tagline}</div>` : ''}
       ${address ? `<div class="center" style="font-size: 9px;">${address}</div>` : ''}
-      ${phone ? `<div class="center" style="font-size: 9px;">Ph: ${phone}</div>` : ''}
+      ${phoneDisplay ? `<div class="center" style="font-size: 9px;">${phoneDisplay}</div>` : ''}
       ${gstNumber ? `<div class="center bold" style="font-size: 9px;">GSTIN: ${gstNumber}</div>` : ''}
       
       <div class="double-line"></div>

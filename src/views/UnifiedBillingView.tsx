@@ -1242,7 +1242,7 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                         <img 
                           src={settings.logoUrl} 
                           alt={settings.name || 'Tenant Logo'} 
-                          className="h-20 max-w-[150px] object-contain rounded"
+                          className="h-28 max-w-[220px] object-contain rounded"
                         />
                       </div>
                     )}
@@ -1250,15 +1250,18 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                       <h1 className="text-xl font-black tracking-tight text-slate-950 uppercase">
                         {settings.name || 'HotelVista Luxury Suites & Resorts'}
                       </h1>
+                      {settings.tagline && (
+                        <p className="text-xs font-semibold text-slate-700 italic tracking-wide -mt-0.5">
+                          {settings.tagline}
+                        </p>
+                      )}
                       <p className="text-[11px] text-slate-600 font-medium leading-relaxed">
                         {settings.address || 'Beach Road, Hospitality Enclave, Coastal Zone'}
                       </p>
                       <div className="flex flex-wrap gap-x-4 text-[10px] text-slate-500 font-medium pt-1">
-                        <span><strong>Phone:</strong> {settings.phone || '+91 98765 43210'}</span>
+                        <span><strong>Mobile:</strong> {settings.phone || '+91 98765 43210'}</span>
+                        {settings.landline && <span><strong>Landline:</strong> {settings.landline}</span>}
                         <span><strong>Email:</strong> {settings.email || 'billing@hotelvista.com'}</span>
-                      </div>
-                      <div className="text-[10px] text-slate-800 font-mono font-bold pt-0.5">
-                        GSTIN: {settings.gstNumber || '29AAAAA0000A1Z5'} • State Code: 29
                       </div>
                     </div>
                   </div>
@@ -1274,8 +1277,8 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                     <p className="text-[10px] text-slate-500 font-mono">
                       Date of Issue: {activePrintInvoice.dateOfIssue}
                     </p>
-                    <p className="text-[10px] text-slate-500 font-mono">
-                      SAC Code: 996311 (Hotel) / 996331 (F&B)
+                    <p className="text-xs font-mono font-bold text-slate-900 pt-0.5">
+                      GSTIN: {settings.gstNumber || '29AAAAA0000A1Z5'}
                     </p>
                   </div>
                 </div>
@@ -1330,8 +1333,7 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                       <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-300">
                         <th className="p-2 text-center w-10 border-r border-slate-300">#</th>
                         <th className="p-2 text-left border-r border-slate-300">Description & Department</th>
-                        <th className="p-2 text-center w-20 border-r border-slate-300">SAC/HSN</th>
-                        <th className="p-2 text-center w-16 border-r border-slate-300">Qty/Nights</th>
+                        <th className="p-2 text-center w-20 border-r border-slate-300">Qty/Nights</th>
                         <th className="p-2 text-right w-24 border-r border-slate-300 font-mono">Rate (₹)</th>
                         <th className="p-2 text-right w-28 font-mono">Amount (₹)</th>
                       </tr>
@@ -1345,7 +1347,6 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                           <p className="font-bold text-slate-900">Room Accommodation Charges</p>
                           <p className="text-[10px] text-slate-500">Room {activePrintInvoice.roomNumber} ({activePrintInvoice.roomCategory}) • {activePrintInvoice.stayDuration} Night Stay</p>
                         </td>
-                        <td className="p-2 text-center font-mono text-slate-500 border-r border-slate-200">996311</td>
                         <td className="p-2 text-center font-mono border-r border-slate-200">{activePrintInvoice.stayDuration}</td>
                         <td className="p-2 text-right font-mono border-r border-slate-200">₹{(activePrintInvoice.roomPrice || 0).toLocaleString()}</td>
                         <td className="p-2 text-right font-mono font-bold text-slate-900">₹{activePrintInvoice.roomRentTotal.toLocaleString()}</td>
@@ -1367,7 +1368,6 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                               </div>
                             )}
                           </td>
-                          <td className="p-2 text-center font-mono text-slate-500 border-r border-slate-200">996331</td>
                           <td className="p-2 text-center font-mono border-r border-slate-200">1</td>
                           <td className="p-2 text-right font-mono border-r border-slate-200 text-slate-400">—</td>
                           <td className="p-2 text-right font-mono font-bold text-slate-900">₹{activePrintInvoice.restaurantTotal.toLocaleString()}</td>
@@ -1390,7 +1390,6 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                               </div>
                             )}
                           </td>
-                          <td className="p-2 text-center font-mono text-slate-500 border-r border-slate-200">996331</td>
                           <td className="p-2 text-center font-mono border-r border-slate-200">1</td>
                           <td className="p-2 text-right font-mono border-r border-slate-200 text-slate-400">—</td>
                           <td className="p-2 text-right font-mono font-bold text-slate-900">₹{activePrintInvoice.barTotal.toLocaleString()}</td>
@@ -1409,7 +1408,6 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                               </p>
                             )}
                           </td>
-                          <td className="p-2 text-center font-mono text-slate-500 border-r border-slate-200">999799</td>
                           <td className="p-2 text-center font-mono border-r border-slate-200">1</td>
                           <td className="p-2 text-right font-mono border-r border-slate-200 text-slate-400">—</td>
                           <td className="p-2 text-right font-mono font-bold text-slate-900">₹{activePrintInvoice.laundryTotal.toLocaleString()}</td>
@@ -1428,7 +1426,6 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                               </p>
                             )}
                           </td>
-                          <td className="p-2 text-center font-mono text-slate-500 border-r border-slate-200">997212</td>
                           <td className="p-2 text-center font-mono border-r border-slate-200">1</td>
                           <td className="p-2 text-right font-mono border-r border-slate-200 text-slate-400">—</td>
                           <td className="p-2 text-right font-mono font-bold text-slate-900">₹{activePrintInvoice.hallTotal.toLocaleString()}</td>
@@ -1445,7 +1442,6 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                             </p>
                             <p className="text-[10px] text-slate-500">Additional room services & incidentals</p>
                           </td>
-                          <td className="p-2 text-center font-mono text-slate-500 border-r border-slate-200">999799</td>
                           <td className="p-2 text-center font-mono border-r border-slate-200">1</td>
                           <td className="p-2 text-right font-mono border-r border-slate-200">₹{activePrintInvoice.otherCharges}</td>
                           <td className="p-2 text-right font-mono font-bold text-slate-900">₹{activePrintInvoice.otherCharges}</td>
@@ -1564,17 +1560,22 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
               >
                 <div className="text-center border-b border-dashed border-slate-400 pb-3 space-y-0.5">
                   {settings.logoUrl && (
-                    <div className="flex justify-center mb-1.5">
+                    <div className="flex justify-center mb-2">
                       <img 
                         src={settings.logoUrl} 
                         alt={settings.name || 'Tenant Logo'} 
-                        className="h-12 max-w-[130px] object-contain mx-auto"
+                        className="h-16 max-w-[170px] object-contain mx-auto"
                       />
                     </div>
                   )}
                   <h3 className="font-extrabold text-sm uppercase tracking-wider">{settings.name || 'HotelVista'}</h3>
+                  {settings.tagline && (
+                    <p className="text-[10px] font-semibold text-slate-700 italic">{settings.tagline}</p>
+                  )}
                   <p className="text-[9px] text-slate-500">{settings.address}</p>
-                  <p className="text-[9px] text-slate-500">Phone: {settings.phone}</p>
+                  <p className="text-[9px] text-slate-500">
+                    Phone: {settings.phone}{settings.landline ? ` | Tel: ${settings.landline}` : ''}
+                  </p>
                   <p className="text-[9px] text-slate-500 font-bold">GSTIN: {settings.gstNumber}</p>
                   <p className="text-[10px] font-bold mt-1 bg-slate-100 inline-block px-2 py-0.5 rounded">
                     Invoice: {activePrintInvoice.invoiceNumber}

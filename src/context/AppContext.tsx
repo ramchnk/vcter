@@ -370,8 +370,10 @@ export interface AppNotification {
 
 export interface HotelSettings {
   name: string;
+  tagline?: string;
   address: string;
   phone: string;
+  landline?: string;
   email: string;
   gstNumber: string;
   taxRate: number;
@@ -589,8 +591,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [settings, setSettings] = useState<HotelSettings>({
     name: 'HotelVista Grand',
+    tagline: '',
     address: '123 Beach Road, Resort City',
     phone: '+91 98765 43210',
+    landline: '',
     email: 'contact@hotelvistagrand.com',
     gstNumber: '33AAAAA0000A1Z5',
     taxRate: 18,
@@ -689,7 +693,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setHallBookings(hallRes.data || []);
       setPreBookings(preBookRes.data || []);
       setAuditLogs(auditRes.data || []);
-      if (settingsRes.data) setSettings(settingsRes.data);
+      if (settingsRes.data) {
+        const cached = localStorage.getItem('hv_settings');
+        let cachedTagline = '';
+        if (cached) {
+          try { cachedTagline = JSON.parse(cached)?.tagline || ''; } catch {}
+        }
+        setSettings({
+          tagline: cachedTagline,
+          ...settingsRes.data,
+          ...(settingsRes.data.tagline ? { tagline: settingsRes.data.tagline } : (cachedTagline ? { tagline: cachedTagline } : {}))
+        });
+      }
       setNotifications(notifRes.data || []);
     } catch (e) {
       console.error(`Error fetching tenant data for ${tId} from MongoDB:`, e);
@@ -2047,7 +2062,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tId) return;
     try {
       const res = await api.put('/settings', { ...newSettings, tenantId: tId });
-      setSettings(res.data || newSettings);
+      const merged: HotelSettings = { ...newSettings, ...(res.data || {}) };
+      if (newSettings.tagline !== undefined && (!res.data || res.data.tagline === undefined)) {
+        merged.tagline = newSettings.tagline;
+      }
+      setSettings(merged);
+      localStorage.setItem('hv_settings', JSON.stringify(merged));
       addAudit('Settings Updated', `Updated property settings`);
     } catch (e) {
       console.error(e);
