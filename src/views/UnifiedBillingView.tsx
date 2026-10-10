@@ -48,6 +48,7 @@ export interface InvoicePrintData {
   laundryTotal: number;
   hallTotal: number;
   otherCharges: number;
+  otherChargesDescription?: string;
   subtotal: number;
   taxRate: number;
   taxAmount: number;
@@ -211,6 +212,7 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
       laundryTotal: laundryTotal,
       hallTotal: hallTotal,
       otherCharges: otherCharges,
+      otherChargesDescription: matchedRoom?.otherChargesDescription || summary.otherChargesDescription,
       subtotal: taxableSubtotal,
       taxRate: taxRate,
       taxAmount: taxAmount,
@@ -292,6 +294,7 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
       laundryTotal: laundryTotal,
       hallTotal: hallTotal,
       otherCharges: otherCharges,
+      otherChargesDescription: matchedRoom?.otherChargesDescription || summary.otherChargesDescription,
       subtotal: taxableSubtotal,
       taxRate: taxRate,
       taxAmount: taxAmount,
@@ -739,7 +742,7 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
 
                     {otherCharges > 0 && (
                       <div className="flex justify-between border-t border-slate-100 dark:border-slate-850 pt-1">
-                        <span className="text-slate-500">Mini-bar & Other services</span>
+                        <span className="text-slate-500">{matchedRoom?.otherChargesDescription || summary?.otherChargesDescription || 'Other services & charges'}</span>
                         <span className="font-semibold text-slate-800 dark:text-slate-200">₹{otherCharges}</span>
                       </div>
                     )}
@@ -1232,25 +1235,36 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                 className="bg-white text-slate-900 w-full max-w-[210mm] mx-auto p-8 sm:p-10 rounded-xl shadow-2xl border border-slate-200 space-y-6 font-sans text-xs leading-normal"
               >
                 {/* 1. Header: Property Info & Tax Invoice Title */}
-                <div className="flex justify-between items-start border-b-2 border-slate-900 pb-5">
-                  <div className="space-y-1 max-w-[60%]">
-                    <h1 className="text-xl font-black tracking-tight text-slate-950 uppercase">
-                      {settings.name || 'HotelVista Luxury Suites & Resorts'}
-                    </h1>
-                    <p className="text-[11px] text-slate-600 font-medium leading-relaxed">
-                      {settings.address || 'Beach Road, Hospitality Enclave, Coastal Zone'}
-                    </p>
-                    <div className="flex flex-wrap gap-x-4 text-[10px] text-slate-500 font-medium pt-1">
-                      <span><strong>Phone:</strong> {settings.phone || '+91 98765 43210'}</span>
-                      <span><strong>Email:</strong> {settings.email || 'billing@hotelvista.com'}</span>
-                    </div>
-                    <div className="text-[10px] text-slate-800 font-mono font-bold pt-0.5">
-                      GSTIN: {settings.gstNumber || '29AAAAA0000A1Z5'} • State Code: 29
+                <div className="flex justify-between items-start border-b-2 border-slate-900 pb-5 gap-4">
+                  <div className="flex items-start gap-4 max-w-[65%]">
+                    {settings.logoUrl && (
+                      <div className="flex-shrink-0">
+                        <img 
+                          src={settings.logoUrl} 
+                          alt={settings.name || 'Tenant Logo'} 
+                          className="h-20 max-w-[150px] object-contain rounded"
+                        />
+                      </div>
+                    )}
+                    <div className="space-y-1">
+                      <h1 className="text-xl font-black tracking-tight text-slate-950 uppercase">
+                        {settings.name || 'HotelVista Luxury Suites & Resorts'}
+                      </h1>
+                      <p className="text-[11px] text-slate-600 font-medium leading-relaxed">
+                        {settings.address || 'Beach Road, Hospitality Enclave, Coastal Zone'}
+                      </p>
+                      <div className="flex flex-wrap gap-x-4 text-[10px] text-slate-500 font-medium pt-1">
+                        <span><strong>Phone:</strong> {settings.phone || '+91 98765 43210'}</span>
+                        <span><strong>Email:</strong> {settings.email || 'billing@hotelvista.com'}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-800 font-mono font-bold pt-0.5">
+                        GSTIN: {settings.gstNumber || '29AAAAA0000A1Z5'} • State Code: 29
+                      </div>
                     </div>
                   </div>
 
                   {/* Invoice Meta Box */}
-                  <div className="text-right space-y-1">
+                  <div className="text-right space-y-1 flex-shrink-0">
                     <div className="bg-slate-950 text-white px-3 py-1 rounded inline-block text-xs font-black uppercase tracking-wider">
                       TAX INVOICE / GUEST FOLIO
                     </div>
@@ -1421,12 +1435,15 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                         </tr>
                       )}
 
-                      {/* Row 6: Misc */}
+                      {/* Row 6: Other Services & Incidentals */}
                       {activePrintInvoice.otherCharges > 0 && (
                         <tr>
                           <td className="p-2 text-center text-slate-400 border-r border-slate-200">6</td>
                           <td className="p-2 border-r border-slate-200">
-                            <p className="font-bold text-slate-900">Mini-Bar / Miscellaneous Services</p>
+                            <p className="font-bold text-slate-900">
+                              {activePrintInvoice.otherChargesDescription || 'Other Services / Extra Charges'}
+                            </p>
+                            <p className="text-[10px] text-slate-500">Additional room services & incidentals</p>
                           </td>
                           <td className="p-2 text-center font-mono text-slate-500 border-r border-slate-200">999799</td>
                           <td className="p-2 text-center font-mono border-r border-slate-200">1</td>
@@ -1546,6 +1563,15 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                 className="bg-white text-slate-900 w-full max-w-sm mx-auto rounded-lg shadow-2xl p-5 border border-slate-200 space-y-4 receipt-print font-mono text-xs"
               >
                 <div className="text-center border-b border-dashed border-slate-400 pb-3 space-y-0.5">
+                  {settings.logoUrl && (
+                    <div className="flex justify-center mb-1.5">
+                      <img 
+                        src={settings.logoUrl} 
+                        alt={settings.name || 'Tenant Logo'} 
+                        className="h-12 max-w-[130px] object-contain mx-auto"
+                      />
+                    </div>
+                  )}
                   <h3 className="font-extrabold text-sm uppercase tracking-wider">{settings.name || 'HotelVista'}</h3>
                   <p className="text-[9px] text-slate-500">{settings.address}</p>
                   <p className="text-[9px] text-slate-500">Phone: {settings.phone}</p>
@@ -1577,6 +1603,12 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                   )}
                   {activePrintInvoice.hallTotal > 0 && (
                     <div className="flex justify-between"><span>HALL / BANQUET</span><span className="font-bold">₹{activePrintInvoice.hallTotal}</span></div>
+                  )}
+                  {activePrintInvoice.otherCharges > 0 && (
+                    <div className="flex justify-between">
+                      <span className="truncate max-w-[190px]">{activePrintInvoice.otherChargesDescription ? activePrintInvoice.otherChargesDescription.toUpperCase() : 'OTHER CHARGES'}</span>
+                      <span className="font-bold">₹{activePrintInvoice.otherCharges}</span>
+                    </div>
                   )}
                 </div>
 

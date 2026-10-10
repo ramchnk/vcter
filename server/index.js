@@ -99,7 +99,8 @@ const roomSchema = new mongoose.Schema({
   barCharges: { type: Number, default: 0 },
   laundryCharges: { type: Number, default: 0 },
   hallCharges: { type: Number, default: 0 },
-  otherCharges: { type: Number, default: 0 }
+  otherCharges: { type: Number, default: 0 },
+  otherChargesDescription: { type: String, default: '' }
 }, { timestamps: true });
 roomSchema.index({ id: 1, tenantId: 1 }, { unique: true });
 
@@ -1722,7 +1723,8 @@ app.post('/api/tenants/:id/reset-data', async (req, res) => {
       barCharges: 0,
       laundryCharges: 0,
       hallCharges: 0,
-      otherCharges: 0
+      otherCharges: 0,
+      otherChargesDescription: ''
     });
 
     io.emit('tenant_data_reset', tenantId);

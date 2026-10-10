@@ -25,7 +25,9 @@ import {
   EyeOff,
   X,
   RefreshCw,
-  Edit2
+  Edit2,
+  Image as ImageIcon,
+  Upload
 } from 'lucide-react';
 import { formatTime12h, formatTime24h } from '../utils/dateUtils';
 
@@ -83,6 +85,7 @@ export const SettingsView: React.FC = () => {
   const [invoicePrefix, setInvoicePrefix] = useState(settings.invoicePrefix);
   const [checkInTime, setCheckInTime] = useState(settings.checkInTime || '12:00 PM');
   const [checkOutTime, setCheckOutTime] = useState(settings.checkOutTime || '11:00 AM');
+  const [logoUrl, setLogoUrl] = useState(settings.logoUrl || '');
 
   // Synchronize state when settings context changes
   React.useEffect(() => {
@@ -97,6 +100,7 @@ export const SettingsView: React.FC = () => {
       setInvoicePrefix(settings.invoicePrefix || 'HV-INV-');
       setCheckInTime(settings.checkInTime || '12:00 PM');
       setCheckOutTime(settings.checkOutTime || '11:00 AM');
+      setLogoUrl(settings.logoUrl || '');
     }
   }, [settings]);
 
@@ -199,6 +203,23 @@ export const SettingsView: React.FC = () => {
   const foodCategories = ['Breakfast', 'Lunch', 'Dinner', 'Beverages', 'Desserts'];
   const barCategories = ['Beer', 'Whisky', 'Rum', 'Vodka', 'Wine', 'Cocktails', 'Snacks'];
 
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        alert('File size exceeds 2MB limit. Please choose a smaller image.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setLogoUrl(event.target.result as string);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleHotelSave = (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -214,6 +235,7 @@ export const SettingsView: React.FC = () => {
       taxRate,
       barTaxRate,
       invoicePrefix,
+      logoUrl,
       checkInTime: formattedCheckIn,
       checkOutTime: formattedCheckOut
     };
@@ -229,10 +251,11 @@ export const SettingsView: React.FC = () => {
     settings.taxRate = taxRate;
     settings.barTaxRate = barTaxRate;
     settings.invoicePrefix = invoicePrefix;
+    settings.logoUrl = logoUrl;
     settings.checkInTime = formattedCheckIn;
     settings.checkOutTime = formattedCheckOut;
     localStorage.setItem('hv_settings', JSON.stringify(settings));
-    addAudit('Save Settings', `Updated property settings. Check-in: ${formattedCheckIn}, Check-out: ${formattedCheckOut}`);
+    addAudit('Save Settings', `Updated property settings & logo. Check-in: ${formattedCheckIn}, Check-out: ${formattedCheckOut}`);
     alert('Hotel settings updated successfully!');
   };
 
@@ -473,6 +496,75 @@ export const SettingsView: React.FC = () => {
             </h3>
 
             <form onSubmit={handleHotelSave} className="space-y-4 text-xs">
+              {/* Tenant / Property Brand Logo */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200/80 dark:border-slate-800/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 text-xs">
+                      <ImageIcon className="w-4 h-4 text-indigo-500" />
+                      Tenant / Property Brand Logo
+                    </label>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      This logo will automatically appear on Rooms invoices (A4 Tax Invoice sheet & Thermal receipts) and guest folios.
+                    </p>
+                  </div>
+                  {logoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setLogoUrl('')}
+                      className="text-xs text-rose-500 hover:text-rose-600 flex items-center gap-1 font-semibold transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Remove Logo
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                  {/* Logo Preview Box */}
+                  <div className="w-40 h-24 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl flex items-center justify-center p-2 bg-white dark:bg-slate-900 flex-shrink-0 shadow-inner">
+                    {logoUrl ? (
+                      <img
+                        src={logoUrl}
+                        alt="Tenant Logo Preview"
+                        className="max-h-full max-w-full object-contain"
+                      />
+                    ) : (
+                      <div className="text-center text-slate-400">
+                        <ImageIcon className="w-6 h-6 mx-auto mb-1 opacity-40" />
+                        <span className="text-[10px] block">No Logo Uploaded</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Upload and URL controls */}
+                  <div className="flex-1 space-y-2 w-full">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <label className="cursor-pointer inline-flex items-center gap-2 px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 rounded-lg text-xs font-semibold border border-indigo-200 dark:border-indigo-800 transition-colors">
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>Upload Logo Image</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleLogoUpload}
+                        />
+                      </label>
+                      <span className="text-[11px] text-slate-400">or enter image URL / Data URL</span>
+                    </div>
+
+                    <input
+                      type="text"
+                      placeholder="https://example.com/logo.png or data:image/..."
+                      value={logoUrl}
+                      onChange={e => setLogoUrl(e.target.value)}
+                      className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg text-xs font-mono"
+                    />
+                    <p className="text-[10px] text-slate-400">
+                      Recommended: High-resolution PNG, JPG, or SVG with transparent background (Max 2MB).
+                    </p>
+                  </div>
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="font-bold text-slate-500">Hotel Name *</label>

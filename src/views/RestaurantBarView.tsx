@@ -603,6 +603,7 @@ export const RestaurantBarView: React.FC = () => {
     `).join('');
 
     const html = `
+      ${settings.logoUrl ? `<div class="center" style="margin-bottom: 6px;"><img src="${settings.logoUrl}" style="max-height: 48px; max-width: 130px; object-fit: contain; margin: 0 auto; display: block;" /></div>` : ''}
       <div class="center bold uppercase" style="font-size: 13px;">${hotelName}</div>
       ${address ? `<div class="center" style="font-size: 9px;">${address}</div>` : ''}
       ${phone ? `<div class="center" style="font-size: 9px;">Ph: ${phone}</div>` : ''}

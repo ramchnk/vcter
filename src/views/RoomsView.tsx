@@ -62,6 +62,11 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showExtendModal, setShowExtendModal] = useState(false);
   const [showBillModal, setShowBillModal] = useState(false);
+  const [extendModalTab, setExtendModalTab] = useState<'service' | 'extend'>('service');
+  const [extendDays, setExtendDays] = useState(0);
+  const [extraServiceName, setExtraServiceName] = useState('');
+  const [extraServiceAmount, setExtraServiceAmount] = useState<number | ''>('');
+  const [isSubmittingExtendOrCharge, setIsSubmittingExtendOrCharge] = useState(false);
   const [showChargeModal, setShowChargeModal] = useState(false);
   const [chargeAmount, setChargeAmount] = useState<number>(500);
   const [chargeDescription, setChargeDescription] = useState<string>('Extra Bed / Rollaway Mattress');
@@ -91,7 +96,6 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [isAcSwitchedOff, setIsAcSwitchedOff] = useState<boolean>(false);
 
   const [transferTargetRoomId, setTransferTargetRoomId] = useState('');
-  const [extendDays, setExtendDays] = useState(1);
 
   // Pre-calculate real-time checkout alerts for all occupied rooms
   const roomAlertMap = useMemo(() => {
@@ -304,16 +308,49 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
 
   const handleOpenExtend = (room: Room) => {
     setSelectedRoom(room);
-    setExtendDays(1);
+    setExtendDays(0);
+    setExtraServiceName('');
+    setExtraServiceAmount('');
+    setExtendModalTab('service');
     setShowExtendModal(true);
   };
 
-  const handleExtendSubmit = (e: React.FormEvent) => {
+  const handleExtendOrChargeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRoom) return;
+    setIsSubmittingExtendOrCharge(true);
+    try {
+      let auditMsgs: string[] = [];
+      if (extendModalTab === 'service') {
+        if (Number(extraServiceAmount) > 0) {
+          const serviceDesc = extraServiceName.trim() || 'Other Service';
+          await addRoomCharge(selectedRoom.id, Number(extraServiceAmount), serviceDesc);
+          auditMsgs.push(`Added ₹${extraServiceAmount} (${serviceDesc}) to invoice`);
+        }
+        if (Number(extendDays) > 0) {
+          await extendStay(selectedRoom.id, Number(extendDays));
+          auditMsgs.push(`Extended stay by ${extendDays} day(s)`);
+        }
+      } else {
+        if (Number(extendDays) > 0) {
+          await extendStay(selectedRoom.id, Number(extendDays));
+          auditMsgs.push(`Extended stay by ${extendDays} day(s)`);
+        }
+      }
 
-    extendStay(selectedRoom.id, Number(extendDays));
-    setShowExtendModal(false);
+      setShowExtendModal(false);
+      setExtraServiceName('');
+      setExtraServiceAmount('');
+      setExtendDays(0);
+      if (auditMsgs.length > 0) {
+        alert(`Room ${selectedRoom.roomNumber}: ${auditMsgs.join(' & ')} successfully!`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to update room charges / extension.');
+    } finally {
+      setIsSubmittingExtendOrCharge(false);
+    }
   };
 
   const handleOpenBill = (room: Room) => {
@@ -812,7 +849,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                     <button
                       onClick={() => handleOpenExtend(room)}
                       className="p-1.5 bg-slate-200/60 hover:bg-slate-200 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-[10px] font-bold"
-                      title="Extend Stay"
+                      title="Add Other Service Charges / Extend Stay"
                     >
                       <Plus className="w-3.5 h-3.5" />
                     </button>
@@ -1243,36 +1280,235 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         </div>
       )}
 
-      {/* 3. EXTEND STAY MODAL */}
+      {/* 3. ADD OTHER SERVICE CHARGE / EXTEND STAY MODAL */}
       {showExtendModal && selectedRoom && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-sm rounded-2xl shadow-2xl p-6 space-y-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-md rounded-2xl shadow-2xl p-6 space-y-4">
+            
+            {/* Modal Header */}
             <div className="flex items-center justify-between border-b pb-2 border-slate-100 dark:border-slate-800">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 dark:text-slate-150">
-                Extend Stay — Room {selectedRoom.roomNumber}
-              </h3>
-              <button onClick={() => setShowExtendModal(false)} className="text-slate-400 hover:text-slate-600 text-lg">×</button>
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200/50 dark:border-indigo-800/50">
+                  <Plus className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 dark:text-slate-100">
+                    Add Charges / Extend Stay
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Room {selectedRoom.roomNumber} ({selectedRoom.category}) • Guest: <strong className="text-slate-700 dark:text-slate-200">{selectedRoom.guestName || 'In-House Guest'}</strong>
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setShowExtendModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl font-bold">×</button>
+            </div>
+
+            {/* Room Folio Snapshot */}
+            <div className="p-3 bg-slate-50 dark:bg-slate-950/70 rounded-xl border border-slate-200/80 dark:border-slate-800 text-xs space-y-1.5">
+              <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                <span>Current Checkout Due:</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{selectedRoom.checkOutDate}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                <span>Existing Other Charges on Folio:</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                  ₹{selectedRoom.otherCharges || 0} {selectedRoom.otherChargesDescription ? `(${selectedRoom.otherChargesDescription})` : ''}
+                </span>
+              </div>
+            </div>
+
+            {/* Tab switch between Add Service Charge & Extend Stay */}
+            <div className="flex bg-slate-100 dark:bg-slate-800/70 p-1 rounded-xl gap-1">
+              <button
+                type="button"
+                onClick={() => setExtendModalTab('service')}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                  extendModalTab === 'service'
+                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                }`}
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Other Services / Cost</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setExtendModalTab('extend');
+                  if (extendDays <= 0) setExtendDays(1);
+                }}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                  extendModalTab === 'extend'
+                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>Extend Stay Duration</span>
+              </button>
             </div>
             
-            <form onSubmit={handleExtendSubmit} className="space-y-4 text-xs">
-              <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl text-xs space-y-1">
-                <p><span className="text-slate-400">Guest:</span> <strong className="text-slate-700 dark:text-slate-200">{selectedRoom.guestName}</strong></p>
-                <p><span className="text-slate-400">Current Checkout Date:</span> <strong className="text-slate-700 dark:text-slate-200 font-mono">{selectedRoom.checkOutDate}</strong></p>
-              </div>
+            <form onSubmit={handleExtendOrChargeSubmit} className="space-y-4 text-xs">
+              {extendModalTab === 'service' ? (
+                <>
+                  {/* Service Presets */}
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      Quick Service Presets
+                    </label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[
+                        { label: 'Extra Bed (₹500)', amount: 500, desc: 'Extra Bed / Rollaway Mattress' },
+                        { label: 'Extra Bed (₹800)', amount: 800, desc: 'Extra Bed / Rollaway Mattress' },
+                        { label: 'Laundry (₹300)', amount: 300, desc: 'Laundry & Ironing' },
+                        { label: 'Airport Cab (₹800)', amount: 800, desc: 'Airport Cab Transfer' },
+                        { label: 'Late Checkout (₹500)', amount: 500, desc: 'Late Check-out Fee' },
+                        { label: 'Extra Towels (₹150)', amount: 150, desc: 'Extra Towel & Linen' },
+                      ].map((preset, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            setExtraServiceName(preset.desc);
+                            setExtraServiceAmount(preset.amount);
+                          }}
+                          className={`p-1.5 text-center rounded-lg border text-[10px] font-bold transition-all ${
+                            extraServiceAmount === preset.amount && extraServiceName === preset.desc
+                              ? 'bg-indigo-50 dark:bg-indigo-950/80 border-indigo-500 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-500'
+                              : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-indigo-300'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-              <div className="space-y-1.5">
-                <label className="font-bold text-slate-500">Extend Stay by (Days) *</label>
-                <input
-                  type="number"
-                  required
-                  min={1}
-                  value={extendDays}
-                  onChange={e => setExtendDays(Number(e.target.value))}
-                  className="w-full p-2.5 border dark:border-slate-800 dark:bg-slate-950 rounded-xl font-bold font-mono text-center"
-                />
-              </div>
+                  {/* Input 1: Service Name / Description */}
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700 dark:text-slate-200">
+                      Service Name / Description <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Extra Bed, Laundry, Airport Cab, Minibar, Extra Towel"
+                      value={extraServiceName}
+                      onChange={e => setExtraServiceName(e.target.value)}
+                      className="w-full p-2.5 border rounded-xl dark:bg-slate-950 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-medium text-xs focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
 
-              <div className="flex gap-2 justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
+                  {/* Input 2: Amount of Charges */}
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700 dark:text-slate-200">
+                      Amount of Charges (₹) <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2.5 text-slate-400 font-bold">₹</span>
+                      <input
+                        type="number"
+                        min={1}
+                        step="1"
+                        required
+                        placeholder="500"
+                        value={extraServiceAmount}
+                        onChange={e => setExtraServiceAmount(e.target.value ? Number(e.target.value) : '')}
+                        className="w-full pl-8 pr-3 py-2.5 border rounded-xl dark:bg-slate-950 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-mono font-bold text-sm focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Optional: Also Extend Stay Checkbox */}
+                  <div className="p-2.5 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between">
+                    <label className="flex items-center gap-2 cursor-pointer text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={extendDays > 0}
+                        onChange={e => setExtendDays(e.target.checked ? 1 : 0)}
+                        className="rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>Also extend checkout date?</span>
+                    </label>
+                    {extendDays > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min={1}
+                          value={extendDays}
+                          onChange={e => setExtendDays(Math.max(1, Number(e.target.value)))}
+                          className="w-16 p-1 border dark:border-slate-800 dark:bg-slate-900 rounded-lg text-center font-mono font-bold text-xs"
+                        />
+                        <span className="text-[10px] text-slate-500 font-semibold">day(s)</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Live Impact Preview */}
+                  <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/30 rounded-xl border border-emerald-200/70 dark:border-emerald-800/70 text-xs space-y-1">
+                    <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                      <span>Will add to Room Invoice:</span>
+                      <span className="font-bold text-emerald-700 dark:text-emerald-300">
+                        +₹{Number(extraServiceAmount) || 0}
+                      </span>
+                    </div>
+                    {extendDays > 0 && (
+                      <div className="flex justify-between text-[11px] text-indigo-600 dark:text-indigo-400">
+                        <span>New Checkout Due:</span>
+                        <span className="font-mono font-bold">
+                          {(() => {
+                            try {
+                              const d = new Date(selectedRoom.checkOutDate || '');
+                              d.setDate(d.getDate() + Number(extendDays));
+                              return d.toISOString().split('T')[0];
+                            } catch {
+                              return 'Extended';
+                            }
+                          })()}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Extend Stay Tab */}
+                  <div className="space-y-1.5">
+                    <label className="font-bold text-slate-700 dark:text-slate-200">Extend Stay by (Days) *</label>
+                    <input
+                      type="number"
+                      required
+                      min={1}
+                      value={extendDays || 1}
+                      onChange={e => setExtendDays(Math.max(1, Number(e.target.value)))}
+                      className="w-full p-2.5 border dark:border-slate-800 dark:bg-slate-950 rounded-xl font-bold font-mono text-center text-sm focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div className="p-3 bg-indigo-50/50 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/40 text-xs space-y-1">
+                    <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                      <span>Current Checkout:</span>
+                      <span className="font-mono font-semibold">{selectedRoom.checkOutDate}</span>
+                    </div>
+                    <div className="flex justify-between text-indigo-700 dark:text-indigo-300 font-bold">
+                      <span>Extended Checkout:</span>
+                      <span className="font-mono">
+                        {(() => {
+                          try {
+                            const d = new Date(selectedRoom.checkOutDate || '');
+                            d.setDate(d.getDate() + Number(extendDays || 1));
+                            return d.toISOString().split('T')[0];
+                          } catch {
+                            return 'Extended';
+                          }
+                        })()}
+                      </span>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div className="flex gap-2 justify-end pt-3 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={() => setShowExtendModal(false)}
@@ -1282,9 +1518,15 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-sm"
+                  disabled={
+                    isSubmittingExtendOrCharge ||
+                    (extendModalTab === 'service' && (!extraServiceName.trim() || Number(extraServiceAmount) <= 0)) ||
+                    (extendModalTab === 'extend' && extendDays <= 0)
+                  }
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-sm transition-colors flex items-center gap-1.5"
                 >
-                  Apply Extension
+                  <Check className="w-3.5 h-3.5" />
+                  <span>{extendModalTab === 'service' ? 'Add Charge to Invoice' : 'Apply Extension'}</span>
                 </button>
               </div>
             </form>

@@ -109,6 +109,7 @@ export interface Room {
   laundryCharges: number;
   hallCharges: number;
   otherCharges: number;
+  otherChargesDescription?: string;
 }
 
 export interface PreBooking {
@@ -392,6 +393,7 @@ export interface BillSummary {
   laundryTotal: number;
   hallTotal: number;
   otherCharges: number;
+  otherChargesDescription?: string;
   subtotal: number;
   taxRate: number;
   taxAmount: number;
@@ -1045,7 +1047,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       barCharges: 0,
       laundryCharges: 0,
       hallCharges: 0,
-      otherCharges: 0
+      otherCharges: 0,
+      otherChargesDescription: ''
     };
     try {
       const res = await api.post('/rooms', { ...newRoom, tenantId: tId });
@@ -1133,7 +1136,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         barCharges: 0,
         laundryCharges: 0,
         hallCharges: 0,
-        otherCharges: 0
+        otherCharges: 0,
+        otherChargesDescription: ''
       };
       await api.put(`/rooms/${roomId}?tenantId=${tId}`, roomUpdate);
       setRooms(prev => prev.map(r => r.id === roomId ? { ...r, ...roomUpdate } as Room : r));
@@ -1180,7 +1184,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         barCharges: 0,
         laundryCharges: 0,
         hallCharges: 0,
-        otherCharges: 0
+        otherCharges: 0,
+        otherChargesDescription: ''
       };
       await api.put(`/rooms/${roomId}?tenantId=${tId}`, resetData);
       await api.put('/orders/settle-room', { tenantId: tId, roomNumber: room.roomNumber });
@@ -1268,7 +1273,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         barCharges: 0,
         laundryCharges: 0,
         hallCharges: 0,
-        otherCharges: 0
+        otherCharges: 0,
+        otherChargesDescription: ''
       };
       const occupiedDest: Partial<Room> = {
         status: 'Occupied',
@@ -1286,7 +1292,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         barCharges: source.barCharges || 0,
         laundryCharges: source.laundryCharges || 0,
         hallCharges: source.hallCharges || 0,
-        otherCharges: source.otherCharges || 0
+        otherCharges: source.otherCharges || 0,
+        otherChargesDescription: source.otherChargesDescription || ''
       };
       await api.put(`/rooms/${fromRoomId}?tenantId=${tId}`, cleanSource);
       await api.put(`/rooms/${toRoomId}?tenantId=${tId}`, occupiedDest);
@@ -1332,9 +1339,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const room = rooms.find(r => r.id === roomId);
     if (!room) return;
     const newOtherCharges = (Number(room.otherCharges) || 0) + Number(amount);
+    const existingDesc = room.otherChargesDescription || '';
+    const newDesc = description ? (existingDesc ? `${existingDesc}, ${description}` : description) : existingDesc;
     try {
-      await api.put(`/rooms/${roomId}?tenantId=${tId}`, { otherCharges: newOtherCharges });
-      setRooms(prev => prev.map(r => r.id === roomId ? { ...r, otherCharges: newOtherCharges } : r));
+      await api.put(`/rooms/${roomId}?tenantId=${tId}`, { otherCharges: newOtherCharges, otherChargesDescription: newDesc });
+      setRooms(prev => prev.map(r => r.id === roomId ? { ...r, otherCharges: newOtherCharges, otherChargesDescription: newDesc } : r));
       addAudit('Room Charge Added', `Added charge of ₹${amount} (${description || 'Extra Bed / Other Service'}) to Room ${room.roomNumber}`);
     } catch (e) {
       console.error(e);
@@ -2091,6 +2100,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       laundryTotal,
       hallTotal,
       otherCharges,
+      otherChargesDescription: room.otherChargesDescription,
       subtotal: taxableSubtotal,
       taxRate,
       taxAmount,
