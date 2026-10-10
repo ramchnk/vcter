@@ -8,6 +8,8 @@ import {
   DollarSign, 
   Printer, 
   Mail, 
+  Phone,
+  Smartphone,
   PhoneCall, 
   CheckCircle, 
   History, 
@@ -1258,10 +1260,21 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                       <p className="text-[11px] text-slate-600 font-medium leading-relaxed">
                         {settings.address || 'Beach Road, Hospitality Enclave, Coastal Zone'}
                       </p>
-                      <div className="flex flex-wrap gap-x-4 text-[10px] text-slate-500 font-medium pt-1">
-                        <span><strong>Mobile:</strong> {settings.phone || '+91 98765 43210'}</span>
-                        {settings.landline && <span><strong>Landline:</strong> {settings.landline}</span>}
-                        <span><strong>Email:</strong> {settings.email || 'billing@hotelvista.com'}</span>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-slate-600 font-medium pt-1">
+                        {settings.landline && (
+                          <span className="inline-flex items-center gap-1.5">
+                            <Phone className="w-3 h-3 text-slate-500 flex-shrink-0" />
+                            <span>{settings.landline}</span>
+                          </span>
+                        )}
+                        <span className="inline-flex items-center gap-1.5">
+                          <Smartphone className="w-3 h-3 text-slate-500 flex-shrink-0" />
+                          <span>{settings.phone || '+91 98765 43210'}</span>
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <Mail className="w-3 h-3 text-slate-500 flex-shrink-0" />
+                          <span>{settings.email || 'billing@hotelvista.com'}</span>
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1574,7 +1587,7 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                   )}
                   <p className="text-[9px] text-slate-500">{settings.address}</p>
                   <p className="text-[9px] text-slate-500">
-                    Phone: {settings.phone}{settings.landline ? ` | Tel: ${settings.landline}` : ''}
+                    {settings.landline ? `Tel: ${settings.landline} | ` : ''}Mob: {settings.phone}
                   </p>
                   <p className="text-[9px] text-slate-500 font-bold">GSTIN: {settings.gstNumber}</p>
                   <p className="text-[10px] font-bold mt-1 bg-slate-100 inline-block px-2 py-0.5 rounded">

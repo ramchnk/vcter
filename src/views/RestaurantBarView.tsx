@@ -584,7 +584,7 @@ export const RestaurantBarView: React.FC = () => {
     const address = settings.address || '';
     const phone = settings.phone || '';
     const landline = settings.landline || '';
-    const phoneDisplay = [phone ? `Mob: ${phone}` : '', landline ? `Tel: ${landline}` : ''].filter(Boolean).join(' | ') || (phone ? `Ph: ${phone}` : '');
+    const phoneDisplay = [landline ? `Tel: ${landline}` : '', phone ? `Mob: ${phone}` : ''].filter(Boolean).join(' | ') || (phone ? `Ph: ${phone}` : '');
     const gstNumber = settings.gstNumber || '';
     const dateStr = new Date(bill.timestamp || Date.now()).toLocaleDateString('en-GB');
     const timeStr = new Date(bill.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
