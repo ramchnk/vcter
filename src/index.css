@@ -265,4 +265,22 @@
     box-shadow: none !important;
     background: white !important;
   }
+
+  /* Advance Payment Receipt Slip / Card */
+  #printable-advance-receipt,
+  .printable-advance-receipt {
+    visibility: visible !important;
+    display: block !important;
+    position: relative !important;
+    width: 100% !important;
+    max-width: 190mm !important;
+    margin: 10mm auto !important;
+    padding: 8mm 10mm !important;
+    box-shadow: none !important;
+    border: 3px solid #374151 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    page-break-inside: avoid !important;
+  }
 }
+

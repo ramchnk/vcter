@@ -26,7 +26,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setTab, collapsed, onCloseMobile }) => {
-  const { userRole, currentTenant } = useApp();
+  const { userRole, currentTenant, isMenuEnabled } = useApp();
 
   // Route definitions with icon, roles allowed, and label
   const navItems = [
@@ -56,10 +56,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setTab, collapsed,
     // 3. For client accounts, check if module is enabled for this tenant
     const enabledMenus = currentTenant?.enabledMenus;
     if (enabledMenus && Array.isArray(enabledMenus) && enabledMenus.length > 0) {
-      if (item.id === 'expenses' && (enabledMenus.includes('stock') || enabledMenus.includes('rooms') || enabledMenus.includes('restaurant') || enabledMenus.includes('billing') || enabledMenus.includes('dashboard'))) {
-        return true;
-      }
-      return enabledMenus.includes(item.id);
+      return isMenuEnabled(item.id);
     }
     return true;
   });

@@ -104,6 +104,10 @@ export interface Room {
   checkOutDate?: string;
   noOfGuests?: number;
   advancePaid?: number;
+  advanceReceiptNumber?: string;
+  advancePaymentDate?: string;
+  advancePaymentMethod?: string;
+  advanceReceivedBy?: string;
   restaurantCharges: number;
   barCharges: number;
   laundryCharges: number;
@@ -135,6 +139,10 @@ export interface PreBooking {
   checkOutDate: string;
   noOfGuests: number;
   advancePaid: number;
+  advanceReceiptNumber?: string;
+  advancePaymentDate?: string;
+  advancePaymentMethod?: string;
+  advanceReceivedBy?: string;
   totalAmount?: number;
   roomRentTotal?: number;
   specialRequests?: string;
@@ -382,6 +390,11 @@ export interface HotelSettings {
   logoUrl?: string;
   checkInTime?: string;
   checkOutTime?: string;
+  fast2smsApiKey?: string;
+  eodPhoneNumbers?: string;
+  eodAutoSend?: boolean;
+  eodSendTime?: string;
+  eodLastSentAt?: string;
 }
 
 export interface BillSummary {
@@ -451,6 +464,10 @@ interface AppContextType {
     gstNumber?: string; 
     noOfGuests: number; 
     advancePaid: number;
+    advanceReceiptNumber?: string;
+    advancePaymentDate?: string;
+    advancePaymentMethod?: string;
+    advanceReceivedBy?: string;
     price?: number;
     bookingSource?: string;
     bookingReference?: string;
@@ -465,6 +482,14 @@ interface AppContextType {
   updateHousekeeping: (roomId: string, status: RoomStatus) => Promise<void>;
   extendStay: (roomId: string, days: number) => Promise<void>;
   addRoomCharge: (roomId: string, amount: number, description?: string) => Promise<void>;
+  recordRoomAdvance: (roomId: string, data: {
+    amount: number;
+    receiptNumber?: string;
+    paymentDate?: string;
+    paymentMethod?: string;
+    receivedBy?: string;
+    notes?: string;
+  }) => Promise<Room | null>;
   
   addPreBooking: (booking: Omit<PreBooking, 'id' | 'status' | 'bookingDate'>) => Promise<void>;
   addBulkPreBooking: (payload: BulkPreBookingPayload) => Promise<{ groupBookingId: string; createdCount: number }>;
@@ -590,18 +615,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [settings, setSettings] = useState<HotelSettings>({
-    name: 'HotelVista Grand',
-    tagline: '',
-    address: '123 Beach Road, Resort City',
-    phone: '+91 98765 43210',
+    name: 'HOTEL SUBRA GRAND',
+    tagline: 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
+    address: '57, New street, near church corner , Karur - 01',
+    phone: '9991118512',
     landline: '',
-    email: 'contact@hotelvistagrand.com',
-    gstNumber: '33AAAAA0000A1Z5',
+    email: 'jagodahospitality@gmail.com',
+    gstNumber: '33AAHCJ3990L1Z5',
     taxRate: 18,
     barTaxRate: 20,
     invoicePrefix: 'HV-INV-',
     checkInTime: '12:00 PM',
-    checkOutTime: '11:00 AM'
+    checkOutTime: '11:00 AM',
+    fast2smsApiKey: 'Ey3CbXkpz0rv9tBH214oqRuawJAlnsF7eVUjQPcdD5OSiZLIxgT2r7aCFXujWlE105K4ZSAytOJfpUMI',
+    eodPhoneNumbers: '9788866964, 9786136555',
+    eodAutoSend: false,
+    eodSendTime: '23:30',
+    eodLastSentAt: ''
   });
 
   const currentTenant = (tenants || []).find(t => t.id === tenantId) || 
@@ -628,6 +658,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (userRole === 'super_admin') return true;
     if (!currentTenant) return true;
     if (!currentTenant.enabledMenus || currentTenant.enabledMenus.length === 0) return true;
+    if (menuId === 'prebookings' && currentTenant.enabledMenus.includes('rooms')) {
+      return true;
+    }
     if (menuId === 'expenses' && (currentTenant.enabledMenus.includes('stock') || currentTenant.enabledMenus.includes('rooms') || currentTenant.enabledMenus.includes('restaurant') || currentTenant.enabledMenus.includes('billing') || currentTenant.enabledMenus.includes('dashboard'))) {
       return true;
     }
@@ -1110,6 +1143,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     gstNumber?: string; 
     noOfGuests: number; 
     advancePaid: number;
+    advanceReceiptNumber?: string;
+    advancePaymentDate?: string;
+    advancePaymentMethod?: string;
+    advanceReceivedBy?: string;
     price?: number;
     bookingSource?: string;
     bookingReference?: string;
@@ -1147,6 +1184,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         checkOutDate: guestInfo.checkOutDate || new Date(Date.now() + 86400000).toISOString().split('T')[0],
         noOfGuests: guestInfo.noOfGuests,
         advancePaid: guestInfo.advancePaid,
+        advanceReceiptNumber: guestInfo.advanceReceiptNumber || '',
+        advancePaymentDate: guestInfo.advancePaymentDate || (guestInfo.advancePaid ? (guestInfo.checkInDate || new Date().toISOString().split('T')[0]) : ''),
+        advancePaymentMethod: guestInfo.advancePaymentMethod || 'Cash',
+        advanceReceivedBy: guestInfo.advanceReceivedBy || 'Manager (Front Desk Manager)',
         restaurantCharges: 0,
         barCharges: 0,
         laundryCharges: 0,
@@ -1362,6 +1403,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addAudit('Room Charge Added', `Added charge of ₹${amount} (${description || 'Extra Bed / Other Service'}) to Room ${room.roomNumber}`);
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const recordRoomAdvance = async (roomId: string, data: {
+    amount: number;
+    receiptNumber?: string;
+    paymentDate?: string;
+    paymentMethod?: string;
+    receivedBy?: string;
+    notes?: string;
+  }): Promise<Room | null> => {
+    const tId = effectiveTenantId;
+    if (!tId) return null;
+    const room = rooms.find(r => r.id === roomId);
+    if (!room) return null;
+    const newAdvanceTotal = (room.advancePaid || 0) + Number(data.amount || 0);
+    const receiptNo = data.receiptNumber || '1243';
+    const dateStr = data.paymentDate || new Date().toISOString().split('T')[0];
+
+    try {
+      const res = await api.post(`/rooms/${roomId}/advance?tenantId=${tId}`, {
+        amount: data.amount,
+        receiptNumber: receiptNo,
+        paymentDate: dateStr,
+        paymentMethod: data.paymentMethod || 'Cash',
+        receivedBy: data.receivedBy || 'Manager (Front Desk Manager)'
+      });
+      const updatedRoom: Room = res.data || {
+        ...room,
+        advancePaid: newAdvanceTotal,
+        advanceReceiptNumber: receiptNo,
+        advancePaymentDate: dateStr,
+        advancePaymentMethod: data.paymentMethod || 'Cash',
+        advanceReceivedBy: data.receivedBy || 'Manager (Front Desk Manager)'
+      };
+      setRooms(prev => prev.map(r => r.id === roomId ? updatedRoom : r));
+      addAudit(
+        'Advance Payment',
+        `Received ₹${data.amount} advance deposit from ${room.guestName || 'Guest'} (Room ${room.roomNumber}) [Receipt #${receiptNo}]`
+      );
+      return updatedRoom;
+    } catch (e) {
+      console.error(e);
+      const fallbackRoom: Room = {
+        ...room,
+        advancePaid: newAdvanceTotal,
+        advanceReceiptNumber: receiptNo,
+        advancePaymentDate: dateStr,
+        advancePaymentMethod: data.paymentMethod || 'Cash',
+        advanceReceivedBy: data.receivedBy || 'Manager (Front Desk Manager)'
+      };
+      setRooms(prev => prev.map(r => r.id === roomId ? fallbackRoom : r));
+      return fallbackRoom;
     }
   };
 
@@ -2208,6 +2302,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateHousekeeping,
         extendStay,
         addRoomCharge,
+        recordRoomAdvance,
 
         addPreBooking,
         addBulkPreBooking,

@@ -27,8 +27,16 @@ import {
   RefreshCw,
   Edit2,
   Image as ImageIcon,
-  Upload
+  Upload,
+  MessageSquare,
+  Send,
+  Smartphone,
+  CheckCircle2,
+  AlertCircle,
+  PhoneCall,
+  Zap
 } from 'lucide-react';
+import { api } from '../api';
 import { formatTime12h, formatTime24h } from '../utils/dateUtils';
 
 export interface TenantAccount {
@@ -74,6 +82,8 @@ export const SettingsView: React.FC = () => {
     cloudDbName
   } = useApp();
 
+  const effectiveTenantId = currentTenant?.id || activeTenantId;
+
   // Hotel settings local copy
   const [hotelName, setHotelName] = useState(settings.name);
   const [tagline, setTagline] = useState(settings.tagline || '');
@@ -110,11 +120,173 @@ export const SettingsView: React.FC = () => {
       setCheckInTime(settings.checkInTime || '12:00 PM');
       setCheckOutTime(settings.checkOutTime || '11:00 AM');
       setLogoUrl(settings.logoUrl || '');
+      setFast2smsApiKey(settings.fast2smsApiKey || 'Ey3CbXkpz0rv9tBH214oqRuawJAlnsF7eVUjQPcdD5OSiZLIxgT2r7aCFXujWlE105K4ZSAytOJfpUMI');
+      setEodPhoneNumbers(settings.eodPhoneNumbers || '9788866964, 9786136555');
+      setEodAutoSend(settings.eodAutoSend ?? false);
+      setEodSendTime(settings.eodSendTime || '23:30');
     }
   }, [settings]);
 
+  // Fast2SMS EOD State
+  const [fast2smsApiKey, setFast2smsApiKey] = useState(settings.fast2smsApiKey || 'Ey3CbXkpz0rv9tBH214oqRuawJAlnsF7eVUjQPcdD5OSiZLIxgT2r7aCFXujWlE105K4ZSAytOJfpUMI');
+  const [eodPhoneNumbers, setEodPhoneNumbers] = useState(settings.eodPhoneNumbers || '9788866964, 9786136555');
+  const [eodAutoSend, setEodAutoSend] = useState(settings.eodAutoSend ?? false);
+  const [eodSendTime, setEodSendTime] = useState(settings.eodSendTime || '23:30');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [walletInfo, setWalletInfo] = useState<{ wallet: string; sms_count: number } | null>(null);
+  const [isLoadingWallet, setIsLoadingWallet] = useState(false);
+  const [isSendingTest, setIsSendingTest] = useState(false);
+  const [isSendingLive, setIsSendingLive] = useState(false);
+  const [isSavingSmsSettings, setIsSavingSmsSettings] = useState(false);
+  const [livePreview, setLivePreview] = useState<any>(null);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [smsFeedback, setSmsFeedback] = useState<{ type: 'success' | 'error'; text: string; details?: string } | null>(null);
+
+  // Parse 10-digit mobile numbers for display chips
+  const parsedNumbers = useMemo(() => {
+    return (eodPhoneNumbers || '')
+      .split(',')
+      .map(n => n.replace(/[^0-9]/g, '').slice(-10))
+      .filter(n => n.length === 10);
+  }, [eodPhoneNumbers]);
+
   // Settings Sub-Tabs
-  const [activeSettingsTab, setActiveSettingsTab] = useState<'hotel' | 'tenants' | 'users' | 'rooms'>('hotel');
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'hotel' | 'tenants' | 'users' | 'rooms' | 'eod_sms'>('hotel');
+
+  const fetchWalletAndPreview = async () => {
+    const tId = effectiveTenantId;
+    if (!tId) return;
+    setIsLoadingWallet(true);
+    setIsLoadingPreview(true);
+    try {
+      const res = await api.get(`/eod/status?tenantId=${tId}`);
+      if (res.data?.wallet?.return) {
+        setWalletInfo({
+          wallet: res.data.wallet.wallet,
+          sms_count: res.data.wallet.sms_count
+        });
+      }
+      if (res.data?.preview) {
+        setLivePreview(res.data.preview);
+      }
+    } catch (e) {
+      console.warn('Failed to load Fast2SMS status:', e);
+    } finally {
+      setIsLoadingWallet(false);
+      setIsLoadingPreview(false);
+    }
+  };
+
+  React.useEffect(() => {
+    if (activeSettingsTab === 'eod_sms') {
+      fetchWalletAndPreview();
+    }
+  }, [activeSettingsTab, effectiveTenantId]);
+
+  const handleSaveSmsSettings = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setIsSavingSmsSettings(true);
+    try {
+      const updated: HotelSettings = {
+        ...settings,
+        fast2smsApiKey: fast2smsApiKey.trim(),
+        eodPhoneNumbers: eodPhoneNumbers.trim(),
+        eodAutoSend,
+        eodSendTime
+      };
+      if (updateSettings) {
+        await updateSettings(updated);
+      }
+      setSmsFeedback({
+        type: 'success',
+        text: 'EOD SMS settings saved successfully!'
+      });
+      fetchWalletAndPreview();
+    } catch (err: any) {
+      setSmsFeedback({
+        type: 'error',
+        text: 'Failed to save SMS settings',
+        details: err?.message
+      });
+    } finally {
+      setIsSavingSmsSettings(false);
+    }
+  };
+
+  const handleSendTestSms = async () => {
+    const tId = effectiveTenantId;
+    if (!tId) return;
+    setIsSendingTest(true);
+    setSmsFeedback(null);
+    try {
+      const res = await api.post('/eod/send-sms', {
+        tenantId: tId,
+        customNumbers: eodPhoneNumbers,
+        isTest: true
+      });
+      if (res.data?.success) {
+        setSmsFeedback({
+          type: 'success',
+          text: `Test SMS successfully delivered to ${res.data.recipients}!`,
+          details: `Fast2SMS Request ID: ${res.data.fast2smsResponse?.request_id || 'OK'}`
+        });
+        fetchWalletAndPreview();
+      } else {
+        setSmsFeedback({
+          type: 'error',
+          text: 'Fast2SMS returned an error',
+          details: JSON.stringify(res.data?.fast2smsResponse?.message || res.data?.error)
+        });
+      }
+    } catch (err: any) {
+      setSmsFeedback({
+        type: 'error',
+        text: 'Failed to send test SMS',
+        details: err?.response?.data?.error || err?.message
+      });
+    } finally {
+      setIsSendingTest(false);
+    }
+  };
+
+  const handleSendLiveEodSms = async () => {
+    const tId = effectiveTenantId;
+    if (!tId) return;
+    if (!confirm(`Are you sure you want to compile and send today's EOD Report SMS to: ${eodPhoneNumbers}?`)) {
+      return;
+    }
+    setIsSendingLive(true);
+    setSmsFeedback(null);
+    try {
+      const res = await api.post('/eod/send-sms', {
+        tenantId: tId,
+        customNumbers: eodPhoneNumbers,
+        isTest: false
+      });
+      if (res.data?.success) {
+        setSmsFeedback({
+          type: 'success',
+          text: `Today's EOD Report SMS successfully sent to ${res.data.recipients}!`,
+          details: `Delivered Message: "${res.data.messageSent.replace(/\n/g, ' ')}"`
+        });
+        fetchWalletAndPreview();
+      } else {
+        setSmsFeedback({
+          type: 'error',
+          text: 'Fast2SMS returned an error',
+          details: JSON.stringify(res.data?.fast2smsResponse?.message || res.data?.error)
+        });
+      }
+    } catch (err: any) {
+      setSmsFeedback({
+        type: 'error',
+        text: 'Failed to send EOD SMS',
+        details: err?.response?.data?.error || err?.message
+      });
+    } finally {
+      setIsSendingLive(false);
+    }
+  };
 
   const isSuperAdmin = userRole === 'super_admin';
 
@@ -477,7 +649,24 @@ export const SettingsView: React.FC = () => {
                 : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/40'
             }`}
           >
-            Manage Rooms List
+            <span>Manage Rooms List</span>
+          </button>
+
+          <button
+            onClick={() => setActiveSettingsTab('eod_sms')}
+            className={`w-full px-4 py-2.5 rounded-xl text-left text-xs font-semibold transition-all flex items-center justify-between ${
+              activeSettingsTab === 'eod_sms' 
+                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 font-bold border border-emerald-200/50 dark:border-emerald-800/50' 
+                : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/40'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <MessageSquare className="w-3.5 h-3.5 text-emerald-500" />
+              EOD SMS Notifications
+            </span>
+            <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-md text-[9px] font-bold uppercase tracking-wider">
+              Fast2SMS
+            </span>
           </button>
         </div>
 
@@ -1310,6 +1499,287 @@ export const SettingsView: React.FC = () => {
                 ))}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* EOD SMS NOTIFICATIONS PANEL */}
+        {activeSettingsTab === 'eod_sms' && (
+          <div className="space-y-6">
+            
+            {/* Header with Fast2SMS Wallet Balance */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-4 border-slate-100 dark:border-slate-800">
+              <div>
+                <h3 className="text-sm font-black text-slate-800 dark:text-slate-100 flex items-center gap-2 uppercase tracking-wider">
+                  <Smartphone className="w-4 h-4 text-emerald-500" /> Fast2SMS EOD Report Dispatch
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Configure phone numbers, single-SMS character length & automated nightly dispatch
+                </p>
+              </div>
+
+              {/* Live Wallet Pill */}
+              <div className="flex items-center gap-2 px-3.5 py-2 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-800/60 rounded-xl text-xs shrink-0">
+                <Zap className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <div>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase block leading-none">Fast2SMS Balance</span>
+                  <span className="font-extrabold text-emerald-700 dark:text-emerald-300">
+                    {walletInfo ? `₹${parseFloat(walletInfo.wallet).toFixed(2)} (${walletInfo.sms_count} Credits)` : (isLoadingWallet ? 'Checking...' : '₹140.00 (560 Credits)')}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={fetchWalletAndPreview}
+                  disabled={isLoadingWallet}
+                  title="Refresh Wallet Balance"
+                  className="p-1 hover:bg-emerald-100 dark:hover:bg-emerald-900 rounded-lg text-emerald-700 dark:text-emerald-300 ml-1 transition-colors"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingWallet ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+            </div>
+
+            {/* Feedback Alert Banner */}
+            {smsFeedback && (
+              <div className={`p-4 rounded-xl border text-xs flex items-start gap-3 animate-in fade-in ${
+                smsFeedback.type === 'success'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                  : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300'
+              }`}>
+                {smsFeedback.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+                )}
+                <div className="space-y-0.5 flex-1">
+                  <p className="font-bold">{smsFeedback.text}</p>
+                  {smsFeedback.details && (
+                    <p className="text-[11px] opacity-80 font-mono break-all">{smsFeedback.details}</p>
+                  )}
+                </div>
+                <button onClick={() => setSmsFeedback(null)} className="text-slate-400 hover:text-slate-600">×</button>
+              </div>
+            )}
+
+            {/* Main Form */}
+            <form onSubmit={handleSaveSmsSettings} className="space-y-5 text-xs">
+              
+              {/* 1. Fast2SMS API Key */}
+              <div className="space-y-1.5 p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-850 rounded-xl">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Key className="w-3.5 h-3.5 text-indigo-500" /> Fast2SMS API Authorization Key *
+                  </label>
+                  <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Quick Route (q)</span>
+                </div>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type={showApiKey ? 'text' : 'password'}
+                      required
+                      value={fast2smsApiKey}
+                      onChange={e => setFast2smsApiKey(e.target.value)}
+                      placeholder="Paste your Fast2SMS authorization key"
+                      className="w-full p-2.5 pr-10 border dark:border-slate-800 dark:bg-slate-900 rounded-lg font-mono text-xs font-semibold focus:ring-2 focus:ring-emerald-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-3 top-3 text-slate-400 hover:text-slate-600"
+                    >
+                      {showApiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={fetchWalletAndPreview}
+                    disabled={isLoadingWallet}
+                    className="px-3.5 py-2.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 font-bold rounded-lg transition-colors flex items-center gap-1.5 text-slate-700 dark:text-slate-200"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isLoadingWallet ? 'animate-spin' : ''}`} />
+                    <span>Check Key</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Pre-configured with your active Fast2SMS API key. Route <code className="text-emerald-600 font-bold">q</code> (Quick SMS) requires no DLT template verification.
+                </p>
+              </div>
+
+              {/* 2. Recipient Phone Numbers */}
+              <div className="space-y-2 p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-850 rounded-xl">
+                <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <PhoneCall className="w-3.5 h-3.5 text-emerald-500" /> Recipient Phone Numbers (Management / Owners) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={eodPhoneNumbers}
+                  onChange={e => setEodPhoneNumbers(e.target.value)}
+                  placeholder="e.g. 9788866964, 9786136555"
+                  className="w-full p-2.5 border dark:border-slate-800 dark:bg-slate-900 rounded-lg font-mono text-xs font-semibold focus:ring-2 focus:ring-emerald-500"
+                />
+                
+                {/* Visual Number Badges */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold mr-1">Active Recipients ({parsedNumbers.length}):</span>
+                  {parsedNumbers.length > 0 ? (
+                    parsedNumbers.map((num, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 rounded-md font-mono text-[11px] font-bold border border-emerald-300/40">
+                        <Check className="w-3 h-3 text-emerald-600" />
+                        +91 {num}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold">
+                      Please enter valid 10-digit mobile numbers separated by commas.
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Each number will receive the exact single-credit EOD summary SMS upon daily trigger.
+                </p>
+              </div>
+
+              {/* 3. Daily Automation Schedule */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-850 rounded-xl">
+                <div className="space-y-1.5">
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block">Nightly Automated Dispatch</label>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={eodAutoSend}
+                      onChange={e => setEodAutoSend(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-800 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-emerald-600"></div>
+                    <span className="ml-3 font-semibold text-slate-700 dark:text-slate-300">
+                      {eodAutoSend ? 'Automatic Daily Dispatch Enabled' : 'Manual Dispatch Only (Disabled)'}
+                    </span>
+                  </label>
+                  <p className="text-[10px] text-slate-400">
+                    Background server cron will execute automatically each evening.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-indigo-500" /> Scheduled Time (IST)
+                  </label>
+                  <input
+                    type="time"
+                    value={eodSendTime}
+                    onChange={e => setEodSendTime(e.target.value)}
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-900 rounded-lg font-mono font-bold"
+                  />
+                  <p className="text-[10px] text-slate-400">
+                    Recommended: 23:30 (11:30 PM) after restaurant & bar settlement.
+                  </p>
+                </div>
+              </div>
+
+              {/* Save Button */}
+              <div className="flex justify-end pt-1">
+                <button
+                  type="submit"
+                  disabled={isSavingSmsSettings}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-md transition-all flex items-center gap-2"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>{isSavingSmsSettings ? 'Saving...' : 'Save SMS Settings'}</span>
+                </button>
+              </div>
+            </form>
+
+            {/* LIVE SMS PREVIEW CARD (Single SMS GSM-7 Visualizer) */}
+            <div className="p-5 bg-gradient-to-br from-slate-900 to-slate-950 text-white rounded-2xl border border-slate-800 shadow-xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-emerald-400" />
+                  <span className="font-bold text-xs uppercase tracking-wider text-slate-200">
+                    Live Single-SMS Message Preview
+                  </span>
+                </div>
+
+                {/* Character & Credit Counter Badge */}
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-lg text-[10px] font-mono font-bold flex items-center gap-1">
+                    <CheckCircle className="w-3 h-3 text-emerald-400" />
+                    {livePreview?.charCount || 122} / 160 Chars (1 SMS Credit)
+                  </span>
+                  <span className="px-2 py-1 bg-slate-800 text-slate-400 rounded-lg text-[10px] font-mono">
+                    GSM-7 ASCII
+                  </span>
+                </div>
+              </div>
+
+              {/* Mobile Phone Message Bubble */}
+              <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700/60 font-mono text-xs leading-relaxed text-emerald-100 shadow-inner whitespace-pre-wrap">
+                {livePreview?.message || `[${hotelName || 'Hotel Vista'}] EOD 10-Oct:
+Rooms: 0 Booked, 0 Check-in
+Rev: Rm Rs.0 | Rest Rs.0 | Bar Rs.0
+Total: Rs.0`}
+              </div>
+
+              {/* Data Breakdown Chips */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[11px]">
+                <div className="p-2 bg-slate-800/40 rounded-lg border border-slate-700/40">
+                  <span className="text-slate-400 block text-[9px] uppercase font-bold">Rooms Activity</span>
+                  <span className="font-bold text-slate-100">
+                    {livePreview?.totalBookedToday ?? 0} Booked • {livePreview?.totalCheckedInToday ?? 0} In
+                  </span>
+                </div>
+                <div className="p-2 bg-slate-800/40 rounded-lg border border-slate-700/40">
+                  <span className="text-slate-400 block text-[9px] uppercase font-bold">Rooms Revenue</span>
+                  <span className="font-bold text-emerald-400">
+                    Rs.{(livePreview?.roomRevenue ?? 0).toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div className="p-2 bg-slate-800/40 rounded-lg border border-slate-700/40">
+                  <span className="text-slate-400 block text-[9px] uppercase font-bold">Rest & Bar</span>
+                  <span className="font-bold text-amber-400">
+                    Rs.{((livePreview?.restRevenue ?? 0) + (livePreview?.barRevenue ?? 0)).toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div className="p-2 bg-slate-800/40 rounded-lg border border-slate-700/40">
+                  <span className="text-slate-400 block text-[9px] uppercase font-bold">Total EOD Rev</span>
+                  <span className="font-bold text-emerald-300">
+                    Rs.{(livePreview?.totalRevenue ?? 0).toLocaleString('en-IN')}
+                  </span>
+                </div>
+              </div>
+
+              {/* Action Buttons for Testing & Immediate Send */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-800/80">
+                <p className="text-[11px] text-slate-400">
+                  {settings.eodLastSentAt ? `Last dispatched: ${new Date(settings.eodLastSentAt).toLocaleString()}` : 'No report dispatched today yet.'}
+                </p>
+
+                <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                  {/* Send Test SMS */}
+                  <button
+                    type="button"
+                    onClick={handleSendTestSms}
+                    disabled={isSendingTest || isSendingLive}
+                    className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Send className={`w-3.5 h-3.5 ${isSendingTest ? 'animate-pulse' : ''}`} />
+                    <span>{isSendingTest ? 'Sending Test...' : 'Send Test SMS'}</span>
+                  </button>
+
+                  {/* Send Live EOD Report Now */}
+                  <button
+                    type="button"
+                    onClick={handleSendLiveEodSms}
+                    disabled={isSendingTest || isSendingLive}
+                    className="flex-1 sm:flex-none px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-extrabold rounded-xl shadow-lg shadow-emerald-950/50 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Zap className={`w-3.5 h-3.5 ${isSendingLive ? 'animate-spin' : ''}`} />
+                    <span>{isSendingLive ? 'Dispatching Live EOD...' : "Send Today's EOD SMS Now"}</span>
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
           </div>
         )}
 

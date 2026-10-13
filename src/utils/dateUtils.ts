@@ -284,3 +284,49 @@ export const getRoomCheckoutAlert = (
   };
 };
 
+/**
+ * Formats a date into "13 Oct 2026" style as requested for Advance Receipts.
+ */
+export const formatReceiptDate = (val?: string | Date | null): string => {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  if (!val) {
+    const now = new Date();
+    return `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+  }
+  const norm = normalizeDateString(val);
+  if (!norm) {
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) {
+      return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+    }
+    return String(val);
+  }
+  const parts = norm.split('-');
+  if (parts.length === 3) {
+    const year = parts[0];
+    const monthIdx = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    return `${day} ${months[monthIdx] || parts[1]} ${year}`;
+  }
+  return String(val);
+};
+
+/**
+ * Returns the next sequential advance receipt number (e.g. 1243, 1244...).
+ */
+export const getNextAdvanceReceiptNumber = (existingNumbers: (string | undefined | null)[] = []): string => {
+  const stored = localStorage.getItem('hv_advance_receipt_counter');
+  let currentNum = stored ? parseInt(stored, 10) : 1243;
+  if (isNaN(currentNum) || currentNum < 1) currentNum = 1243;
+
+  for (const numStr of existingNumbers) {
+    if (!numStr) continue;
+    const n = parseInt(numStr.replace(/\D/g, ''), 10);
+    if (!isNaN(n) && n >= currentNum) {
+      currentNum = n + 1;
+    }
+  }
+
+  localStorage.setItem('hv_advance_receipt_counter', String(currentNum + 1));
+  return String(currentNum);
+};

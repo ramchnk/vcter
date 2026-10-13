@@ -24,6 +24,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { AdvanceReceiptModal, AdvanceReceiptData } from '../components/AdvanceReceiptModal';
 
 interface UnifiedBillingViewProps {
   selectedRoomNo: string;
@@ -97,6 +98,10 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
   // Print Invoice details & modal
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printFormat, setPrintFormat] = useState<'a4' | 'thermal'>('a4');
+
+  // Advance Receipt Modal state
+  const [advanceReceiptModalData, setAdvanceReceiptModalData] = useState<AdvanceReceiptData | null>(null);
+  const [showAdvanceReceiptModal, setShowAdvanceReceiptModal] = useState(false);
   const [activePrintInvoice, setActivePrintInvoice] = useState<InvoicePrintData | null>(null);
   const [successAction, setSuccessAction] = useState('');
 
@@ -765,8 +770,34 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                     </div>
 
                     {advancePaid > 0 && (
-                      <div className="flex justify-between text-emerald-600 font-bold border-t border-slate-100 dark:border-slate-850 pt-1">
-                        <span>Pre-Paid Advance Deposit</span>
+                      <div className="flex justify-between items-center text-emerald-600 font-bold border-t border-slate-100 dark:border-slate-850 pt-1">
+                        <div className="flex items-center gap-1.5">
+                          <span>Pre-Paid Advance Deposit</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const currRoom = rooms.find(r => r.roomNumber === selectedRoomNo);
+                              setAdvanceReceiptModalData({
+                                receiptNumber: currRoom?.advanceReceiptNumber || '1243',
+                                guestName: matchedRoom?.guestName || summary?.guestName || 'Guest',
+                                roomNumber: selectedRoomNo,
+                                amount: advancePaid,
+                                date: currRoom?.advancePaymentDate || currRoom?.checkInDate || new Date().toISOString().split('T')[0],
+                                hotelName: settings.name || 'HOTEL SUBRA GRAND',
+                                tagline: settings.tagline || 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
+                                address: settings.address || '57, New street, near church corner , Karur - 01',
+                                email: settings.email || 'jagodahospitality@gmail.com',
+                                phone: settings.phone || '9991118512',
+                                gstNumber: settings.gstNumber || '33AAHCJ3990L1Z5'
+                              });
+                              setShowAdvanceReceiptModal(true);
+                            }}
+                            className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-0.5 ml-1"
+                            title="Print Advance Receipt"
+                          >
+                            <Printer className="w-2.5 h-2.5 inline" /> Print Receipt
+                          </button>
+                        </div>
                         <span>-₹{advancePaid}</span>
                       </div>
                     )}
@@ -1134,15 +1165,43 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
 
                       {/* Action: View / Re-Print Tax Invoice */}
                       <td className="py-3.5 px-4 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenHistoricalInvoice(bill)}
-                          className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-600 hover:text-white text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400 dark:hover:bg-indigo-600 dark:hover:text-white rounded-lg font-bold text-[11px] flex items-center justify-center gap-1 mx-auto transition-all shadow-sm"
-                          title="View & Re-Print A4 / Thermal Tax Invoice"
-                        >
-                          <Printer className="w-3.5 h-3.5" />
-                          <span>Re-Print</span>
-                        </button>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenHistoricalInvoice(bill)}
+                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-600 hover:text-white text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400 dark:hover:bg-indigo-600 dark:hover:text-white rounded-lg font-bold text-[11px] flex items-center justify-center gap-1 transition-all shadow-sm"
+                            title="View & Re-Print A4 / Thermal Tax Invoice"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                            <span>Invoice</span>
+                          </button>
+                          {bill.advancePaid > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const rm = rooms.find(r => r.roomNumber === bill.roomNumber);
+                                setAdvanceReceiptModalData({
+                                  receiptNumber: rm?.advanceReceiptNumber || '1243',
+                                  guestName: bill.guestName,
+                                  roomNumber: bill.roomNumber,
+                                  amount: bill.advancePaid,
+                                  date: bill.checkInDate || new Date().toISOString().split('T')[0],
+                                  hotelName: settings.name || 'HOTEL SUBRA GRAND',
+                                  tagline: settings.tagline || 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
+                                  address: settings.address || '57, New street, near church corner , Karur - 01',
+                                  email: settings.email || 'jagodahospitality@gmail.com',
+                                  phone: settings.phone || '9991118512',
+                                  gstNumber: settings.gstNumber || '33AAHCJ3990L1Z5'
+                                });
+                                setShowAdvanceReceiptModal(true);
+                              }}
+                              className="px-2 py-1.5 bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400 dark:hover:bg-emerald-600 dark:hover:text-white rounded-lg font-bold text-[11px] flex items-center justify-center gap-1 transition-all shadow-sm"
+                              title="Print Advance Receipt"
+                            >
+                              <span>Adv Receipt</span>
+                            </button>
+                          )}
+                        </div>
                       </td>
 
                     </tr>
@@ -1206,6 +1265,32 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                     🧾 80mm Thermal Slip
                   </button>
                 </div>
+
+                {activePrintInvoice.advancePaid > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const rm = rooms.find(r => r.roomNumber === activePrintInvoice.roomNumber);
+                      setAdvanceReceiptModalData({
+                        receiptNumber: rm?.advanceReceiptNumber || '1243',
+                        guestName: activePrintInvoice.guestName,
+                        roomNumber: activePrintInvoice.roomNumber,
+                        amount: activePrintInvoice.advancePaid,
+                        date: activePrintInvoice.checkInDate || new Date().toISOString().split('T')[0],
+                        hotelName: settings.name || 'HOTEL SUBRA GRAND',
+                        tagline: settings.tagline || 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
+                        address: settings.address || '57, New street, near church corner , Karur - 01',
+                        email: settings.email || 'jagodahospitality@gmail.com',
+                        phone: settings.phone || '9991118512',
+                        gstNumber: settings.gstNumber || '33AAHCJ3990L1Z5'
+                      });
+                      setShowAdvanceReceiptModal(true);
+                    }}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-all"
+                  >
+                    🧾 Advance Receipt
+                  </button>
+                )}
 
                 <button
                   type="button"
@@ -1647,6 +1732,16 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
           </div>
         </div>
       )}
+
+      {/* Advance Payment Receipt Modal */}
+      <AdvanceReceiptModal
+        isOpen={showAdvanceReceiptModal}
+        onClose={() => {
+          setShowAdvanceReceiptModal(false);
+          setAdvanceReceiptModalData(null);
+        }}
+        data={advanceReceiptModalData}
+      />
 
     </div>
   );

@@ -95,6 +95,10 @@ const roomSchema = new mongoose.Schema({
   checkOutDate: { type: String, default: '' },
   noOfGuests: { type: Number, default: 0 },
   advancePaid: { type: Number, default: 0 },
+  advanceReceiptNumber: { type: String, default: '' },
+  advancePaymentDate: { type: String, default: '' },
+  advancePaymentMethod: { type: String, default: 'Cash' },
+  advanceReceivedBy: { type: String, default: 'Manager (Front Desk Manager)' },
   restaurantCharges: { type: Number, default: 0 },
   barCharges: { type: Number, default: 0 },
   laundryCharges: { type: Number, default: 0 },
@@ -259,6 +263,10 @@ const preBookingSchema = new mongoose.Schema({
   checkOutDate: String,
   noOfGuests: { type: Number, default: 1 },
   advancePaid: { type: Number, default: 0 },
+  advanceReceiptNumber: { type: String, default: '' },
+  advancePaymentDate: { type: String, default: '' },
+  advancePaymentMethod: { type: String, default: 'Cash' },
+  advanceReceivedBy: { type: String, default: 'Manager (Front Desk Manager)' },
   totalAmount: { type: Number, default: 0 },
   roomRentTotal: { type: Number, default: 0 },
   specialRequests: String,
@@ -292,7 +300,12 @@ const settingsSchema = new mongoose.Schema({
   invoicePrefix: { type: String, default: 'HV-INV-' },
   logoUrl: String,
   checkInTime: { type: String, default: '12:00 PM' },
-  checkOutTime: { type: String, default: '11:00 AM' }
+  checkOutTime: { type: String, default: '11:00 AM' },
+  fast2smsApiKey: { type: String, default: 'Ey3CbXkpz0rv9tBH214oqRuawJAlnsF7eVUjQPcdD5OSiZLIxgT2r7aCFXujWlE105K4ZSAytOJfpUMI' },
+  eodPhoneNumbers: { type: String, default: '9788866964, 9786136555' },
+  eodAutoSend: { type: Boolean, default: false },
+  eodSendTime: { type: String, default: '23:30' },
+  eodLastSentAt: { type: String, default: '' }
 }, { timestamps: true, strict: false });
 
 const notificationSchema = new mongoose.Schema({
@@ -644,6 +657,28 @@ app.put('/api/rooms/:id', async (req, res) => {
   try {
     const filter = tenantId ? { id: req.params.id, tenantId } : { id: req.params.id };
     const room = await Room.findOneAndUpdate(filter, req.body, { returnDocument: 'after' });
+    io.emit('room_updated', room);
+    res.json(room);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/rooms/:id/advance', async (req, res) => {
+  const { tenantId } = req.query;
+  const { amount, receiptNumber, paymentDate, paymentMethod, receivedBy } = req.body;
+  try {
+    const filter = tenantId ? { id: req.params.id, tenantId } : { id: req.params.id };
+    const room = await Room.findOne(filter);
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    room.advancePaid = (room.advancePaid || 0) + Number(amount || 0);
+    if (receiptNumber) room.advanceReceiptNumber = receiptNumber;
+    if (paymentDate) room.advancePaymentDate = paymentDate;
+    if (paymentMethod) room.advancePaymentMethod = paymentMethod;
+    if (receivedBy) room.advanceReceivedBy = receivedBy;
+
+    await room.save();
     io.emit('room_updated', room);
     res.json(room);
   } catch (err) {
@@ -1644,7 +1679,26 @@ app.get('/api/settings', async (req, res) => {
     if (!tenantId) return res.status(400).json({ error: 'tenantId is required' });
     let settings = await Settings.findOne({ tenantId });
     if (!settings) {
-      settings = await Settings.create({ tenantId });
+      settings = await Settings.create({ 
+        tenantId,
+        fast2smsApiKey: 'Ey3CbXkpz0rv9tBH214oqRuawJAlnsF7eVUjQPcdD5OSiZLIxgT2r7aCFXujWlE105K4ZSAytOJfpUMI',
+        eodPhoneNumbers: '9788866964, 9786136555',
+        eodAutoSend: false,
+        eodSendTime: '23:30'
+      });
+    } else {
+      let updated = false;
+      if (!settings.fast2smsApiKey) {
+        settings.fast2smsApiKey = 'Ey3CbXkpz0rv9tBH214oqRuawJAlnsF7eVUjQPcdD5OSiZLIxgT2r7aCFXujWlE105K4ZSAytOJfpUMI';
+        updated = true;
+      }
+      if (settings.eodPhoneNumbers === undefined || settings.eodPhoneNumbers === null) {
+        settings.eodPhoneNumbers = '9788866964, 9786136555';
+        updated = true;
+      }
+      if (updated) {
+        await settings.save();
+      }
     }
     res.json(settings);
   } catch (err) {
@@ -1735,6 +1789,279 @@ app.post('/api/tenants/:id/reset-data', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ==========================================
+// FAST2SMS & EOD REPORT SERVICES
+// ==========================================
+
+// Helper: Sanitize & dispatch SMS via Fast2SMS Quick Route (q)
+async function sendFast2Sms({ apiKey, numbers, message }) {
+  const cleanNumbers = (numbers || '')
+    .split(',')
+    .map(n => n.replace(/[^0-9]/g, '').slice(-10))
+    .filter(n => n.length === 10)
+    .join(',');
+
+  if (!cleanNumbers) {
+    throw new Error('No valid 10-digit phone numbers configured.');
+  }
+
+  const effectiveKey = (apiKey && apiKey.trim()) || 'Ey3CbXkpz0rv9tBH214oqRuawJAlnsF7eVUjQPcdD5OSiZLIxgT2r7aCFXujWlE105K4ZSAytOJfpUMI';
+  const url = `https://www.fast2sms.com/dev/bulkV2?authorization=${encodeURIComponent(effectiveKey)}&route=q&message=${encodeURIComponent(message)}&numbers=${encodeURIComponent(cleanNumbers)}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { 'Accept': 'application/json' }
+  });
+  const data = await response.json();
+  return { cleanNumbers, data };
+}
+
+// Helper: Compile today's concise EOD metrics for a tenant
+async function generateEodSummary(tenantId, targetDate) {
+  const todayStr = targetDate || new Date().toISOString().split('T')[0];
+  const settings = await Settings.findOne({ tenantId });
+  const tenant = await Tenant.findOne({ id: tenantId });
+  const propertyName = settings?.name || tenant?.name || 'Hotel Vista';
+
+  const [preBookings, rooms, orders, auditLogs] = await Promise.all([
+    PreBooking.find({ tenantId }),
+    Room.find({ tenantId }),
+    Order.find({ tenantId }),
+    AuditLog.find({ tenantId, action: { $in: ['Check-In', 'Check-Out'] } })
+  ]);
+
+  // 1. Rooms Booked Today
+  const bookedPre = preBookings.filter(pb => {
+    const bDate = pb.bookingDate || (pb.createdAt ? new Date(pb.createdAt).toISOString().split('T')[0] : '');
+    return bDate === todayStr;
+  });
+  const directBookedRooms = rooms.filter(r => {
+    const cDate = r.checkInDate || '';
+    const notInPre = !bookedPre.some(pb => pb.roomNumber === r.roomNumber || (pb.phone && pb.phone === r.guestPhone));
+    return cDate === todayStr && notInPre;
+  });
+  const totalBookedToday = bookedPre.length + directBookedRooms.length;
+
+  // 2. Rooms Checked-in Today
+  const inHouseCheckedIn = rooms.filter(r => r.status === 'Occupied' && r.checkInDate === todayStr);
+  const preCheckedIn = preBookings.filter(pb => 
+    (pb.status === 'CheckedIn' || pb.status === 'CheckedOut') && 
+    pb.checkInDate === todayStr &&
+    !inHouseCheckedIn.some(r => r.roomNumber === pb.roomNumber)
+  );
+  const totalCheckedInToday = inHouseCheckedIn.length + preCheckedIn.length;
+
+  // 3. Departmental Revenues
+  let roomRevenue = 0;
+  // In-house active stays
+  rooms.forEach(r => {
+    if (r.status === 'Occupied' && r.checkInDate === todayStr) {
+      roomRevenue += (r.price || 0);
+    } else if (r.advancePaid && r.advancePaid > 0 && r.checkInDate === todayStr) {
+      roomRevenue += r.advancePaid;
+    }
+  });
+  // Checked-out folio totals & new advance payments today
+  preBookings.forEach(pb => {
+    const coDate = pb.checkOutDate || (pb.updatedAt ? new Date(pb.updatedAt).toISOString().split('T')[0] : '');
+    if (pb.status === 'CheckedOut' && coDate === todayStr) {
+      roomRevenue += (pb.roomRentTotal || pb.totalAmount || 0);
+    } else if ((pb.status === 'Confirmed' || pb.status === 'Pending') && pb.bookingDate === todayStr && pb.advancePaid > 0) {
+      roomRevenue += pb.advancePaid;
+    }
+  });
+
+  // Restaurant & Bar Revenue
+  let restRevenue = 0;
+  let barRevenue = 0;
+  orders.forEach(o => {
+    const oDate = o.timestamp ? o.timestamp.substring(0, 10) : (o.createdAt ? new Date(o.createdAt).toISOString().split('T')[0] : '');
+    if (oDate === todayStr && o.status === 'Paid') {
+      if (o.isBar) {
+        barRevenue += (o.total || 0);
+      } else {
+        restRevenue += (o.total || 0);
+      }
+    }
+  });
+
+  const totalRevenue = roomRevenue + restRevenue + barRevenue;
+
+  // Format date label e.g. "10-Oct"
+  const d = new Date(todayStr + 'T00:00:00');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const dateLabel = isNaN(d.getTime()) ? todayStr : `${d.getDate()}-${months[d.getMonth()]}`;
+
+  // Short property name (trimmed if long to guarantee single SMS <= 160 characters)
+  const shortPropName = propertyName.length > 20 ? propertyName.slice(0, 18) + '..' : propertyName;
+  const fmt = (val) => Math.round(val).toLocaleString('en-IN');
+
+  // GSM-7 Single SMS Template (Uses "Rs" instead of Unicode symbol to avoid 70-char split)
+  const message = `[${shortPropName}] EOD ${dateLabel}:
+Rooms: ${totalBookedToday} Booked, ${totalCheckedInToday} Check-in
+Rev: Rm Rs.${fmt(roomRevenue)} | Rest Rs.${fmt(restRevenue)} | Bar Rs.${fmt(barRevenue)}
+Total: Rs.${fmt(totalRevenue)}`;
+
+  return {
+    tenantId,
+    propertyName,
+    shortPropName,
+    date: todayStr,
+    dateLabel,
+    totalBookedToday,
+    totalCheckedInToday,
+    roomRevenue,
+    restRevenue,
+    barRevenue,
+    totalRevenue,
+    message,
+    charCount: message.length
+  };
+}
+
+// GET /api/eod/status - Check Fast2SMS wallet balance & tenant EOD state
+app.get('/api/eod/status', async (req, res) => {
+  const { tenantId } = req.query;
+  try {
+    if (!tenantId) return res.status(400).json({ error: 'tenantId is required' });
+    const settings = await Settings.findOne({ tenantId });
+    const apiKey = settings?.fast2smsApiKey || 'Ey3CbXkpz0rv9tBH214oqRuawJAlnsF7eVUjQPcdD5OSiZLIxgT2r7aCFXujWlE105K4ZSAytOJfpUMI';
+
+    let walletData = null;
+    try {
+      const wRes = await fetch(`https://www.fast2sms.com/dev/wallet?authorization=${encodeURIComponent(apiKey)}`, {
+        headers: { 'Accept': 'application/json' }
+      });
+      walletData = await wRes.json();
+    } catch (e) {
+      console.warn('Fast2SMS Wallet check error:', e.message);
+    }
+
+    const preview = await generateEodSummary(tenantId);
+
+    res.json({
+      success: true,
+      apiKeyConfigured: !!apiKey,
+      phoneNumbers: settings?.eodPhoneNumbers || '9788866964, 9786136555',
+      autoSend: !!settings?.eodAutoSend,
+      sendTime: settings?.eodSendTime || '23:30',
+      lastSentAt: settings?.eodLastSentAt || '',
+      wallet: walletData,
+      preview
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/eod/preview - Get live preview of today's EOD SMS
+app.get('/api/eod/preview', async (req, res) => {
+  const { tenantId, date } = req.query;
+  try {
+    if (!tenantId) return res.status(400).json({ error: 'tenantId is required' });
+    const summary = await generateEodSummary(tenantId, date);
+    res.json(summary);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/eod/send-sms - Dispatch EOD SMS (or test SMS)
+app.post('/api/eod/send-sms', async (req, res) => {
+  const { tenantId, customNumbers, isTest, date } = req.body;
+  try {
+    if (!tenantId) return res.status(400).json({ error: 'tenantId is required' });
+    const settings = await Settings.findOne({ tenantId });
+    const apiKey = settings?.fast2smsApiKey || 'Ey3CbXkpz0rv9tBH214oqRuawJAlnsF7eVUjQPcdD5OSiZLIxgT2r7aCFXujWlE105K4ZSAytOJfpUMI';
+    const numbersToSend = customNumbers || settings?.eodPhoneNumbers || '9788866964, 9786136555';
+
+    let messageToSend = '';
+    let summaryData = null;
+
+    if (isTest) {
+      const propName = settings?.name || 'Hotel Vista';
+      messageToSend = `[${propName}] Fast2SMS Test: EOD reporting service is verified & connected successfully.`;
+    } else {
+      summaryData = await generateEodSummary(tenantId, date);
+      messageToSend = summaryData.message;
+    }
+
+    const { cleanNumbers, data } = await sendFast2Sms({
+      apiKey,
+      numbers: numbersToSend,
+      message: messageToSend
+    });
+
+    // Update last sent timestamp & audit log on success
+    if (data?.return) {
+      if (!isTest) {
+        await Settings.findOneAndUpdate({ tenantId }, { eodLastSentAt: new Date().toISOString() });
+      }
+      await AuditLog.create({
+        id: 'aud_sms_' + Date.now(),
+        tenantId,
+        username: 'Fast2SMS Gateway',
+        role: 'system',
+        action: isTest ? 'Test SMS Dispatched' : 'EOD Report SMS Dispatched',
+        details: `Sent to ${cleanNumbers}: "${messageToSend.replace(/\n/g, ' ')}"`
+      });
+    }
+
+    res.json({
+      success: !!data?.return,
+      fast2smsResponse: data,
+      recipients: cleanNumbers,
+      messageSent: messageToSend,
+      summary: summaryData
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Automated Daily EOD SMS Cron Check (runs every minute in background)
+setInterval(async () => {
+  try {
+    // Current IST time HH:MM
+    const now = new Date();
+    // Offset to IST (+5:30)
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istDate = new Date(now.getTime() + istOffset);
+    const hours = String(istDate.getUTCHours()).padStart(2, '0');
+    const minutes = String(istDate.getUTCMinutes()).padStart(2, '0');
+    const currentTimeStr = `${hours}:${minutes}`;
+    const todayStr = istDate.toISOString().split('T')[0];
+
+    const activeSettings = await Settings.find({ eodAutoSend: true });
+    for (const s of activeSettings) {
+      if (s.eodSendTime === currentTimeStr) {
+        const lastSentDate = s.eodLastSentAt ? s.eodLastSentAt.split('T')[0] : '';
+        if (lastSentDate !== todayStr) {
+          console.log(`[EOD Cron] Dispatching scheduled EOD SMS for tenant ${s.tenantId} at ${currentTimeStr} IST`);
+          const summary = await generateEodSummary(s.tenantId, todayStr);
+          const apiKey = s.fast2smsApiKey || 'Ey3CbXkpz0rv9tBH214oqRuawJAlnsF7eVUjQPcdD5OSiZLIxgT2r7aCFXujWlE105K4ZSAytOJfpUMI';
+          const numbers = s.eodPhoneNumbers || '9788866964, 9786136555';
+          
+          const result = await sendFast2Sms({
+            apiKey,
+            numbers,
+            message: summary.message
+          });
+
+          if (result.data?.return) {
+            await Settings.findOneAndUpdate({ tenantId: s.tenantId }, { eodLastSentAt: new Date().toISOString() });
+            console.log(`[EOD Cron] Successfully dispatched to ${result.cleanNumbers}`);
+          } else {
+            console.warn(`[EOD Cron] Gateway returned failure:`, result.data);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[EOD Cron Error]:', e.message);
+  }
+}, 60000);
 
 // ==========================================
 // SOCKET.IO CONNECTION

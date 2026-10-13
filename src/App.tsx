@@ -19,7 +19,7 @@ import { SettingsView } from './views/SettingsView';
 import { AuditLogView } from './views/AuditLogView';
 
 const AppContent: React.FC = () => {
-  const { userRole, currentUser, user, loadingAuth, currentTenant } = useApp();
+  const { userRole, currentUser, user, loadingAuth, currentTenant, isMenuEnabled } = useApp();
   
   // Read initial tab from location hash or localStorage to persist on reload
   const [currentTab, setCurrentTab] = useState(() => {
@@ -76,19 +76,14 @@ const AppContent: React.FC = () => {
     
     // If not super_admin, filter by tenant's enabled menus (only if configured with at least 1 menu)
     if (userRole !== 'super_admin' && currentTenant?.enabledMenus && Array.isArray(currentTenant.enabledMenus) && currentTenant.enabledMenus.length > 0) {
-      allowed = allowed.filter(tab => {
-        if (tab === 'expenses' && (currentTenant.enabledMenus!.includes('stock') || currentTenant.enabledMenus!.includes('rooms') || currentTenant.enabledMenus!.includes('restaurant') || currentTenant.enabledMenus!.includes('billing') || currentTenant.enabledMenus!.includes('dashboard'))) {
-          return true;
-        }
-        return currentTenant.enabledMenus!.includes(tab);
-      });
+      allowed = allowed.filter(tab => isMenuEnabled(tab));
     }
 
     if (allowed.length > 0 && !allowed.includes(currentTab)) {
       // Redirect to the first allowed tab for this role and tenant
       setCurrentTab(allowed[0]);
     }
-  }, [userRole, currentTab, currentTenant]);
+  }, [userRole, currentTab, currentTenant, isMenuEnabled]);
 
   if (loadingAuth) {
     return (

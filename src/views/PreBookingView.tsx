@@ -3,8 +3,11 @@ import { useApp, PreBooking, RoomCategory, Room, BOOKING_SOURCES, BulkRoomItem, 
 import { 
   Calendar, UserPlus, XCircle, CheckCircle, Clock, AlertTriangle, 
   CalendarDays, BedDouble, Search, Filter, ShieldCheck, ChevronLeft, ChevronRight,
-  TrendingUp, Users, ArrowRight, Layers, Plus, Trash2, Copy, Building, Check, Globe
+  TrendingUp, Users, ArrowRight, Layers, Plus, Trash2, Copy, Building, Check, Globe,
+  Printer
 } from 'lucide-react';
+import { getNextAdvanceReceiptNumber, formatReceiptDate } from '../utils/dateUtils';
+import { AdvanceReceiptModal, AdvanceReceiptData } from '../components/AdvanceReceiptModal';
 
 interface BulkRoomDraft {
   id: string;
@@ -25,8 +28,13 @@ export const PreBookingView: React.FC = () => {
     cancelPreBooking, 
     confirmPreBookingCheckIn, 
     bulkConfirmPreBookingCheckIn,
-    updatePreBookingStatus 
+    updatePreBookingStatus,
+    settings
   } = useApp();
+
+  // Advance Receipt Modal state
+  const [receiptModalData, setReceiptModalData] = useState<AdvanceReceiptData | null>(null);
+  const [showAdvanceReceiptModal, setShowAdvanceReceiptModal] = useState(false);
 
   // Tab: 'bookings' (List + Form) vs 'matrix' (Visual 14-Day Availability Timeline)
   const [activeTab, setActiveTab] = useState<'bookings' | 'matrix'>('bookings');
@@ -313,6 +321,9 @@ export const PreBookingView: React.FC = () => {
 
     const nightlyRate = Number(roomPrice) || 1500;
     const estTotalFolio = stayNights * nightlyRate;
+    const paidAdv = Number(advancePaid) || 0;
+    const existingNumbers = preBookings.map(p => p.advanceReceiptNumber);
+    const receiptNo = paidAdv > 0 ? getNextAdvanceReceiptNumber(existingNumbers) : '';
 
     await addPreBooking({
       guestName,
@@ -330,11 +341,33 @@ export const PreBookingView: React.FC = () => {
       checkInDate,
       checkOutDate,
       noOfGuests,
-      advancePaid: Number(advancePaid),
+      advancePaid: paidAdv,
+      advanceReceiptNumber: paidAdv > 0 ? receiptNo : undefined,
+      advancePaymentDate: paidAdv > 0 ? new Date().toISOString().split('T')[0] : undefined,
       totalAmount: estTotalFolio,
       roomRentTotal: estTotalFolio,
       specialRequests: specialRequests || undefined
     });
+
+    if (paidAdv > 0) {
+      setReceiptModalData({
+        receiptNumber: receiptNo,
+        guestName: guestName.trim(),
+        roomNumber: assignedRoomNumber || 'Pre-Booking',
+        roomCategory: roomCategory,
+        amount: paidAdv,
+        date: new Date().toISOString().split('T')[0],
+        paymentMethod: 'Cash',
+        hotelName: settings.name || 'HOTEL SUBRA GRAND',
+        tagline: settings.tagline || 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
+        address: settings.address || '57, New street, near church corner , Karur - 01',
+        email: settings.email || 'jagodahospitality@gmail.com',
+        phone: settings.phone || '9991118512',
+        gstNumber: settings.gstNumber || '33AAHCJ3990L1Z5',
+        bookingReference: bookingReference.trim() || undefined
+      });
+      setShowAdvanceReceiptModal(true);
+    }
 
     // Reset Form
     setGuestName('');
@@ -542,8 +575,32 @@ export const PreBookingView: React.FC = () => {
       }))
     });
 
+    const paidBulkAdv = Number(bulkAdvancePaid) || 0;
     if (res.createdCount > 0) {
-      alert(`🎉 Group Reservation [${res.groupBookingId}] created successfully with ${res.createdCount} rooms!`);
+      if (paidBulkAdv > 0) {
+        const existingNumbers = preBookings.map(p => p.advanceReceiptNumber);
+        const receiptNo = getNextAdvanceReceiptNumber(existingNumbers);
+        setReceiptModalData({
+          receiptNumber: receiptNo,
+          guestName: guestName.trim(),
+          roomNumber: `Group: ${res.groupBookingId} (${res.createdCount} Rooms)`,
+          roomCategory: 'Group Booking',
+          amount: paidBulkAdv,
+          date: new Date().toISOString().split('T')[0],
+          paymentMethod: 'Cash',
+          hotelName: settings.name || 'HOTEL SUBRA GRAND',
+          tagline: settings.tagline || 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
+          address: settings.address || '57, New street, near church corner , Karur - 01',
+          email: settings.email || 'jagodahospitality@gmail.com',
+          phone: settings.phone || '9991118512',
+          gstNumber: settings.gstNumber || '33AAHCJ3990L1Z5',
+          bookingReference: bulkBookingReference.trim() || undefined,
+          isBulkGroup: true
+        });
+        setShowAdvanceReceiptModal(true);
+      } else {
+        alert(`🎉 Group Reservation [${res.groupBookingId}] created successfully with ${res.createdCount} rooms!`);
+      }
       setGuestName('');
       setPhone('');
       setEmail('');
@@ -557,6 +614,28 @@ export const PreBookingView: React.FC = () => {
       setSpecialRequests('');
       setBulkRooms([]);
     }
+  };
+
+  const handlePrintPreBookingReceipt = (booking: PreBooking) => {
+    const receiptNo = booking.advanceReceiptNumber || getNextAdvanceReceiptNumber(preBookings.map(p => p.advanceReceiptNumber));
+    setReceiptModalData({
+      receiptNumber: receiptNo,
+      guestName: booking.guestName,
+      roomNumber: booking.roomNumber || 'Pre-Booking',
+      roomCategory: booking.roomCategory,
+      amount: booking.advancePaid || 0,
+      date: booking.advancePaymentDate || booking.bookingDate || new Date().toISOString().split('T')[0],
+      paymentMethod: 'Cash',
+      receivedBy: 'Manager (Front Desk Manager)',
+      hotelName: settings.name || 'HOTEL SUBRA GRAND',
+      tagline: settings.tagline || 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
+      address: settings.address || '57, New street, near church corner , Karur - 01',
+      email: settings.email || 'jagodahospitality@gmail.com',
+      phone: settings.phone || '9991118512',
+      gstNumber: settings.gstNumber || '33AAHCJ3990L1Z5',
+      bookingReference: booking.bookingReference
+    });
+    setShowAdvanceReceiptModal(true);
   };
 
   const handleOpenAssign = (booking: PreBooking) => {
@@ -1874,8 +1953,21 @@ export const PreBookingView: React.FC = () => {
                               <p className="text-[9px] text-slate-400">{booking.noOfGuests} Guest(s)</p>
                             </td>
 
-                            <td className="py-3 text-right font-mono font-bold text-slate-900 dark:text-white">
-                              ₹{(booking.advancePaid || 0).toLocaleString()}
+                            <td className="py-3 text-right">
+                              <div className="font-mono font-bold text-slate-900 dark:text-white">
+                                ₹{(booking.advancePaid || 0).toLocaleString()}
+                              </div>
+                              {(booking.advancePaid || 0) > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handlePrintPreBookingReceipt(booking)}
+                                  className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 border border-indigo-200 dark:border-indigo-800 px-2 py-0.5 rounded transition-all shadow-xs"
+                                  title="Print Advance Receipt"
+                                >
+                                  <Printer className="w-2.5 h-2.5" />
+                                  <span>Receipt</span>
+                                </button>
+                              )}
                             </td>
 
                             <td className="py-3 text-center">
@@ -2142,9 +2234,21 @@ export const PreBookingView: React.FC = () => {
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-slate-400">Advance Deposit Paid:</span>
-                  <strong className="text-emerald-600 dark:text-emerald-400 font-mono font-bold">
-                    ₹{(selectedBooking.advancePaid || 0).toLocaleString()}
-                  </strong>
+                  <div className="flex items-center gap-2">
+                    <strong className="text-emerald-600 dark:text-emerald-400 font-mono font-bold">
+                      ₹{(selectedBooking.advancePaid || 0).toLocaleString()}
+                    </strong>
+                    {(selectedBooking.advancePaid || 0) > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handlePrintPreBookingReceipt(selectedBooking)}
+                        className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-0.5 ml-1"
+                        title="Print Advance Receipt"
+                      >
+                        <Printer className="w-3 h-3 inline" /> Print
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -2359,6 +2463,16 @@ export const PreBookingView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Advance Payment Receipt Modal */}
+      <AdvanceReceiptModal
+        isOpen={showAdvanceReceiptModal}
+        onClose={() => {
+          setShowAdvanceReceiptModal(false);
+          setReceiptModalData(null);
+        }}
+        data={receiptModalData}
+      />
 
     </div>
   );

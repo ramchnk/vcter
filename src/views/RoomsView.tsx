@@ -18,9 +18,12 @@ import {
   AlertTriangle,
   BedDouble,
   Pencil,
-  Globe
+  Globe,
+  IndianRupee,
+  Printer
 } from 'lucide-react';
-import { getRoomCheckoutAlert, formatTime12h, RoomCheckoutAlert } from '../utils/dateUtils';
+import { getRoomCheckoutAlert, formatTime12h, RoomCheckoutAlert, getNextAdvanceReceiptNumber, formatReceiptDate } from '../utils/dateUtils';
+import { AdvanceReceiptModal, AdvanceReceiptData } from '../components/AdvanceReceiptModal';
 
 interface RoomsViewProps {
   setTab: (tab: string) => void;
@@ -35,6 +38,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     updateHousekeeping, 
     extendStay, 
     addRoomCharge,
+    recordRoomAdvance,
     updateRoom,
     getBillSummary,
     preBookings,
@@ -80,6 +84,19 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [editRoomCategory, setEditRoomCategory] = useState<RoomCategory>('Deluxe AC');
   const [editRoomPrice, setEditRoomPrice] = useState<number>(2500);
   const [isSubmittingEditRoom, setIsSubmittingEditRoom] = useState(false);
+
+  // Advance Receipt Modal state
+  const [receiptModalData, setReceiptModalData] = useState<AdvanceReceiptData | null>(null);
+  const [showAdvanceReceiptModal, setShowAdvanceReceiptModal] = useState(false);
+
+  // Collect Advance Payment Modal state
+  const [showCollectAdvanceModal, setShowCollectAdvanceModal] = useState(false);
+  const [advanceAmountInput, setAdvanceAmountInput] = useState<number>(1000);
+  const [advancePaymentMethod, setAdvancePaymentMethod] = useState<string>('Cash');
+  const [advanceReceiptNoInput, setAdvanceReceiptNoInput] = useState<string>('');
+  const [advanceReceivedByInput, setAdvanceReceivedByInput] = useState<string>('Manager (Front Desk Manager)');
+  const [advanceNotesInput, setAdvanceNotesInput] = useState<string>('');
+  const [isSubmittingAdvance, setIsSubmittingAdvance] = useState(false);
 
   // Forms state
   const [guestName, setGuestName] = useState('');
@@ -259,6 +276,13 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       return;
     }
 
+    const paidAdv = Number(advancePaid) || 0;
+    const existingAdvNo = selectedRoom.advanceReceiptNumber;
+    let receiptNo = existingAdvNo || '';
+    if (paidAdv > 0 && !receiptNo) {
+      receiptNo = getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber));
+    }
+
     if (selectedPreBookingId) {
       await checkInRoom(selectedRoom.id, {
         name: guestName,
@@ -268,7 +292,10 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         idProof: guestIdProof,
         gstNumber: guestGst,
         noOfGuests: noOfGuests,
-        advancePaid: Number(advancePaid),
+        advancePaid: paidAdv,
+        advanceReceiptNumber: receiptNo,
+        advancePaymentDate: todayStr,
+        advancePaymentMethod: 'Cash',
         price: Number(checkInPrice),
         bookingSource: bookingSource,
         bookingReference: bookingReference.trim() || undefined,
@@ -286,7 +313,10 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         idProof: guestIdProof,
         gstNumber: guestGst,
         noOfGuests: noOfGuests,
-        advancePaid: Number(advancePaid),
+        advancePaid: paidAdv,
+        advanceReceiptNumber: receiptNo,
+        advancePaymentDate: todayStr,
+        advancePaymentMethod: 'Cash',
         price: Number(checkInPrice),
         bookingSource: bookingSource,
         bookingReference: bookingReference.trim() || undefined,
@@ -297,6 +327,103 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     }
     
     setShowCheckInModal(false);
+
+    // If advance was paid at check-in, automatically display the advance receipt
+    if (paidAdv > 0) {
+      setReceiptModalData({
+        receiptNumber: receiptNo || '1243',
+        guestName: guestName.trim(),
+        roomNumber: selectedRoom.roomNumber,
+        roomCategory: selectedRoom.category,
+        amount: paidAdv,
+        date: todayStr,
+        paymentMethod: 'Cash',
+        receivedBy: 'Manager (Front Desk Manager)',
+        hotelName: settings.name || 'HOTEL SUBRA GRAND',
+        tagline: settings.tagline || 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
+        address: settings.address || '57, New street, near church corner , Karur - 01',
+        email: settings.email || 'jagodahospitality@gmail.com',
+        phone: settings.phone || '9991118512',
+        gstNumber: settings.gstNumber || '33AAHCJ3990L1Z5'
+      });
+      setShowAdvanceReceiptModal(true);
+    }
+  };
+
+  const handleOpenCollectAdvance = (room: Room) => {
+    setSelectedRoom(room);
+    setAdvanceAmountInput(1000);
+    setAdvancePaymentMethod('Cash');
+    const nextNo = getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber));
+    setAdvanceReceiptNoInput(nextNo);
+    setAdvanceReceivedByInput('Manager (Front Desk Manager)');
+    setAdvanceNotesInput('');
+    setShowCollectAdvanceModal(true);
+  };
+
+  const handleCollectAdvanceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRoom || Number(advanceAmountInput) <= 0) return;
+    setIsSubmittingAdvance(true);
+    try {
+      const receiptNo = advanceReceiptNoInput.trim() || getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber));
+      const payAmount = Number(advanceAmountInput);
+      await recordRoomAdvance(selectedRoom.id, {
+        amount: payAmount,
+        receiptNumber: receiptNo,
+        paymentDate: todayStr,
+        paymentMethod: advancePaymentMethod,
+        receivedBy: advanceReceivedByInput,
+        notes: advanceNotesInput
+      });
+
+      setShowCollectAdvanceModal(false);
+
+      setReceiptModalData({
+        receiptNumber: receiptNo,
+        guestName: selectedRoom.guestName || 'Guest',
+        roomNumber: selectedRoom.roomNumber,
+        roomCategory: selectedRoom.category,
+        amount: payAmount,
+        date: todayStr,
+        paymentMethod: advancePaymentMethod,
+        receivedBy: advanceReceivedByInput,
+        hotelName: settings.name || 'HOTEL SUBRA GRAND',
+        tagline: settings.tagline || 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
+        address: settings.address || '57, New street, near church corner , Karur - 01',
+        email: settings.email || 'jagodahospitality@gmail.com',
+        phone: settings.phone || '9991118512',
+        gstNumber: settings.gstNumber || '33AAHCJ3990L1Z5',
+        notes: advanceNotesInput
+      });
+      setShowAdvanceReceiptModal(true);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to record advance payment.');
+    } finally {
+      setIsSubmittingAdvance(false);
+    }
+  };
+
+  const handlePrintRoomAdvanceReceipt = (room: Room) => {
+    const receiptNo = room.advanceReceiptNumber || getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber));
+    setReceiptModalData({
+      receiptNumber: receiptNo,
+      guestName: room.guestName || 'Guest',
+      roomNumber: room.roomNumber,
+      roomCategory: room.category,
+      amount: room.advancePaid || 0,
+      date: room.advancePaymentDate || room.checkInDate || todayStr,
+      paymentMethod: room.advancePaymentMethod || 'Cash',
+      receivedBy: room.advanceReceivedBy || 'Manager (Front Desk Manager)',
+      hotelName: settings.name || 'HOTEL SUBRA GRAND',
+      tagline: settings.tagline || 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
+      address: settings.address || '57, New street, near church corner , Karur - 01',
+      email: settings.email || 'jagodahospitality@gmail.com',
+      phone: settings.phone || '9991118512',
+      gstNumber: settings.gstNumber || '33AAHCJ3990L1Z5'
+    });
+    setShowAdvanceReceiptModal(true);
   };
 
   const handleOpenTransfer = (room: Room) => {
@@ -839,6 +966,24 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                       <BedDouble className="w-3.5 h-3.5" />
                       <span>+ Extra Bed</span>
                     </button>
+                    <button
+                      onClick={() => handleOpenCollectAdvance(room)}
+                      className="px-2 py-1.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 rounded-lg text-[10px] font-bold border border-emerald-200/60 dark:border-emerald-800/60 flex items-center gap-1 transition-colors"
+                      title="Collect Advance Payment & Print Receipt"
+                    >
+                      <IndianRupee className="w-3 h-3" />
+                      <span>+ Adv</span>
+                    </button>
+                    {(room.advancePaid || 0) > 0 && (
+                      <button
+                        onClick={() => handlePrintRoomAdvanceReceipt(room)}
+                        className="px-2 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 rounded-lg text-[10px] font-bold border border-indigo-200/60 dark:border-indigo-800/60 flex items-center gap-1 transition-colors"
+                        title="Print Advance Receipt"
+                      >
+                        <Printer className="w-3 h-3" />
+                        <span>Receipt</span>
+                      </button>
+                    )}
                     <button
                       onClick={() => handleOpenBill(room)}
                       className="p-1.5 bg-slate-200/60 hover:bg-slate-200 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-[10px] font-bold"
@@ -1629,9 +1774,38 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                         <span>GST @{summary.taxRate}%: ₹{summary.taxAmount}</span>
                       </div>
 
-                      <div className="flex justify-between text-slate-500 text-[10px]">
-                        <span>Advance Payments Paid</span>
-                        <span className="text-emerald-500">-₹{summary.advancePaid}</span>
+                      <div className="flex justify-between items-center text-slate-500 text-[10px]">
+                        <div className="flex items-center gap-1.5">
+                          <span>Advance Payments Paid</span>
+                          {summary.advancePaid > 0 && selectedRoom && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowBillModal(false);
+                                handlePrintRoomAdvanceReceipt(selectedRoom);
+                              }}
+                              className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 font-bold underline flex items-center gap-0.5 ml-1"
+                              title="Print Advance Receipt"
+                            >
+                              <Printer className="w-3 h-3 inline" /> Print
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {selectedRoom && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowBillModal(false);
+                                handleOpenCollectAdvance(selectedRoom);
+                              }}
+                              className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:text-emerald-400 font-bold border border-emerald-200 dark:border-emerald-800 flex items-center gap-0.5"
+                            >
+                              + Add Adv
+                            </button>
+                          )}
+                          <span className="text-emerald-500 font-mono font-bold">-₹{summary.advancePaid}</span>
+                        </div>
                       </div>
 
                       <div className="border-t-2 border-slate-200 dark:border-slate-800 my-1 pt-1.5 flex justify-between text-sm font-bold">
@@ -1903,6 +2077,160 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
           </div>
         </div>
       )}
+
+      {/* =========================================================================
+          COLLECT ADVANCE PAYMENT MODAL (ANY TIME DURING STAY)
+          ========================================================================= */}
+      {showCollectAdvanceModal && selectedRoom && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-5">
+            <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
+                  <IndianRupee className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-slate-800 dark:text-slate-100">
+                    Collect Advance Payment
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Room {selectedRoom.roomNumber} • {selectedRoom.guestName || 'In-House Guest'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCollectAdvanceModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCollectAdvanceSubmit} className="space-y-4 text-xs">
+              {/* Existing Advance info card */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200/60 dark:border-slate-800/60 flex justify-between items-center">
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Previously Paid Advance</span>
+                  <span className="text-slate-700 dark:text-slate-300 font-mono font-bold text-sm">
+                    ₹{(selectedRoom.advancePaid || 0).toLocaleString()}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Stay Rate</span>
+                  <span className="text-indigo-600 dark:text-indigo-400 font-mono font-bold text-xs">
+                    ₹{selectedRoom.price}/night
+                  </span>
+                </div>
+              </div>
+
+              {/* Advance Amount */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 dark:text-slate-300 flex justify-between">
+                  <span>Advance Deposit Amount (₹) *</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-2.5 text-slate-400 font-bold text-sm">₹</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    required
+                    value={advanceAmountInput || ''}
+                    onChange={e => setAdvanceAmountInput(Number(e.target.value))}
+                    className="w-full pl-8 pr-3 py-2 border rounded-xl dark:bg-slate-950 dark:border-slate-800 text-emerald-600 dark:text-emerald-400 font-mono font-bold text-base focus:ring-2 focus:ring-emerald-500"
+                    placeholder="1000"
+                    autoFocus
+                  />
+                </div>
+              </div>
+
+              {/* Payment Mode & Receipt Number */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">Payment Mode</label>
+                  <select
+                    value={advancePaymentMethod}
+                    onChange={e => setAdvancePaymentMethod(e.target.value)}
+                    className="w-full p-2 border rounded-xl dark:bg-slate-950 dark:border-slate-800 font-bold text-xs"
+                  >
+                    <option value="Cash">Cash</option>
+                    <option value="UPI">UPI / GPay / PhonePe</option>
+                    <option value="Card">Debit / Credit Card</option>
+                    <option value="Bank Transfer">Bank Transfer / NEFT</option>
+                    <option value="Cheque">Cheque</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">Receipt / Entry No.</label>
+                  <input
+                    type="text"
+                    value={advanceReceiptNoInput}
+                    onChange={e => setAdvanceReceiptNoInput(e.target.value)}
+                    className="w-full p-2 border rounded-xl dark:bg-slate-950 dark:border-slate-800 font-mono font-bold text-xs"
+                    placeholder="1243"
+                  />
+                </div>
+              </div>
+
+              {/* Received By */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 dark:text-slate-300">Received By</label>
+                <input
+                  type="text"
+                  value={advanceReceivedByInput}
+                  onChange={e => setAdvanceReceivedByInput(e.target.value)}
+                  className="w-full p-2 border rounded-xl dark:bg-slate-950 dark:border-slate-800 font-medium text-xs"
+                  placeholder="Manager (Front Desk Manager)"
+                />
+              </div>
+
+              {/* Optional Notes */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 dark:text-slate-300">Payment Note (Optional)</label>
+                <input
+                  type="text"
+                  value={advanceNotesInput}
+                  onChange={e => setAdvanceNotesInput(e.target.value)}
+                  className="w-full p-2 border rounded-xl dark:bg-slate-950 dark:border-slate-800 text-xs"
+                  placeholder="e.g. Paid via UPI Txn #92837482"
+                />
+              </div>
+
+              <div className="flex gap-2 justify-end pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowCollectAdvanceModal(false)}
+                  className="px-4 py-2 border dark:border-slate-800 text-slate-500 dark:text-slate-400 font-semibold rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingAdvance || Number(advanceAmountInput) <= 0}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold rounded-xl flex items-center gap-1.5 shadow-md transition-all"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  {isSubmittingAdvance ? 'Recording...' : 'Collect & Print Receipt'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          ADVANCE PAYMENT RECEIPT MODAL (STANDARDIZED SAMPLE FORMAT)
+          ========================================================================= */}
+      <AdvanceReceiptModal
+        isOpen={showAdvanceReceiptModal}
+        onClose={() => {
+          setShowAdvanceReceiptModal(false);
+          setReceiptModalData(null);
+        }}
+        data={receiptModalData}
+      />
 
     </div>
   );

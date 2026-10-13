@@ -18,8 +18,10 @@ import {
   Building2,
   CheckCircle2,
   BedDouble,
-  Users
+  Users,
+  MessageSquare
 } from 'lucide-react';
+import { api } from '../api';
 
 import { 
   getLocalTodayString, 
@@ -51,6 +53,7 @@ export const ReportsView: React.FC = () => {
   const effectiveTenantId = currentTenant?.id || tenantId || activeTenantId;
 
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSendingEodSms, setIsSendingEodSms] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Active Sub Tab (persisted on reload, default to pnl)
@@ -724,6 +727,38 @@ export const ReportsView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Send EOD SMS Button */}
+          <button
+            onClick={async () => {
+              const tId = effectiveTenantId;
+              if (!tId) return;
+              const phones = settings.eodPhoneNumbers || '9788866964, 9786136555';
+              if (!confirm(`Dispatch today's EOD Report SMS via Fast2SMS to:\n${phones}?`)) return;
+              setIsSendingEodSms(true);
+              try {
+                const res = await api.post('/eod/send-sms', {
+                  tenantId: tId,
+                  isTest: false
+                });
+                if (res.data?.success) {
+                  alert(`Today's EOD SMS delivered successfully to ${res.data.recipients}!\n\nMessage:\n${res.data.messageSent}`);
+                } else {
+                  alert(`Failed to send SMS: ${JSON.stringify(res.data?.fast2smsResponse || res.data?.error)}`);
+                }
+              } catch (err: any) {
+                alert(`Error sending EOD SMS: ${err?.response?.data?.error || err?.message}`);
+              } finally {
+                setIsSendingEodSms(false);
+              }
+            }}
+            disabled={isSendingEodSms}
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0"
+            title="Dispatch today's single-SMS EOD summary via Fast2SMS"
+          >
+            <MessageSquare className={`w-3.5 h-3.5 ${isSendingEodSms ? 'animate-bounce' : ''}`} />
+            <span>{isSendingEodSms ? 'Sending SMS...' : 'Send EOD SMS'}</span>
+          </button>
+
           {/* Live Data Refresh Button */}
           <button
             onClick={handleRefresh}
@@ -738,10 +773,10 @@ export const ReportsView: React.FC = () => {
           {/* Master Excel Export Button */}
           <button
             onClick={handleExportFullMasterReport}
-            className="flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0"
+            className="flex items-center justify-center gap-2 px-5 py-2.5 bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0"
           >
             <FileSpreadsheet className="w-4 h-4" />
-            <span>Export Master Excel Report</span>
+            <span>Export Master Excel</span>
           </button>
         </div>
       </div>
