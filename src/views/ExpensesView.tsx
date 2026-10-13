@@ -958,9 +958,9 @@ export const ExpensesView: React.FC = () => {
                     <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-bold text-slate-400">₹</span>
                     <input
                       type="number"
-                      step="0.01"
+                      step="any"
                       required
-                      min="1"
+                      min="0.01"
                       placeholder="e.g. 2500"
                       value={formAmount}
                       onChange={e => setFormAmount(e.target.value === '' ? '' : Number(e.target.value))}

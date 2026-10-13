@@ -421,7 +421,7 @@ export const AdvanceReceiptModal: React.FC<AdvanceReceiptModalProps> = ({
                 <label className="block text-[10px] font-bold text-slate-400 mb-1">Amount (₹)</label>
                 <input
                   type="number"
-                  step="0.01"
+                  step="any"
                   value={amount}
                   onChange={e => setAmount(Number(e.target.value))}
                   className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-emerald-400 font-mono font-bold"

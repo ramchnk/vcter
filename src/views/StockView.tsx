@@ -1132,9 +1132,10 @@ export const StockView: React.FC = () => {
                   <input
                     type="number"
                     required
-                    min={1}
+                    step="any"
+                    min={0.01}
                     value={pricePerUnit}
-                    onChange={e => setPricePerUnit(Number(e.target.value))}
+                    onChange={e => setPricePerUnit(e.target.value === '' ? 0 : Number(e.target.value))}
                     className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-mono"
                   />
                 </div>
@@ -1156,9 +1157,10 @@ export const StockView: React.FC = () => {
                   <label className="font-bold text-slate-500">GST Percent (%)</label>
                   <input
                     type="number"
+                    step="any"
                     min={0}
                     value={gstPercent}
-                    onChange={e => setGstPercent(Number(e.target.value))}
+                    onChange={e => setGstPercent(e.target.value === '' ? 0 : Number(e.target.value))}
                     className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg"
                   />
                 </div>

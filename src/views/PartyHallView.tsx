@@ -222,9 +222,10 @@ export const PartyHallView: React.FC = () => {
                 <label className="font-semibold text-slate-500">Food Cost (₹)</label>
                 <input
                   type="number"
+                  step="any"
                   min={0}
                   value={foodPrice}
-                  onChange={e => setFoodPrice(Number(e.target.value))}
+                  onChange={e => setFoodPrice(e.target.value === '' ? 0 : Number(e.target.value))}
                   className="w-full p-1.5 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-mono"
                 />
               </div>
@@ -235,9 +236,10 @@ export const PartyHallView: React.FC = () => {
                 <label className="font-semibold text-slate-500">Decoration Cost (₹)</label>
                 <input
                   type="number"
+                  step="any"
                   min={0}
                   value={decorationPrice}
-                  onChange={e => setDecorationPrice(Number(e.target.value))}
+                  onChange={e => setDecorationPrice(e.target.value === '' ? 0 : Number(e.target.value))}
                   className="w-full p-1.5 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-mono"
                 />
               </div>
@@ -245,9 +247,10 @@ export const PartyHallView: React.FC = () => {
                 <label className="font-semibold text-slate-500">Sound System Cost (₹)</label>
                 <input
                   type="number"
+                  step="any"
                   min={0}
                   value={soundSystemPrice}
-                  onChange={e => setSoundSystemPrice(Number(e.target.value))}
+                  onChange={e => setSoundSystemPrice(e.target.value === '' ? 0 : Number(e.target.value))}
                   className="w-full p-1.5 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-mono"
                 />
               </div>
@@ -258,9 +261,10 @@ export const PartyHallView: React.FC = () => {
                 <label className="font-semibold text-slate-500">Projector Price (₹)</label>
                 <input
                   type="number"
+                  step="any"
                   min={0}
                   value={projectorPrice}
-                  onChange={e => setProjectorPrice(Number(e.target.value))}
+                  onChange={e => setProjectorPrice(e.target.value === '' ? 0 : Number(e.target.value))}
                   className="w-full p-1.5 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-mono"
                 />
               </div>
@@ -268,9 +272,10 @@ export const PartyHallView: React.FC = () => {
                 <label className="font-semibold text-slate-500">Cleaning Charges (₹)</label>
                 <input
                   type="number"
+                  step="any"
                   min={0}
                   value={cleaningCharge}
-                  onChange={e => setCleaningCharge(Number(e.target.value))}
+                  onChange={e => setCleaningCharge(e.target.value === '' ? 0 : Number(e.target.value))}
                   className="w-full p-1.5 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-mono"
                 />
               </div>
@@ -281,9 +286,10 @@ export const PartyHallView: React.FC = () => {
             <label className="font-bold text-slate-500">Advance Paid (₹)</label>
             <input
               type="number"
+              step="any"
               min={0}
               value={advancePaid}
-              onChange={e => setAdvancePaid(Number(e.target.value))}
+              onChange={e => setAdvancePaid(e.target.value === '' ? 0 : Number(e.target.value))}
               className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-bold font-mono"
             />
           </div>

@@ -869,10 +869,11 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                   <label className="font-bold text-slate-500">Apply Cashier Discount (₹)</label>
                   <input
                     type="number"
+                    step="any"
                     min={0}
                     max={outstandingAmount + discount}
                     value={discount}
-                    onChange={e => setDiscount(Number(e.target.value))}
+                    onChange={e => setDiscount(e.target.value === '' ? 0 : Number(e.target.value))}
                     className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-bold font-mono text-indigo-500"
                   />
                 </div>
@@ -910,15 +911,17 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
 
                 {/* Split Details Input */}
                 {paymentMethod === 'Split' && (
-                  <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border dark:border-slate-850 space-y-2 animate-in fade-in duration-200">
+                  <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border dark:border-slate-855 space-y-2 animate-in fade-in duration-200">
                     <p className="font-semibold text-slate-500 text-[10px] uppercase">Split Details Breakdowns</p>
                     <div className="grid grid-cols-3 gap-2">
                       <div className="space-y-0.5">
                         <label className="text-[10px] text-slate-400">Cash Amt</label>
                         <input
                           type="number"
+                          step="any"
+                          min={0}
                           value={splitCash}
-                          onChange={e => setSplitCash(Number(e.target.value))}
+                          onChange={e => setSplitCash(e.target.value === '' ? 0 : Number(e.target.value))}
                           className="w-full p-1.5 border dark:border-slate-800 dark:bg-slate-900 rounded font-mono"
                         />
                       </div>
@@ -926,8 +929,10 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                         <label className="text-[10px] text-slate-400">Card Amt</label>
                         <input
                           type="number"
+                          step="any"
+                          min={0}
                           value={splitCard}
-                          onChange={e => setSplitCard(Number(e.target.value))}
+                          onChange={e => setSplitCard(e.target.value === '' ? 0 : Number(e.target.value))}
                           className="w-full p-1.5 border dark:border-slate-800 dark:bg-slate-900 rounded font-mono"
                         />
                       </div>
@@ -935,8 +940,10 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                         <label className="text-[10px] text-slate-400">UPI Amt</label>
                         <input
                           type="number"
+                          step="any"
+                          min={0}
                           value={splitUpi}
-                          onChange={e => setSplitUpi(Number(e.target.value))}
+                          onChange={e => setSplitUpi(e.target.value === '' ? 0 : Number(e.target.value))}
                           className="w-full p-1.5 border dark:border-slate-800 dark:bg-slate-900 rounded font-mono"
                         />
                       </div>

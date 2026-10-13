@@ -58,19 +58,19 @@ export const PreBookingView: React.FC = () => {
   // Single Room Form State
   const [roomCategory, setRoomCategory] = useState<RoomCategory>('Deluxe AC');
   const [noOfGuests, setNoOfGuests] = useState(1);
-  const [advancePaid, setAdvancePaid] = useState(0);
-  const [roomPrice, setRoomPrice] = useState<number>(1500);
+  const [advancePaid, setAdvancePaid] = useState<number | string>(0);
+  const [roomPrice, setRoomPrice] = useState<number | string>(1500);
   const [isAcSwitchedOff, setIsAcSwitchedOff] = useState<boolean>(false);
   const [assignSpecificRoom, setAssignSpecificRoom] = useState(false);
   const [selectedSpecificRoomId, setSelectedSpecificRoomId] = useState('');
 
   // Bulk / Multi-Room Group State
-  const [bulkAdvancePaid, setBulkAdvancePaid] = useState<number>(0);
+  const [bulkAdvancePaid, setBulkAdvancePaid] = useState<number | string>(0);
   const [bulkBookingReference, setBulkBookingReference] = useState<string>('');
   const [bulkRooms, setBulkRooms] = useState<BulkRoomDraft[]>([]);
   const [batchCategory, setBatchCategory] = useState<RoomCategory>('Deluxe AC');
   const [batchRoomCount, setBatchRoomCount] = useState<number>(1);
-  const [batchRoomPrice, setBatchRoomPrice] = useState<number>(1500);
+  const [batchRoomPrice, setBatchRoomPrice] = useState<number | string>(1500);
   const [batchGuestsPerRoom, setBatchGuestsPerRoom] = useState<number>(2);
   const [batchIsNonAc, setBatchIsNonAc] = useState<boolean>(false);
   const [showRoomDetailEditor, setShowRoomDetailEditor] = useState<boolean>(false);
@@ -473,7 +473,7 @@ export const PreBookingView: React.FC = () => {
         id: Date.now().toString(),
         roomCategory: batchCategory,
         roomNumber: '',
-        roomPrice: batchRoomPrice || 1500,
+        roomPrice: Number(batchRoomPrice) || 1500,
         noOfGuests: batchGuestsPerRoom || 2,
         occupantName: '',
         isAcSwitchedOff: batchIsNonAc
@@ -1017,7 +1017,7 @@ export const PreBookingView: React.FC = () => {
                       <span>Agreed Room Rate & Channel Source</span>
                     </label>
                     <span className="text-[10px] font-bold font-mono text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
-                      Est. Total: ₹{(stayNights * (roomPrice || 1500)).toLocaleString()} ({stayNights}N)
+                      Est. Total: ₹{(stayNights * (Number(roomPrice) || 1500)).toLocaleString()} ({stayNights}N)
                     </span>
                   </div>
 
@@ -1031,9 +1031,10 @@ export const PreBookingView: React.FC = () => {
                         <input
                           type="number"
                           required
-                          min={1}
+                          step="any"
+                          min="0.01"
                           value={roomPrice}
-                          onChange={e => setRoomPrice(Number(e.target.value))}
+                          onChange={e => setRoomPrice(e.target.value)}
                           className="w-full pl-7 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-bold font-mono text-indigo-600 dark:text-indigo-400 text-sm focus:ring-2 focus:ring-indigo-500/20"
                           placeholder="1500"
                         />
@@ -1214,9 +1215,10 @@ export const PreBookingView: React.FC = () => {
                     <label className="font-bold text-slate-500">Advance Deposit (₹)</label>
                     <input
                       type="number"
+                      step="any"
                       min={0}
                       value={advancePaid}
-                      onChange={e => setAdvancePaid(Number(e.target.value))}
+                      onChange={e => setAdvancePaid(e.target.value)}
                       className="w-full p-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-mono font-bold"
                     />
                   </div>
@@ -1499,9 +1501,10 @@ export const PreBookingView: React.FC = () => {
                         <span className="absolute left-2.5 top-1.5 font-mono text-slate-400 font-bold">₹</span>
                         <input
                           type="number"
-                          min={1}
+                          step="any"
+                          min="0.01"
                           value={batchRoomPrice}
-                          onChange={e => setBatchRoomPrice(Number(e.target.value))}
+                          onChange={e => setBatchRoomPrice(e.target.value)}
                           className="w-full pl-6 pr-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-bold font-mono text-xs"
                         />
                       </div>
@@ -1769,9 +1772,10 @@ export const PreBookingView: React.FC = () => {
                     </label>
                     <input
                       type="number"
+                      step="any"
                       min={0}
                       value={bulkAdvancePaid}
-                      onChange={e => setBulkAdvancePaid(Number(e.target.value))}
+                      onChange={e => setBulkAdvancePaid(e.target.value)}
                       className="w-36 p-1.5 bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-700 rounded-xl font-mono font-bold text-right text-purple-600 dark:text-purple-400 text-sm"
                       placeholder="0"
                     />

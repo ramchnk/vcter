@@ -349,7 +349,7 @@ export const SettingsView: React.FC = () => {
   const [editRoomNumber, setEditRoomNumber] = useState('');
   const [editRoomFloor, setEditRoomFloor] = useState<number>(1);
   const [editRoomCategory, setEditRoomCategory] = useState<RoomCategory>('Deluxe AC');
-  const [editRoomPrice, setEditRoomPrice] = useState<number>(2500);
+  const [editRoomPrice, setEditRoomPrice] = useState<number | string>(2500);
   const [isSubmittingEditRoom, setIsSubmittingEditRoom] = useState(false);
 
   const handleOpenEditRoom = (room: Room) => {
@@ -363,7 +363,7 @@ export const SettingsView: React.FC = () => {
 
   const handleEditRoomSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editRoomId || !editRoomNumber || editRoomPrice <= 0) return;
+    if (!editRoomId || !editRoomNumber || Number(editRoomPrice) <= 0) return;
     setIsSubmittingEditRoom(true);
     try {
       await updateRoom(editRoomId, {
@@ -853,6 +853,7 @@ export const SettingsView: React.FC = () => {
                   <label className="font-bold text-slate-500">General GST Tax (%)</label>
                   <input
                     type="number"
+                    step="any"
                     min={0}
                     value={taxRate}
                     onChange={e => setTaxRate(Number(e.target.value))}
@@ -863,6 +864,7 @@ export const SettingsView: React.FC = () => {
                   <label className="font-bold text-slate-500">Bar VAT / Tax (%)</label>
                   <input
                     type="number"
+                    step="any"
                     min={0}
                     value={barTaxRate}
                     onChange={e => setBarTaxRate(Number(e.target.value))}
@@ -1442,7 +1444,8 @@ export const SettingsView: React.FC = () => {
                   <input
                     type="number"
                     required
-                    min={100}
+                    step="any"
+                    min={0.01}
                     value={newRoomPrice}
                     onChange={e => setNewRoomPrice(Number(e.target.value))}
                     className="w-full p-2 border dark:border-slate-800 dark:bg-slate-900 rounded-lg font-mono font-bold"
@@ -1860,11 +1863,11 @@ Total: Rs.0`}
                   <span className="absolute left-3 top-2.5 text-slate-400 font-bold">₹</span>
                   <input
                     type="number"
-                    min="1"
-                    step="1"
+                    min="0.01"
+                    step="any"
                     required
                     value={editRoomPrice || ''}
-                    onChange={e => setEditRoomPrice(Number(e.target.value))}
+                    onChange={e => setEditRoomPrice(e.target.value)}
                     className="w-full pl-8 pr-3 py-2.5 border rounded-xl dark:bg-slate-950 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-mono font-bold text-sm focus:ring-2 focus:ring-indigo-500"
                     placeholder="2500"
                   />
@@ -1881,7 +1884,7 @@ Total: Rs.0`}
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmittingEditRoom || !editRoomNumber || editRoomPrice <= 0}
+                  disabled={isSubmittingEditRoom || !editRoomNumber || Number(editRoomPrice) <= 0}
                   className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all"
                 >
                   <Check className="w-3.5 h-3.5" />

@@ -69,10 +69,10 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [extendModalTab, setExtendModalTab] = useState<'service' | 'extend'>('service');
   const [extendDays, setExtendDays] = useState(0);
   const [extraServiceName, setExtraServiceName] = useState('');
-  const [extraServiceAmount, setExtraServiceAmount] = useState<number | ''>('');
+  const [extraServiceAmount, setExtraServiceAmount] = useState<number | string>('');
   const [isSubmittingExtendOrCharge, setIsSubmittingExtendOrCharge] = useState(false);
   const [showChargeModal, setShowChargeModal] = useState(false);
-  const [chargeAmount, setChargeAmount] = useState<number>(500);
+  const [chargeAmount, setChargeAmount] = useState<number | string>(500);
   const [chargeDescription, setChargeDescription] = useState<string>('Extra Bed / Rollaway Mattress');
   const [isSubmittingCharge, setIsSubmittingCharge] = useState(false);
 
@@ -82,7 +82,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [editRoomNumber, setEditRoomNumber] = useState('');
   const [editRoomFloor, setEditRoomFloor] = useState<number>(1);
   const [editRoomCategory, setEditRoomCategory] = useState<RoomCategory>('Deluxe AC');
-  const [editRoomPrice, setEditRoomPrice] = useState<number>(2500);
+  const [editRoomPrice, setEditRoomPrice] = useState<number | string>(2500);
   const [isSubmittingEditRoom, setIsSubmittingEditRoom] = useState(false);
 
   // Advance Receipt Modal state
@@ -91,7 +91,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
 
   // Collect Advance Payment Modal state
   const [showCollectAdvanceModal, setShowCollectAdvanceModal] = useState(false);
-  const [advanceAmountInput, setAdvanceAmountInput] = useState<number>(1000);
+  const [advanceAmountInput, setAdvanceAmountInput] = useState<number | string>(1000);
   const [advancePaymentMethod, setAdvancePaymentMethod] = useState<string>('Cash');
   const [advanceReceiptNoInput, setAdvanceReceiptNoInput] = useState<string>('');
   const [advanceReceivedByInput, setAdvanceReceivedByInput] = useState<string>('Manager (Front Desk Manager)');
@@ -106,8 +106,8 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [guestAddress, setGuestAddress] = useState('');
   const [guestGst, setGuestGst] = useState('');
   const [noOfGuests, setNoOfGuests] = useState(1);
-  const [advancePaid, setAdvancePaid] = useState(0);
-  const [checkInPrice, setCheckInPrice] = useState<number>(1500);
+  const [advancePaid, setAdvancePaid] = useState<number | string>(0);
+  const [checkInPrice, setCheckInPrice] = useState<number | string>(1500);
   const [bookingSource, setBookingSource] = useState<string>('Direct / Walk-In');
   const [bookingReference, setBookingReference] = useState<string>('');
   const [isAcSwitchedOff, setIsAcSwitchedOff] = useState<boolean>(false);
@@ -501,7 +501,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
 
   const handleAddChargeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedRoom || chargeAmount <= 0) return;
+    if (!selectedRoom || Number(chargeAmount) <= 0) return;
     setIsSubmittingCharge(true);
     try {
       await addRoomCharge(selectedRoom.id, Number(chargeAmount), chargeDescription || 'Extra Bed / Other Service');
@@ -530,7 +530,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
 
   const handleEditRoomSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editRoomId || !editRoomNumber || editRoomPrice <= 0) return;
+    if (!editRoomId || !editRoomNumber || Number(editRoomPrice) <= 0) return;
     setIsSubmittingEditRoom(true);
     try {
       await updateRoom(editRoomId, {
@@ -1156,9 +1156,10 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                       <input
                         type="number"
                         required
-                        min={1}
+                        step="any"
+                        min="0"
                         value={checkInPrice}
-                        onChange={e => setCheckInPrice(Number(e.target.value))}
+                        onChange={e => setCheckInPrice(e.target.value)}
                         className="w-full pl-7 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg font-bold font-mono text-indigo-600 dark:text-indigo-400 text-sm focus:ring-2 focus:ring-indigo-500/20"
                         placeholder="e.g. 1500, 1000, 1850..."
                       />
@@ -1359,9 +1360,10 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                   <label className="font-bold text-slate-500">Advance Paid (₹)</label>
                   <input
                     type="number"
-                    min={0}
+                    step="any"
+                    min="0"
                     value={advancePaid}
-                    onChange={e => setAdvancePaid(Number(e.target.value))}
+                    onChange={e => setAdvancePaid(e.target.value)}
                     className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg"
                   />
                 </div>
@@ -1572,12 +1574,12 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                       <span className="absolute left-3 top-2.5 text-slate-400 font-bold">₹</span>
                       <input
                         type="number"
-                        min={1}
-                        step="1"
+                        min="0.01"
+                        step="any"
                         required
                         placeholder="500"
                         value={extraServiceAmount}
-                        onChange={e => setExtraServiceAmount(e.target.value ? Number(e.target.value) : '')}
+                        onChange={e => setExtraServiceAmount(e.target.value)}
                         className="w-full pl-8 pr-3 py-2.5 border rounded-xl dark:bg-slate-950 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-mono font-bold text-sm focus:ring-2 focus:ring-indigo-500"
                       />
                     </div>
@@ -1913,11 +1915,11 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                   <span className="absolute left-3 top-2.5 text-slate-400 font-bold">₹</span>
                   <input
                     type="number"
-                    min="1"
-                    step="1"
+                    min="0.01"
+                    step="any"
                     required
-                    value={chargeAmount || ''}
-                    onChange={e => setChargeAmount(Number(e.target.value))}
+                    value={chargeAmount !== undefined ? chargeAmount : ''}
+                    onChange={e => setChargeAmount(e.target.value)}
                     className="w-full pl-8 pr-3 py-2 border rounded-xl dark:bg-slate-950 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-mono font-bold text-sm focus:ring-2 focus:ring-indigo-500"
                     placeholder="500"
                   />
@@ -1958,7 +1960,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmittingCharge || !chargeAmount || chargeAmount <= 0}
+                  disabled={isSubmittingCharge || !chargeAmount || Number(chargeAmount) <= 0}
                   className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all"
                 >
                   <Check className="w-3.5 h-3.5" />
@@ -2045,11 +2047,11 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                   <span className="absolute left-3 top-2.5 text-slate-400 font-bold">₹</span>
                   <input
                     type="number"
-                    min="1"
-                    step="1"
+                    min="0.01"
+                    step="any"
                     required
-                    value={editRoomPrice || ''}
-                    onChange={e => setEditRoomPrice(Number(e.target.value))}
+                    value={editRoomPrice !== undefined ? editRoomPrice : ''}
+                    onChange={e => setEditRoomPrice(e.target.value)}
                     className="w-full pl-8 pr-3 py-2.5 border rounded-xl dark:bg-slate-950 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-mono font-bold text-sm focus:ring-2 focus:ring-indigo-500"
                     placeholder="2500"
                   />
@@ -2066,7 +2068,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmittingEditRoom || !editRoomNumber || editRoomPrice <= 0}
+                  disabled={isSubmittingEditRoom || !editRoomNumber || Number(editRoomPrice) <= 0}
                   className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all"
                 >
                   <Check className="w-3.5 h-3.5" />
@@ -2133,11 +2135,11 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                   <span className="absolute left-3.5 top-2.5 text-slate-400 font-bold text-sm">₹</span>
                   <input
                     type="number"
-                    min="1"
-                    step="0.01"
+                    min="0.01"
+                    step="any"
                     required
-                    value={advanceAmountInput || ''}
-                    onChange={e => setAdvanceAmountInput(Number(e.target.value))}
+                    value={advanceAmountInput !== undefined ? advanceAmountInput : ''}
+                    onChange={e => setAdvanceAmountInput(e.target.value)}
                     className="w-full pl-8 pr-3 py-2 border rounded-xl dark:bg-slate-950 dark:border-slate-800 text-emerald-600 dark:text-emerald-400 font-mono font-bold text-base focus:ring-2 focus:ring-emerald-500"
                     placeholder="1000"
                     autoFocus

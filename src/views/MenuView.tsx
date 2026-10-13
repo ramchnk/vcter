@@ -1265,7 +1265,7 @@ export const MenuView: React.FC = () => {
                   </span>
                   <input
                     type="number"
-                    step="0.01"
+                    step="any"
                     required
                     value={formPrice}
                     onChange={e => setFormPrice(e.target.value)}
