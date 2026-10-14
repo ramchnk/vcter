@@ -38,8 +38,6 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
     if (initialDate) setReportDate(initialDate);
   }, [initialDate]);
 
-  if (!isOpen) return null;
-
   // Hotel details
   const hotelName = currentTenant?.name || 'Hotel Subra Grand';
 
@@ -694,6 +692,8 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
       }, 1000);
     }, 400);
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">

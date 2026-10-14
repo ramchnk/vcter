@@ -791,11 +791,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
       </div>
 
       {/* Day Book Daily Sales Report Modal */}
-      <DayBookModal
-        isOpen={showDayBookModal}
-        onClose={() => setShowDayBookModal(false)}
-        initialDate={startDate || getLocalTodayString()}
-      />
+      {showDayBookModal && (
+        <DayBookModal
+          isOpen={showDayBookModal}
+          onClose={() => setShowDayBookModal(false)}
+          initialDate={startDate || getLocalTodayString()}
+        />
+      )}
 
     </div>
   );
