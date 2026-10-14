@@ -258,10 +258,82 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
       }, 0);
   }, [tenantRooms, getBillSummary]);
 
-  // Check-ins & Check-outs in selected range
+  // Check-ins in selected range (includes all arrivals: both currently in-house and same-day departures)
   const periodCheckIns = useMemo(() => {
-    return tenantRooms.filter(r => r.status === 'Occupied' && isDateInRange(r.checkInDate, startDate, endDate));
-  }, [tenantRooms, startDate, endDate]);
+    const list: Array<{
+      id: string;
+      roomNumber: string;
+      guestName: string;
+      checkInDate: string;
+      checkOutDate: string;
+      advancePaid: number;
+      status: string;
+      noOfGuests: number;
+    }> = [];
+
+    // 1. Current rooms checked in during period
+    tenantRooms.forEach(r => {
+      if ((r.status === 'Occupied' || r.guestName) && r.checkInDate && isDateInRange(r.checkInDate, startDate, endDate)) {
+        list.push({
+          id: r.id,
+          roomNumber: r.roomNumber,
+          guestName: r.guestName || 'Valued Guest',
+          checkInDate: r.checkInDate,
+          checkOutDate: r.checkOutDate || '—',
+          advancePaid: r.advancePaid || 0,
+          status: r.status,
+          noOfGuests: r.noOfGuests || 1
+        });
+      }
+    });
+
+    // 2. Completed / Checked-out stays that checked in during period
+    tenantPreBookings.forEach(pb => {
+      if (pb.status === 'CheckedOut' && pb.checkInDate && isDateInRange(pb.checkInDate, startDate, endDate)) {
+        if (!list.some(item => item.id === pb.id)) {
+          list.push({
+            id: pb.id,
+            roomNumber: pb.roomNumber || '—',
+            guestName: pb.guestName || pb.occupantName || 'Valued Guest',
+            checkInDate: pb.checkInDate,
+            checkOutDate: pb.checkOutDate || pb.bookingDate || '—',
+            advancePaid: pb.advancePaid || 0,
+            status: 'CheckedOut',
+            noOfGuests: pb.noOfGuests || 1
+          });
+        }
+      }
+    });
+
+    // 3. Fallback: Parse check-in audit logs for check-ins not captured in preBookings
+    tenantAuditLogs.forEach(a => {
+      if (a.action === 'Check-In' && isDateInRange(a.timestamp, startDate, endDate)) {
+        const match = a.details?.match(/Guest\s+(.+?)\s+checked into Room\s+([A-Za-z0-9_-]+)/i);
+        if (match) {
+          const guestName = match[1].trim();
+          const roomNo = match[2].trim();
+          const already = list.some(item => 
+            item.roomNumber === roomNo && 
+            item.guestName.toLowerCase().trim() === guestName.toLowerCase().trim()
+          );
+          if (!already) {
+            list.push({
+              id: a.id,
+              roomNumber: roomNo,
+              guestName: guestName,
+              checkInDate: (a.timestamp ? a.timestamp.split('T')[0] : startDate),
+              checkOutDate: '—',
+              advancePaid: 0,
+              status: 'CheckedOut',
+              noOfGuests: 1
+            });
+          }
+        }
+      }
+    });
+
+    return list;
+  }, [tenantRooms, tenantPreBookings, tenantAuditLogs, startDate, endDate]);
 
   const periodCheckOuts = useMemo(() => {
     return tenantRooms.filter(r => r.status === 'Occupied' && isDateInRange(r.checkOutDate, startDate, endDate));
@@ -420,18 +492,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
           </div>
         </div>
 
-        {/* STAT 3: Active Guest Count */}
+        {/* STAT 3: Check-Ins / Arrivals Count */}
         <div className="p-5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 shadow-sm flex items-center justify-between group hover:shadow-md hover:border-indigo-500/20 transition-all duration-300">
           <div className="space-y-1">
-            <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">Guests Checked In</span>
+            <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">
+              {datePreset === 'today' ? "Today's Check-Ins" : "Period Check-Ins"}
+            </span>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-black font-mono text-slate-900 dark:text-white">
-                {guestsCheckedIn}
+                {periodCheckIns.length}
               </span>
-              <span className="text-xs text-slate-400">Headcount</span>
+              <span className="text-xs text-slate-400">Arrivals</span>
             </div>
             <p className="text-[10px] text-slate-400">
-              {periodCheckIns.length} arrival(s) in period
+              {guestsCheckedIn} in-house guest headcount
             </p>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-xl transition-transform group-hover:scale-105 duration-200">
@@ -611,10 +685,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
         <div className="p-5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 shadow-sm space-y-3">
           <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
             <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-              {datePreset === 'today' ? "Today's Arrivals" : "In-House Arrivals (Period)"}
+              {datePreset === 'today' ? "Today's Arrivals" : "Arrivals (Selected Period)"}
             </h3>
             <span className="text-[10px] font-bold bg-emerald-500 text-white px-2 py-0.5 rounded">
-              {periodCheckIns.length} Guests
+              {periodCheckIns.length} Check-Ins
             </span>
           </div>
           {periodCheckIns.length === 0 ? (
@@ -626,7 +700,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
                   <tr className="text-slate-400 border-b border-slate-100 dark:border-slate-800">
                     <th className="py-2">Room</th>
                     <th className="py-2">Guest Name</th>
-                    <th className="py-2">Checkout Due</th>
+                    <th className="py-2">Checkout</th>
                     <th className="py-2 text-right">Advance Paid</th>
                   </tr>
                 </thead>
@@ -634,7 +708,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
                   {periodCheckIns.map(r => (
                     <tr key={r.id} className="text-slate-700 dark:text-slate-300">
                       <td className="py-2 font-bold font-mono text-indigo-600 dark:text-indigo-400">Room {r.roomNumber}</td>
-                      <td className="py-2 font-semibold">{r.guestName}</td>
+                      <td className="py-2 font-semibold">
+                        {r.guestName}
+                        {r.status === 'CheckedOut' && (
+                          <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold border border-slate-200 dark:border-slate-700">
+                            Departed
+                          </span>
+                        )}
+                      </td>
                       <td className="py-2 text-slate-400 font-mono">{r.checkOutDate}</td>
                       <td className="py-2 text-right font-mono font-medium">₹{r.advancePaid || 0}</td>
                     </tr>
