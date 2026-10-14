@@ -20,8 +20,10 @@ import {
   RefreshCw,
   Filter,
   CheckCircle,
-  ShoppingBag
+  ShoppingBag,
+  BookOpen
 } from 'lucide-react';
+import { DayBookModal } from '../components/DayBookModal';
 
 import { 
   getLocalTodayString, 
@@ -54,6 +56,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
   const effectiveTenantId = currentTenant?.id || tenantId || activeTenantId;
 
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showDayBookModal, setShowDayBookModal] = useState(false);
 
   // Time Range Filter State (defaults to Local Today)
   const [datePreset, setDatePreset] = useState<'today' | 'yesterday' | '7days' | 'month' | 'all' | 'custom'>('today');
@@ -359,6 +362,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
         </div>
 
         <div className="flex items-center gap-3 z-10">
+          <button
+            onClick={() => setShowDayBookModal(true)}
+            className="flex items-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0 hover:shadow-emerald-500/20"
+            title="Generate & View Daily Sales Report (Day Book)"
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            <span>Day Book</span>
+          </button>
+
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}
@@ -777,6 +789,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
         </div>
 
       </div>
+
+      {/* Day Book Daily Sales Report Modal */}
+      <DayBookModal
+        isOpen={showDayBookModal}
+        onClose={() => setShowDayBookModal(false)}
+        initialDate={startDate || getLocalTodayString()}
+      />
 
     </div>
   );
