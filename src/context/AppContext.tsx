@@ -2234,8 +2234,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     checkIn.setHours(0,0,0,0);
     today.setHours(0,0,0,0);
     
-    let stayDuration = Math.ceil((today.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24));
-    if (stayDuration <= 0) stayDuration = 1;
+    // Committed stay duration (including extended days)
+    let bookedDuration = 1;
+    if (room.checkOutDate) {
+      const checkOut = new Date(room.checkOutDate);
+      checkOut.setHours(0, 0, 0, 0);
+      const bookedDays = Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24));
+      bookedDuration = Math.max(1, bookedDays);
+    }
+
+    // Elapsed stay duration (in case guest overstays past checkout date)
+    const elapsedDays = Math.ceil((today.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24));
+    const elapsedDuration = Math.max(1, elapsedDays);
+
+    // Use whichever is greater: committed/extended booking duration or actual elapsed duration
+    const stayDuration = Math.max(bookedDuration, elapsedDuration);
 
     const roomRentTotal = stayDuration * (room.price || 0);
     const restaurantTotal = Number(room.restaurantCharges) || 0;
@@ -2255,7 +2268,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       guestName: room.guestName || 'Valued Guest',
       checkInDate: room.checkInDate,
       checkInTime: room.checkInTime,
-      checkOutDate: new Date().toISOString().split('T')[0],
+      checkOutDate: room.checkOutDate || new Date().toISOString().split('T')[0],
       stayDuration,
       roomRentTotal,
       restaurantTotal,
