@@ -1350,7 +1350,7 @@ export const ReportsView: React.FC = () => {
                         <td className="py-2.5 px-3 text-slate-500 font-medium">{r.category}</td>
                         <td className="py-2.5 px-3 font-bold">{r.guestName || 'In-House Guest'}</td>
                         <td className="py-2.5 px-3 font-mono text-slate-400">{r.guestPhone || '—'}</td>
-                        <td className="py-2.5 px-3 font-mono">{r.checkInDate || '—'}</td>
+                        <td className="py-2.5 px-3 font-mono">{r.checkInDate || '—'}{r.checkInTime ? ` (${r.checkInTime})` : ''}</td>
                         <td className="py-2.5 px-3 text-right font-mono text-emerald-600 font-bold">₹{r.advancePaid || 0}</td>
                       </tr>
                     ))}

@@ -96,7 +96,7 @@ export const SettingsView: React.FC = () => {
   const [barTaxRate, setBarTaxRate] = useState(settings.barTaxRate);
   const [invoicePrefix, setInvoicePrefix] = useState(settings.invoicePrefix);
   const [checkInTime, setCheckInTime] = useState(settings.checkInTime || '12:00 PM');
-  const [checkOutTime, setCheckOutTime] = useState(settings.checkOutTime || '11:00 AM');
+  const [checkOutTime, setCheckOutTime] = useState(settings.checkOutTime || '12:00 PM');
   const [logoUrl, setLogoUrl] = useState(settings.logoUrl || '');
 
   // Synchronize state when settings context changes
@@ -118,7 +118,7 @@ export const SettingsView: React.FC = () => {
       setBarTaxRate(settings.barTaxRate ?? 20);
       setInvoicePrefix(settings.invoicePrefix || 'HV-INV-');
       setCheckInTime(settings.checkInTime || '12:00 PM');
-      setCheckOutTime(settings.checkOutTime || '11:00 AM');
+      setCheckOutTime(settings.checkOutTime || '12:00 PM');
       setLogoUrl(settings.logoUrl || '');
       setFast2smsApiKey(settings.fast2smsApiKey || 'Ey3CbXkpz0rv9tBH214oqRuawJAlnsF7eVUjQPcdD5OSiZLIxgT2r7aCFXujWlE105K4ZSAytOJfpUMI');
       setEodPhoneNumbers(settings.eodPhoneNumbers || '9788866964, 9786136555');
@@ -984,16 +984,30 @@ export const SettingsView: React.FC = () => {
                 {/* Blinker Alert Guide Box */}
                 <div className="p-3 bg-amber-500/10 dark:bg-amber-500/5 border border-amber-500/30 rounded-xl flex items-start gap-2.5 text-[11px]">
                   <span className="text-base leading-none">💡</span>
-                  <div className="space-y-1 text-slate-700 dark:text-slate-300">
-                    <p className="font-semibold text-amber-800 dark:text-amber-300">How Room Checkout Blinkers Work:</p>
-                    <div className="flex flex-wrap gap-3 pt-0.5">
+                  <div className="space-y-1.5 text-slate-700 dark:text-slate-300">
+                    <p className="font-semibold text-amber-800 dark:text-amber-300">How Room Checkout Rules & Blinkers Work:</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-0.5">
+                      <div className="p-2 bg-white/60 dark:bg-slate-900/60 rounded-lg border border-amber-200/50 dark:border-amber-900/50">
+                        <strong className="text-amber-700 dark:text-amber-400 block">⚡ Direct / Walk-In: 24-Hour Cycle</strong>
+                        <span className="text-slate-600 dark:text-slate-400 text-[10px]">
+                          Check-out is exactly 24 hours after check-in (e.g. check-in at 11:00 AM ➔ check-out at 11:00 AM next day; check-in at 3:00 PM ➔ check-out at 3:00 PM next day).
+                        </span>
+                      </div>
+                      <div className="p-2 bg-white/60 dark:bg-slate-900/60 rounded-lg border border-indigo-200/50 dark:border-indigo-900/50">
+                        <strong className="text-indigo-700 dark:text-indigo-400 block">🏨 Online / Non-Direct: Standard 12:00 PM</strong>
+                        <span className="text-slate-600 dark:text-slate-400 text-[10px]">
+                          Regardless of check-in time, check-out on the departure date is fixed at 12:00 PM (e.g. check-in at 10:00 PM ➔ check-out at 12:00 PM next day).
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-3 pt-1">
                       <span className="flex items-center gap-1">
                         <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping"></span>
-                        <strong className="text-amber-700 dark:text-amber-400">Amber Blinker:</strong> Triggered when a room is approaching check-out time on its departure date (within 60 mins).
+                        <strong className="text-amber-700 dark:text-amber-400">Amber Blinker:</strong> Within 60 mins of expected check-out time.
                       </span>
                       <span className="flex items-center gap-1">
                         <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping"></span>
-                        <strong className="text-rose-700 dark:text-rose-400">Red Blinker:</strong> Triggered once the room has crossed the {formatTime12h(checkOutTime)} check-out time.
+                        <strong className="text-rose-700 dark:text-rose-400">Red Blinker:</strong> Crossed the expected check-out time.
                       </span>
                     </div>
                   </div>

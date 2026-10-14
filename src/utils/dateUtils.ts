@@ -96,12 +96,24 @@ export const isStayInRange = (
 };
 
 /**
- * Parses time string in various formats (e.g. "11:00 AM", "14:30", "11:00", "01:15 PM")
+ * Parses time string or {hours, minutes} object in various formats (e.g. "11:00 AM", "14:30", "11:00", "01:15 PM")
  * Returns hours (0-23) and minutes (0-59).
  */
-export const parseTimeString = (timeStr?: string): { hours: number; minutes: number } => {
-  if (!timeStr) return { hours: 11, minutes: 0 };
-  const str = String(timeStr).trim();
+export const parseTimeString = (
+  timeInput?: string | { hours: number; minutes: number } | null
+): { hours: number; minutes: number } => {
+  if (!timeInput) return { hours: 11, minutes: 0 };
+
+  if (typeof timeInput === 'object') {
+    const h = typeof timeInput.hours === 'number' ? timeInput.hours : 11;
+    const m = typeof timeInput.minutes === 'number' ? timeInput.minutes : 0;
+    return {
+      hours: isNaN(h) ? 11 : Math.min(23, Math.max(0, h)),
+      minutes: isNaN(m) ? 0 : Math.min(59, Math.max(0, m))
+    };
+  }
+
+  const str = String(timeInput).trim();
   
   // Match 12-hour format with AM/PM (e.g., "11:00 AM", "01:30 PM", "9:15am")
   const ampmMatch = str.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
@@ -139,17 +151,8 @@ export const parseTimeString = (timeStr?: string): { hours: number; minutes: num
 /**
  * Converts standard time string or {hours, minutes} to 12-hour format (e.g. "11:00 AM", "02:30 PM")
  */
-export const formatTime12h = (timeStrOrObj?: string | { hours: number; minutes: number }): string => {
-  let h = 11;
-  let m = 0;
-  if (typeof timeStrOrObj === 'object' && timeStrOrObj !== null) {
-    h = timeStrOrObj.hours;
-    m = timeStrOrObj.minutes;
-  } else {
-    const parsed = parseTimeString(timeStrOrObj);
-    h = parsed.hours;
-    m = parsed.minutes;
-  }
+export const formatTime12h = (timeStrOrObj?: string | { hours: number; minutes: number } | null): string => {
+  const { hours: h, minutes: m } = parseTimeString(timeStrOrObj);
   const period = h >= 12 ? 'PM' : 'AM';
   const displayHours = h % 12 === 0 ? 12 : h % 12;
   const displayMinutes = String(m).padStart(2, '0');
@@ -159,17 +162,8 @@ export const formatTime12h = (timeStrOrObj?: string | { hours: number; minutes: 
 /**
  * Converts standard time string or {hours, minutes} to 24-hour format (e.g. "11:00", "14:30") for <input type="time">
  */
-export const formatTime24h = (timeStrOrObj?: string | { hours: number; minutes: number }): string => {
-  let h = 11;
-  let m = 0;
-  if (typeof timeStrOrObj === 'object' && timeStrOrObj !== null) {
-    h = timeStrOrObj.hours;
-    m = timeStrOrObj.minutes;
-  } else {
-    const parsed = parseTimeString(timeStrOrObj);
-    h = parsed.hours;
-    m = parsed.minutes;
-  }
+export const formatTime24h = (timeStrOrObj?: string | { hours: number; minutes: number } | null): string => {
+  const { hours: h, minutes: m } = parseTimeString(timeStrOrObj);
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 };
 
@@ -182,10 +176,54 @@ export interface RoomCheckoutAlert {
   label: string;
   isToday: boolean;
   isPastDate: boolean;
+  is24HourCycle?: boolean;
 }
 
 /**
- * Computes live checkout status for an occupied room based on configured check-out time.
+ * Determines if a booking source is Direct / Walk-In.
+ */
+export const isDirectBookingSource = (source?: string): boolean => {
+  if (!source) return true;
+  const s = source.toLowerCase().trim();
+  return (
+    s === 'direct / walk-in' ||
+    s === 'walk-in' ||
+    s === 'walkin' ||
+    s.includes('direct') ||
+    s.includes('walk')
+  );
+};
+
+/**
+ * Calculates the expected checkout time for a room or booking based on booking source and check-in time:
+ * - Direct / Walk-In: 24-Hour checkout rule.
+ *   The checkout time is identical to the check-in time (e.g. check-in at 11:00 AM -> check-out at 11:00 AM next day; check-in at 3:00 PM -> check-out at 3:00 PM next day).
+ * - Non-Direct / Online (MakeMyTrip, Booking.com, Agoda, Goibibo, Airbnb, Online / OTA, Corporate, etc.):
+ *   Fixed standard 12:00 PM checkout rule (e.g. check-in at 10:00 PM -> check-out next day at 12:00 PM).
+ */
+export const getEffectiveCheckoutTime = (
+  bookingSource?: string,
+  checkInTime?: string,
+  configuredDefaultCheckoutTime?: string
+): string => {
+  if (isDirectBookingSource(bookingSource)) {
+    if (checkInTime && checkInTime.trim()) {
+      return formatTime12h(checkInTime);
+    }
+    return formatTime12h(configuredDefaultCheckoutTime || '12:00 PM');
+  }
+
+  // Non-Direct / Online: Whatever time they check in, next day 12:00 PM is check-out time
+  const onlineStandardTime = configuredDefaultCheckoutTime && configuredDefaultCheckoutTime !== '11:00 AM'
+    ? configuredDefaultCheckoutTime
+    : '12:00 PM';
+  return formatTime12h(onlineStandardTime);
+};
+
+/**
+ * Computes live checkout status for an occupied room based on booking source and check-in time:
+ * - Direct / Walk-in: 24-hour cycle (checkout at check-in time)
+ * - Online / OTA: Standard 12:00 PM checkout
  * - 'overdue' if now >= checkout date & time (Crossed checkout time)
  * - 'approaching' if checkout is today and within alertWindowMinutes (e.g. 60 mins before checkout time)
  * - 'none' if checkout time is far in the future
@@ -194,9 +232,12 @@ export const getRoomCheckoutAlert = (
   checkOutDate?: string,
   checkOutTimeConfig?: string,
   alertWindowMinutes: number = 60,
-  referenceNow: Date = new Date()
+  referenceNow: Date = new Date(),
+  bookingSource?: string,
+  checkInTime?: string
 ): RoomCheckoutAlert => {
-  const defaultTime = formatTime12h(checkOutTimeConfig || '11:00 AM');
+  const isDirect = isDirectBookingSource(bookingSource);
+  const defaultTime = getEffectiveCheckoutTime(bookingSource, checkInTime, checkOutTimeConfig);
   if (!checkOutDate) {
     return {
       status: 'none',
@@ -204,7 +245,8 @@ export const getRoomCheckoutAlert = (
       formattedCheckoutTime: defaultTime,
       label: '',
       isToday: false,
-      isPastDate: false
+      isPastDate: false,
+      is24HourCycle: isDirect
     };
   }
 
@@ -216,12 +258,13 @@ export const getRoomCheckoutAlert = (
       formattedCheckoutTime: defaultTime,
       label: '',
       isToday: false,
-      isPastDate: false
+      isPastDate: false,
+      is24HourCycle: isDirect
     };
   }
 
   const [year, month, day] = normCheckOut.split('-').map(Number);
-  const { hours, minutes } = parseTimeString(checkOutTimeConfig || '11:00 AM');
+  const { hours, minutes } = parseTimeString(defaultTime);
   
   const checkoutDateTime = new Date(year, month - 1, day, hours, minutes, 0, 0);
   const nowMs = referenceNow.getTime();
@@ -253,7 +296,8 @@ export const getRoomCheckoutAlert = (
       formattedCheckoutTime: defaultTime,
       label,
       isToday,
-      isPastDate
+      isPastDate,
+      is24HourCycle: isDirect
     };
   }
 
@@ -270,7 +314,8 @@ export const getRoomCheckoutAlert = (
       formattedCheckoutTime: defaultTime,
       label,
       isToday: true,
-      isPastDate: false
+      isPastDate: false,
+      is24HourCycle: isDirect
     };
   }
 
@@ -280,7 +325,8 @@ export const getRoomCheckoutAlert = (
     formattedCheckoutTime: defaultTime,
     label: isToday ? `Checkout due today at ${defaultTime}` : `Checkout ${normCheckOut}`,
     isToday,
-    isPastDate: false
+    isPastDate: false,
+    is24HourCycle: isDirect
   };
 };
 

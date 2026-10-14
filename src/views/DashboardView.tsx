@@ -681,7 +681,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setTab }) => {
                       <tr key={room.id} className="text-slate-700 dark:text-slate-300">
                         <td className="py-2 font-bold font-mono text-indigo-600 dark:text-indigo-400">Room {room.roomNumber}</td>
                         <td className="py-2 font-semibold">{room.guestName}</td>
-                        <td className="py-2 text-slate-400 font-mono">{room.checkInDate}</td>
+                        <td className="py-2 text-slate-400 font-mono">
+                          {room.checkInDate}{room.checkInTime ? ` (${room.checkInTime})` : ''}
+                        </td>
                         <td className="py-2 text-right font-bold text-rose-600 dark:text-rose-400 font-mono">
                           ₹{summary ? summary.pendingAmount.toFixed(0) : '0'}
                         </td>

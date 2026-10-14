@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { api, socket } from '../api';
+import { formatTime12h } from '../utils/dateUtils';
 
 // ==========================================
 // TYPES DEFINITIONS
@@ -101,6 +102,7 @@ export interface Room {
   guestIdProof?: string;
   gstNumber?: string;
   checkInDate?: string;
+  checkInTime?: string;
   checkOutDate?: string;
   noOfGuests?: number;
   advancePaid?: number;
@@ -136,6 +138,7 @@ export interface PreBooking {
   isAcSwitchedOff?: boolean;
   bookingDate: string;
   checkInDate: string;
+  checkInTime?: string;
   checkOutDate: string;
   noOfGuests: number;
   advancePaid: number;
@@ -400,6 +403,7 @@ export interface HotelSettings {
 export interface BillSummary {
   guestName: string;
   checkInDate: string;
+  checkInTime?: string;
   checkOutDate: string;
   stayDuration: number;
   roomRentTotal: number;
@@ -475,6 +479,7 @@ interface AppContextType {
     groupBookingId?: string;
     groupBookingName?: string;
     checkInDate?: string;
+    checkInTime?: string;
     checkOutDate?: string;
   }) => Promise<void>;
   checkOutRoom: (roomId: string, paymentDetails: { method: 'Cash' | 'Card' | 'UPI' | 'Split'; discount: number; splitDetails?: string }) => Promise<void>;
@@ -494,7 +499,7 @@ interface AppContextType {
   addPreBooking: (booking: Omit<PreBooking, 'id' | 'status' | 'bookingDate'>) => Promise<void>;
   addBulkPreBooking: (payload: BulkPreBookingPayload) => Promise<{ groupBookingId: string; createdCount: number }>;
   cancelPreBooking: (id: string) => Promise<void>;
-  confirmPreBookingCheckIn: (id: string, roomId: string, customDates?: { checkInDate: string; checkOutDate: string }) => Promise<void>;
+  confirmPreBookingCheckIn: (id: string, roomId: string, customDates?: { checkInDate: string; checkOutDate: string; checkInTime?: string }) => Promise<void>;
   bulkConfirmPreBookingCheckIn: (groupBookingId: string, roomAssignments?: { [preBookingId: string]: string }) => Promise<void>;
   updatePreBookingStatus: (id: string, status: PreBooking['status']) => Promise<void>;
   
@@ -626,7 +631,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     barTaxRate: 20,
     invoicePrefix: 'HV-INV-',
     checkInTime: '12:00 PM',
-    checkOutTime: '11:00 AM',
+    checkOutTime: '12:00 PM',
     fast2smsApiKey: 'Ey3CbXkpz0rv9tBH214oqRuawJAlnsF7eVUjQPcdD5OSiZLIxgT2r7aCFXujWlE105K4ZSAytOJfpUMI',
     eodPhoneNumbers: '9788866964, 9786136555',
     eodAutoSend: false,
@@ -1154,6 +1159,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     groupBookingId?: string;
     groupBookingName?: string;
     checkInDate?: string;
+    checkInTime?: string;
     checkOutDate?: string;
   }) => {
     const tId = effectiveTenantId;
@@ -1163,6 +1169,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const stayPrice = guestInfo.price !== undefined && Number(guestInfo.price) > 0 
       ? Number(guestInfo.price) 
       : (room?.price || basePrice);
+    const nowTimeStr = formatTime12h({ hours: new Date().getHours(), minutes: new Date().getMinutes() });
 
     try {
       const roomUpdate: Partial<Room> = {
@@ -1181,6 +1188,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         guestIdProof: guestInfo.idProof || '',
         gstNumber: guestInfo.gstNumber || '',
         checkInDate: guestInfo.checkInDate || new Date().toISOString().split('T')[0],
+        checkInTime: guestInfo.checkInTime || nowTimeStr,
         checkOutDate: guestInfo.checkOutDate || new Date(Date.now() + 86400000).toISOString().split('T')[0],
         noOfGuests: guestInfo.noOfGuests,
         advancePaid: guestInfo.advancePaid,
@@ -1233,6 +1241,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         guestIdProof: '',
         gstNumber: '',
         checkInDate: '',
+        checkInTime: '',
         checkOutDate: '',
         noOfGuests: 0,
         advancePaid: 0,
@@ -1322,6 +1331,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         guestIdProof: '',
         gstNumber: '',
         checkInDate: '',
+        checkInTime: '',
         checkOutDate: '',
         noOfGuests: 0,
         advancePaid: 0,
@@ -1341,6 +1351,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         guestIdProof: source.guestIdProof || '',
         gstNumber: source.gstNumber || '',
         checkInDate: source.checkInDate || '',
+        checkInTime: source.checkInTime || '',
         checkOutDate: source.checkOutDate || '',
         noOfGuests: source.noOfGuests || 0,
         advancePaid: source.advancePaid || 0,
@@ -1820,7 +1831,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const confirmPreBookingCheckIn = async (
     id: string, 
     roomId: string, 
-    customDates?: { checkInDate: string; checkOutDate: string }
+    customDates?: { checkInDate: string; checkOutDate: string; checkInTime?: string }
   ) => {
     const tId = effectiveTenantId;
     if (!tId) return;
@@ -1831,6 +1842,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const todayStr = new Date().toISOString().split('T')[0];
     const finalCheckInDate = customDates?.checkInDate || (todayStr < pb.checkInDate ? todayStr : pb.checkInDate);
     const finalCheckOutDate = customDates?.checkOutDate || pb.checkOutDate;
+    const finalCheckInTime = customDates?.checkInTime || pb.checkInTime || formatTime12h({ hours: new Date().getHours(), minutes: new Date().getMinutes() });
 
     // Calculate nightly price if custom roomPrice was given
     let stayPrice = pb.roomPrice;
@@ -1861,12 +1873,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         groupBookingId: pb.groupBookingId,
         groupBookingName: pb.groupBookingName || pb.guestName,
         checkInDate: finalCheckInDate,
+        checkInTime: finalCheckInTime,
         checkOutDate: finalCheckOutDate
       });
       await api.put(`/pre-bookings/${id}?tenantId=${tId}`, { 
         status: 'CheckedIn', 
         roomNumber: targetRoom ? targetRoom.roomNumber : undefined,
         checkInDate: finalCheckInDate,
+        checkInTime: finalCheckInTime,
         checkOutDate: finalCheckOutDate
       });
       setPreBookings(prev => prev.map(p => p.id === id ? { 
@@ -1874,6 +1888,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         status: 'CheckedIn', 
         roomNumber: targetRoom ? targetRoom.roomNumber : undefined,
         checkInDate: finalCheckInDate,
+        checkInTime: finalCheckInTime,
         checkOutDate: finalCheckOutDate
       } : p));
     } catch (e) {
@@ -1914,6 +1929,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const finalCheckInDate = todayStr < pb.checkInDate ? todayStr : pb.checkInDate;
         const finalCheckOutDate = pb.checkOutDate;
 
+        const finalCheckInTime = pb.checkInTime || formatTime12h({ hours: new Date().getHours(), minutes: new Date().getMinutes() });
+
         await checkInRoom(targetRoomId, {
           name: pb.occupantName || pb.guestName,
           phone: pb.phone,
@@ -1930,6 +1947,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           groupBookingId: pb.groupBookingId,
           groupBookingName: pb.groupBookingName || pb.guestName,
           checkInDate: finalCheckInDate,
+          checkInTime: finalCheckInTime,
           checkOutDate: finalCheckOutDate
         });
 
@@ -1937,6 +1955,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           status: 'CheckedIn', 
           roomNumber: targetRoom ? targetRoom.roomNumber : undefined,
           checkInDate: finalCheckInDate,
+          checkInTime: finalCheckInTime,
           checkOutDate: finalCheckOutDate
         });
         setPreBookings(prev => prev.map(p => p.id === pb.id ? { 
@@ -1944,6 +1963,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           status: 'CheckedIn', 
           roomNumber: targetRoom ? targetRoom.roomNumber : undefined,
           checkInDate: finalCheckInDate,
+          checkInTime: finalCheckInTime,
           checkOutDate: finalCheckOutDate
         } : p));
       }
@@ -2234,6 +2254,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return {
       guestName: room.guestName || 'Valued Guest',
       checkInDate: room.checkInDate,
+      checkInTime: room.checkInTime,
       checkOutDate: new Date().toISOString().split('T')[0],
       stayDuration,
       roomRentTotal,

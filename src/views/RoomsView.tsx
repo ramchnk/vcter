@@ -22,7 +22,7 @@ import {
   IndianRupee,
   Printer
 } from 'lucide-react';
-import { getRoomCheckoutAlert, formatTime12h, RoomCheckoutAlert, getNextAdvanceReceiptNumber, formatReceiptDate } from '../utils/dateUtils';
+import { getRoomCheckoutAlert, getEffectiveCheckoutTime, isDirectBookingSource, formatTime12h, formatTime24h, RoomCheckoutAlert, getNextAdvanceReceiptNumber, formatReceiptDate } from '../utils/dateUtils';
 import { AdvanceReceiptModal, AdvanceReceiptData } from '../components/AdvanceReceiptModal';
 
 interface RoomsViewProps {
@@ -112,6 +112,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [bookingReference, setBookingReference] = useState<string>('');
   const [isAcSwitchedOff, setIsAcSwitchedOff] = useState<boolean>(false);
   const [checkOutDate, setCheckOutDate] = useState<string>('');
+  const [checkInTimeInput, setCheckInTimeInput] = useState<string>('');
 
   const [transferTargetRoomId, setTransferTargetRoomId] = useState('');
 
@@ -124,7 +125,9 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
           room.checkOutDate, 
           settings?.checkOutTime, 
           60, 
-          currentTime
+          currentTime,
+          room.bookingSource,
+          room.checkInTime
         );
         map.set(room.id, alertInfo);
       }
@@ -221,6 +224,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       setBookingReference(booking.bookingReference || '');
       setIsAcSwitchedOff(!!booking.isAcSwitchedOff);
       setCheckOutDate(booking.checkOutDate || '');
+      setCheckInTimeInput(booking.checkInTime || formatTime12h({ hours: new Date().getHours(), minutes: new Date().getMinutes() }));
     } else {
       setSelectedPreBookingId('');
       setGuestName('');
@@ -233,6 +237,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       setAdvancePaid(0);
       setBookingReference('');
       setCheckOutDate(new Date(Date.now() + 86400000).toISOString().split('T')[0]);
+      setCheckInTimeInput(formatTime12h({ hours: new Date().getHours(), minutes: new Date().getMinutes() }));
       if (selectedRoom) {
         setCheckInPrice(selectedRoom.price || 1500);
         setBookingSource('Direct / Walk-In');
@@ -247,6 +252,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     setBookingSource('Direct / Walk-In');
     setBookingReference('');
     setIsAcSwitchedOff(false);
+    setCheckInTimeInput(formatTime12h({ hours: new Date().getHours(), minutes: new Date().getMinutes() }));
 
     // Look for a matching prebooking for this exact room number or category for today or upcoming early arrival
     const matchingPre = preBookings.find(pb => 
@@ -262,6 +268,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       setBookingSource('Direct / Walk-In');
       setBookingReference('');
       setIsAcSwitchedOff(false);
+      setCheckInTimeInput(formatTime12h({ hours: new Date().getHours(), minutes: new Date().getMinutes() }));
     }
 
     setShowCheckInModal(true);
@@ -283,6 +290,8 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       receiptNo = getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber));
     }
 
+    const finalCheckInTime = checkInTimeInput.trim() || formatTime12h({ hours: new Date().getHours(), minutes: new Date().getMinutes() });
+
     if (selectedPreBookingId) {
       await checkInRoom(selectedRoom.id, {
         name: guestName,
@@ -301,6 +310,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         bookingReference: bookingReference.trim() || undefined,
         isAcSwitchedOff: isAcSwitchedOff,
         checkInDate: todayStr,
+        checkInTime: finalCheckInTime,
         checkOutDate: checkOutDate || undefined
       });
       await updatePreBookingStatus(selectedPreBookingId, 'CheckedIn');
@@ -322,6 +332,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         bookingReference: bookingReference.trim() || undefined,
         isAcSwitchedOff: isAcSwitchedOff,
         checkInDate: todayStr,
+        checkInTime: finalCheckInTime,
         checkOutDate: checkOutDate || undefined
       });
     }
@@ -568,7 +579,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                   Live Front-Desk Check-Out Alerts
                 </h4>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                  Check-Out Time: {settings.checkOutTime || '11:00 AM'}
+                  Walk-In: 24h Policy | Online: 12:00 PM
                 </span>
               </div>
               
@@ -848,15 +859,32 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                     
                     <div className="grid grid-cols-2 gap-2 text-[10px]">
                       <div>
-                        <p className="text-slate-400">Checked In</p>
-                        <p className="font-semibold text-slate-700 dark:text-slate-300 font-mono mt-0.5">{room.checkInDate}</p>
+                        <p className="text-slate-400 flex items-center gap-1">
+                          <Clock className="w-2.5 h-2.5 text-indigo-500" />
+                          <span>Checked In</span>
+                        </p>
+                        <p className="font-semibold text-slate-700 dark:text-slate-300 font-mono mt-0.5">
+                          {room.checkInDate}{' '}
+                          <span className="text-[9px] text-indigo-600 dark:text-indigo-400 font-semibold font-mono">
+                            ({room.checkInTime || settings.checkInTime || '12:00 PM'})
+                          </span>
+                        </p>
                       </div>
                       <div>
-                        <p className="text-slate-400 flex items-center gap-1">
-                          <span>Checkout Due</span>
-                          {checkoutAlert?.status === 'overdue' && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping"></span>}
-                          {checkoutAlert?.status === 'approaching' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>}
-                        </p>
+                        <div className="flex items-center justify-between text-slate-400">
+                          <p className="flex items-center gap-1">
+                            <span>Checkout Due</span>
+                            {checkoutAlert?.status === 'overdue' && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping"></span>}
+                            {checkoutAlert?.status === 'approaching' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>}
+                          </p>
+                          <span className={`text-[8px] font-bold uppercase tracking-wider px-1 py-0.2 rounded ${
+                            isDirectBookingSource(room.bookingSource)
+                              ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300'
+                              : 'bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300'
+                          }`} title={isDirectBookingSource(room.bookingSource) ? 'Direct / Walk-In: 24-Hour Checkout' : 'Online / OTA: 12:00 PM Checkout'}>
+                            {isDirectBookingSource(room.bookingSource) ? '24h' : '12 PM'}
+                          </span>
+                        </div>
                         <p className={`font-mono mt-0.5 ${
                           checkoutAlert?.status === 'overdue'
                             ? 'font-bold text-rose-600 dark:text-rose-400'
@@ -864,7 +892,10 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                             ? 'font-bold text-amber-600 dark:text-amber-400'
                             : 'font-semibold text-slate-700 dark:text-slate-300'
                         }`}>
-                          {room.checkOutDate} <span className="text-[9px] opacity-75 font-normal">({settings.checkOutTime || '11:00 AM'})</span>
+                          {room.checkOutDate}{' '}
+                          <span className="text-[9px] opacity-75 font-normal">
+                            ({checkoutAlert ? checkoutAlert.formattedCheckoutTime : getEffectiveCheckoutTime(room.bookingSource, room.checkInTime, settings.checkOutTime)})
+                          </span>
                         </p>
                       </div>
                     </div>
@@ -1066,22 +1097,44 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
             
             <form onSubmit={handleCheckInSubmit} className="space-y-4 text-xs">
               
-              {/* Standard Hotel Timings Info */}
-              <div className="p-2.5 bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/60 dark:border-indigo-800/60 rounded-xl flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-indigo-500" />
-                  <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Property Policy Timings</span>
-                    <span className="font-semibold text-slate-700 dark:text-slate-300 text-[11px]">
-                      Check-In: <strong className="text-indigo-600 dark:text-indigo-400 font-mono">{settings.checkInTime || '12:00 PM'}</strong>
-                      {' '}| Check-Out: <strong className="text-rose-600 dark:text-rose-400 font-mono">{settings.checkOutTime || '11:00 AM'}</strong>
+              {/* Dynamic Check-Out Policy Banner */}
+              {(() => {
+                const isDirect = isDirectBookingSource(bookingSource);
+                const expectedCheckoutTime = getEffectiveCheckoutTime(bookingSource, checkInTimeInput, settings.checkOutTime);
+                return (
+                  <div className={`p-2.5 rounded-xl border flex items-center justify-between text-xs transition-colors ${
+                    isDirect 
+                      ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-200/80 dark:border-amber-800/60' 
+                      : 'bg-indigo-50/70 dark:bg-indigo-950/30 border-indigo-200/80 dark:border-indigo-800/60'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <Clock className={`w-4 h-4 shrink-0 ${isDirect ? 'text-amber-600 dark:text-amber-400' : 'text-indigo-600 dark:text-indigo-400'}`} />
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                            {isDirect ? 'Direct / Walk-In Timing Policy' : `${bookingSource} Online Timing Policy`}
+                          </span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase ${
+                            isDirect 
+                              ? 'bg-amber-200 text-amber-950 dark:bg-amber-900 dark:text-amber-200' 
+                              : 'bg-indigo-200 text-indigo-950 dark:bg-indigo-900 dark:text-indigo-200'
+                          }`}>
+                            {isDirect ? '⚡ 24-Hour Checkout' : '🏨 12:00 PM Fixed Checkout'}
+                          </span>
+                        </div>
+                        <span className="font-semibold text-slate-700 dark:text-slate-300 text-[11px] mt-0.5 block">
+                          Check-In: <strong className="text-indigo-600 dark:text-indigo-400 font-mono">{checkInTimeInput || '12:00 PM'}</strong>
+                          {' '}➔ Check-Out Due: <strong className="text-rose-600 dark:text-rose-400 font-mono">{expectedCheckoutTime}</strong>
+                          {' '}<span className="text-[10px] text-slate-400 font-normal">({isDirect ? 'Same time 24h later' : 'Next day 12:00 PM'})</span>
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-medium text-slate-400 text-right max-w-[130px] leading-tight hidden sm:block">
+                      {isDirect ? '24h checkout from check-in time' : 'Fixed 12:00 PM checkout'}
                     </span>
                   </div>
-                </div>
-                <span className="text-[10px] font-medium text-slate-400 text-right">
-                  Blinker alerts active near {settings.checkOutTime || '11:00 AM'}
-                </span>
-              </div>
+                );
+              })()}
 
               {/* Pre-Booking Quick Autofill Selector */}
               <div className="p-3 bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2">
@@ -1313,27 +1366,15 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="font-bold text-slate-500">Address</label>
-                <input
-                  type="text"
-                  value={guestAddress}
-                  onChange={e => setGuestAddress(e.target.value)}
-                  className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg"
-                  placeholder="Complete Address"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="font-bold text-slate-500">Expected Check-Out *</label>
+                  <label className="font-bold text-slate-500">Address</label>
                   <input
-                    type="date"
-                    required
-                    min={todayStr}
-                    value={checkOutDate}
-                    onChange={e => setCheckOutDate(e.target.value)}
-                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg text-xs font-semibold"
+                    type="text"
+                    value={guestAddress}
+                    onChange={e => setGuestAddress(e.target.value)}
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg"
+                    placeholder="Complete Address"
                   />
                 </div>
                 <div className="space-y-1">
@@ -1344,6 +1385,39 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                     onChange={e => setGuestGst(e.target.value)}
                     className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg"
                     placeholder="Optional"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 flex items-center justify-between">
+                    <span>Check-In Time *</span>
+                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono font-bold">
+                      {checkInTimeInput || '12:00 PM'}
+                    </span>
+                  </label>
+                  <input
+                    type="time"
+                    value={formatTime24h(checkInTimeInput)}
+                    onChange={e => setCheckInTimeInput(e.target.value ? formatTime12h(e.target.value) : formatTime12h({ hours: new Date().getHours(), minutes: new Date().getMinutes() }))}
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg text-xs font-semibold"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 flex items-center justify-between">
+                    <span>Expected Check-Out *</span>
+                    <span className="text-[10px] text-rose-600 dark:text-rose-400 font-mono font-bold">
+                      Due {getEffectiveCheckoutTime(bookingSource, checkInTimeInput, settings.checkOutTime)}
+                    </span>
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    min={todayStr}
+                    value={checkOutDate}
+                    onChange={e => setCheckOutDate(e.target.value)}
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg text-xs font-semibold"
                   />
                 </div>
                 <div className="space-y-1">
@@ -1724,8 +1798,13 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                       <p className="font-bold text-slate-800 dark:text-slate-150">{summary.guestName}</p>
                     </div>
                     <div className="text-right">
-                      <span className="text-slate-400 text-[10px]">Check-In Date</span>
-                      <p className="font-mono text-slate-700 dark:text-slate-300 font-semibold">{summary.checkInDate}</p>
+                      <span className="text-slate-400 text-[10px]">Check-In</span>
+                      <p className="font-mono text-slate-700 dark:text-slate-300 font-semibold">
+                        {summary.checkInDate}{' '}
+                        <span className="text-indigo-600 dark:text-indigo-400 text-[11px]">
+                          ({selectedRoom.checkInTime || summary.checkInTime || settings.checkInTime || '12:00 PM'})
+                        </span>
+                      </p>
                     </div>
                   </div>
 
