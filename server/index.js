@@ -152,6 +152,10 @@ const orderSchema = new mongoose.Schema({
   tax: { type: Number, default: 0 },
   total: { type: Number, default: 0 },
   status: { type: String, default: 'Paid' },
+  paymentMethod: { type: String, default: 'Cash' },
+  splitDetails: { type: String, default: '' },
+  discount: { type: Number, default: 0 },
+  tableNumber: { type: String, default: '' },
   isBar: { type: Boolean, default: false },
   timestamp: { type: String, default: () => new Date().toISOString() }
 }, { timestamps: true });
@@ -1134,7 +1138,7 @@ app.post('/api/tables/:id/settle', async (req, res) => {
     const prefix = table.isBar ? 'BAR-' : 'POS-';
     const orderNo = `${prefix}${table.tableNumber}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const totalBill = table.total;
+    const totalBill = Math.max(0, (table.total || 0) - (Number(discount) || 0));
     const subtotal = table.subtotal;
     const tax = table.tax;
     const isPostedToRoom = paymentMethod === 'Room' && Boolean(roomNumber);
@@ -1145,11 +1149,15 @@ app.post('/api/tables/:id/settle', async (req, res) => {
       orderNumber: orderNo,
       type: isPostedToRoom ? 'Room' : 'WalkIn',
       roomNumber: isPostedToRoom ? roomNumber : undefined,
+      tableNumber: table.tableNumber,
       guestName: guestName || table.guestName || (isPostedToRoom ? `Room ${roomNumber}` : `Table ${table.tableNumber}`),
       items: table.runningItems,
       subtotal,
       tax,
       total: totalBill,
+      paymentMethod: paymentMethod || (isPostedToRoom ? 'Room' : 'Cash'),
+      splitDetails: splitDetails || '',
+      discount: Number(discount) || 0,
       status: isPostedToRoom ? 'PostedToRoom' : 'Paid',
       isBar: table.isBar,
       timestamp: new Date().toISOString()

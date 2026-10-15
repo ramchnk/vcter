@@ -119,10 +119,23 @@ export const BarDayBookModal: React.FC<BarDayBookModalProps> = ({
         card += amt;
       } else if (method.includes('split') && o.splitDetails) {
         try {
-          const split = JSON.parse(o.splitDetails);
-          cash += Number(split.cash || 0);
-          card += Number(split.card || 0);
-          upi += Number(split.upi || 0);
+          if (o.splitDetails.trim().startsWith('{')) {
+            const split = JSON.parse(o.splitDetails);
+            cash += Number(split.cash || 0);
+            card += Number(split.card || 0);
+            upi += Number(split.upi || 0);
+          } else {
+            const cMatch = o.splitDetails.match(/Cash:\s*₹?([0-9.]+)/i);
+            const cardMatch = o.splitDetails.match(/Card:\s*₹?([0-9.]+)/i);
+            const uMatch = o.splitDetails.match(/UPI:\s*₹?([0-9.]+)/i);
+            if (cMatch || cardMatch || uMatch) {
+              cash += cMatch ? Number(cMatch[1]) : 0;
+              card += cardMatch ? Number(cardMatch[1]) : 0;
+              upi += uMatch ? Number(uMatch[1]) : 0;
+            } else {
+              cash += amt;
+            }
+          }
         } catch {
           cash += amt;
         }
@@ -762,7 +775,12 @@ export const BarDayBookModal: React.FC<BarDayBookModalProps> = ({
                           </td>
                           <td className="border border-slate-300 p-1">{o.guestName || 'Bar Guest'}</td>
                           <td className="border border-slate-300 p-1 truncate max-w-[200px]" title={itemsText}>{itemsText}</td>
-                          <td className="border border-slate-300 p-1 text-center font-medium">{o.paymentMethod || 'Cash'}</td>
+                          <td className="border border-slate-300 p-1 text-center font-medium">
+                            <div>{o.paymentMethod || 'Cash'}</div>
+                            {o.splitDetails && (
+                              <div className="text-[8px] text-slate-500 font-mono leading-tight">{o.splitDetails}</div>
+                            )}
+                          </td>
                           <td className="border border-slate-300 p-1 text-right font-mono font-bold">
                             ₹{Number(o.total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>

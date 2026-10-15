@@ -428,7 +428,7 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
           roomNumber: o.roomNumber || 'POS',
           entryNumber: o.orderNumber || String(entryCounter--),
           billItems: o.isBar ? 'Bar Order' : 'Restaurant Order',
-          paymentMode: 'Cash',
+          paymentMode: o.paymentMethod || 'Cash',
           amount: Number(o.total || 0),
           orderDateTime: `${d}-${m}-${y}`
         });

@@ -77,6 +77,8 @@ export const RestaurantBarView: React.FC = () => {
   const [selectedRoomNumber, setSelectedRoomNumber] = useState('');
   const [walkInName, setWalkInName] = useState('');
   const [walkInPhone, setWalkInPhone] = useState('');
+  const [walkInPaymentMethod, setWalkInPaymentMethod] = useState<'Cash' | 'Card' | 'UPI' | 'Split'>('Cash');
+  const [walkInSplitDetails, setWalkInSplitDetails] = useState({ cash: 0, card: 0, upi: 0 });
   const [tableGuestName, setTableGuestName] = useState('');
   const [tablePax, setTablePax] = useState<number>(2);
   const [kotInstructions, setKotInstructions] = useState('');
@@ -412,8 +414,8 @@ export const RestaurantBarView: React.FC = () => {
             }
             body {
               font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
-              font-size: 12px;
-              line-height: 1.3;
+              font-size: 13px;
+              line-height: 1.4;
               color: #000000;
               background: #ffffff;
               width: 74mm;
@@ -435,6 +437,14 @@ export const RestaurantBarView: React.FC = () => {
             .double-line {
               border-bottom: 2px solid #000000;
               margin: 4px 0;
+            }
+            .eq-line {
+              font-size: 10px;
+              letter-spacing: 0px;
+              overflow: hidden;
+              white-space: nowrap;
+              color: #000;
+              margin: 3px 0;
             }
             .row {
               display: flex;
@@ -578,6 +588,7 @@ export const RestaurantBarView: React.FC = () => {
     tax: number;
     total: number;
     paymentMethod?: string;
+    splitDetails?: string;
     discount?: number;
     isBar?: boolean;
     status?: string;
@@ -592,103 +603,110 @@ export const RestaurantBarView: React.FC = () => {
     const timeStr = new Date(bill.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const totalQty = (bill.items || []).reduce((s, it) => s + (it.quantity || 1), 0);
     const isGuestCheck = bill.status === 'PreBill' || bill.status === 'Running';
-    const billTitle = isGuestCheck ? 'GUEST CHECK (PRE-BILL)' : 'TAX INVOICE / FINAL RECEIPT';
+    const paymentLabel = isGuestCheck
+      ? 'CASH BILL'
+      : bill.paymentMethod
+        ? `${bill.paymentMethod.toUpperCase()} BILL`
+        : 'CASH BILL';
 
-    const cgst = (Number(bill.tax || 0) / 2).toFixed(2);
-    const sgst = (Number(bill.tax || 0) / 2).toFixed(2);
+    // Format date as DD-MM-YYYY to match receipt style
+    const dateFormatted = (() => {
+      const d = new Date(bill.timestamp || Date.now());
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const yyyy = d.getFullYear();
+      return `${dd}-${mm}-${yyyy}`;
+    })();
 
-    const itemsHtml = (bill.items || []).map(it => `
-      <div class="row" style="margin-bottom: 2px; font-size: 11px;">
-        <span class="item-desc uppercase">${it.name}</span>
-        <span style="width: 24px; text-align: center;">${it.quantity}</span>
-        <span style="width: 44px; text-align: right;">${Number(it.price).toFixed(2)}</span>
-        <span style="width: 50px; text-align: right; font-weight: bold;">${(Number(it.price) * it.quantity).toFixed(2)}</span>
-      </div>
-    `).join('');
+    const eqLine = '================================================';
+
+    // Items rows: SNo  Description (padded)  Qty  Rate  Amount
+    const itemsHtml = (bill.items || []).map((it, idx) => {
+      const sno    = String(idx + 1).padEnd(3);
+      const name   = (it.name || '').toUpperCase();
+      const qty    = String(it.quantity || 1);
+      const rate   = Number(it.price).toFixed(2);
+      const amount = (Number(it.price) * (it.quantity || 1)).toFixed(2);
+      return `
+        <div style="display:flex; justify-content:space-between; align-items:baseline; font-size:13px; margin:3px 0; font-weight:bold;">
+          <span style="flex:0 0 18px;">${sno}</span>
+          <span style="flex:1; padding-right:4px;">${name}</span>
+          <span style="flex:0 0 22px; text-align:center;">${qty}</span>
+          <span style="flex:0 0 52px; text-align:right;">${rate}</span>
+          <span style="flex:0 0 56px; text-align:right;">${amount}</span>
+        </div>`;
+    }).join('');
 
     const html = `
-      ${settings.logoUrl ? `<div class="center" style="margin-bottom: 6px;"><img src="${settings.logoUrl}" style="max-height: 56px; max-width: 160px; object-fit: contain; margin: 0 auto; display: block;" /></div>` : ''}
-      <div class="center bold uppercase" style="font-size: 13px;">${hotelName}</div>
-      ${settings.tagline ? `<div class="center italic" style="font-size: 10px; margin-bottom: 2px;">${settings.tagline}</div>` : ''}
-      ${address ? `<div class="center" style="font-size: 9px;">${address}</div>` : ''}
-      ${phoneDisplay ? `<div class="center" style="font-size: 9px;">${phoneDisplay}</div>` : ''}
-      ${gstNumber ? `<div class="center bold" style="font-size: 9px;">GSTIN: ${gstNumber}</div>` : ''}
-      
-      <div class="double-line"></div>
-      <div class="center bold" style="font-size: 11px; margin: 1px 0;">*** ${billTitle} ***</div>
-      <div class="double-line"></div>
-      
-      <div class="row" style="font-size: 10px;">
-        <span>BILL NO: <strong class="black">${bill.billNumber}</strong></span>
-        <span>DATE: ${dateStr}</span>
+      <div class="center bold uppercase" style="font-size:17px; letter-spacing:1px; margin-bottom:2px;">${hotelName}</div>
+      ${address ? `<div class="center" style="font-size:11px;">${address}</div>` : ''}
+      ${phoneDisplay ? `<div class="center" style="font-size:11px;">${phoneDisplay}</div>` : ''}
+      ${settings.tagline ? `<div class="center" style="font-size:11px;">${settings.tagline}</div>` : ''}
+
+      <div class="eq-line">${eqLine}</div>
+
+      <div class="center bold uppercase" style="font-size:13px; margin:3px 0;">${paymentLabel}</div>
+
+      <div class="eq-line">${eqLine}</div>
+
+      <div style="font-size:13px; margin:3px 0;">Bill No &nbsp;: <strong>${bill.billNumber}</strong></div>
+      <div style="font-size:13px; margin:3px 0;">Date &nbsp;&nbsp;&nbsp;: ${dateFormatted} &nbsp;&nbsp; Time : ${timeStr}</div>
+      ${bill.tableNumber ? `<div style="font-size:13px; margin:3px 0;">Table &nbsp;&nbsp;: <strong>Table ${bill.tableNumber}${bill.section ? ` (${bill.section})` : ''}</strong></div>` : ''}
+      ${bill.guestName ? `<div style="font-size:13px; margin:3px 0;">Guest &nbsp;&nbsp;: <strong>${bill.guestName}</strong></div>` : ''}
+      ${bill.roomNumber ? `<div style="font-size:13px; margin:3px 0;">Room &nbsp;&nbsp;&nbsp;: <strong>Room ${bill.roomNumber}</strong></div>` : ''}
+
+      <div class="eq-line">${eqLine}</div>
+
+      <div style="display:flex; justify-content:space-between; align-items:baseline; font-size:13px; font-weight:bold; margin:3px 0;">
+        <span style="flex:0 0 18px;">SNo</span>
+        <span style="flex:1;">Description</span>
+        <span style="flex:0 0 22px; text-align:center;">Qty</span>
+        <span style="flex:0 0 52px; text-align:right;">Rate</span>
+        <span style="flex:0 0 56px; text-align:right;">Amount</span>
       </div>
-      <div class="row" style="font-size: 10px;">
-        <span>TIME: ${timeStr}</span>
-        ${bill.tableNumber ? `<span>TABLE: <strong>Table ${bill.tableNumber} (${bill.section || ''})</strong></span>` : ''}
+
+      <div class="eq-line">${eqLine}</div>
+
+      ${itemsHtml}
+
+      <div class="eq-line">${eqLine}</div>
+
+      <div style="display:flex; justify-content:space-between; align-items:baseline; font-size:14px; margin:3px 0;">
+        <span style="flex:1; font-weight:bold;">Total</span>
+        <span style="flex:0 0 22px; text-align:center; font-weight:bold;">${totalQty}</span>
+        <span style="flex:0 0 52px;"></span>
+        <span style="flex:0 0 56px; text-align:right; font-weight:bold;">${Number(bill.total || 0).toFixed(2)}</span>
       </div>
-      
-      <div class="row" style="font-size: 10px;">
-        <span>GUEST: <strong>${bill.guestName || 'Dine-In Guest'}</strong></span>
-        ${bill.roomNumber ? `<span>ROOM: <strong>Room ${bill.roomNumber}</strong></span>` : ''}
-      </div>
-      ${bill.serverName ? `<div class="row" style="font-size: 10px;"><span>SERVER: ${bill.serverName}</span></div>` : ''}
-      
-      <div class="double-line"></div>
-      <div class="row table-header" style="font-size: 10px;">
-        <span class="item-desc">ITEM</span>
-        <span style="width: 24px; text-align: center;">QTY</span>
-        <span style="width: 44px; text-align: right;">RATE</span>
-        <span style="width: 50px; text-align: right;">AMT</span>
-      </div>
-      
-      <div style="padding: 2px 0;">
-        ${itemsHtml}
-      </div>
-      
+
       <div class="dash-line"></div>
-      <div class="row" style="font-size: 10px;">
-        <span>TOTAL ITEMS: ${(bill.items || []).length} (QTY: ${totalQty})</span>
-      </div>
-      
-      <div class="dash-line"></div>
-      <div class="row" style="font-size: 10px;">
-        <span>TAXABLE BASE (Subtotal):</span>
-        <span>₹ ${Number(bill.subtotal || 0).toFixed(2)}</span>
-      </div>
-      <div class="row" style="font-size: 10px;">
-        <span>CGST (Inclusive split):</span>
-        <span>₹ ${cgst}</span>
-      </div>
-      <div class="row" style="font-size: 10px;">
-        <span>SGST (Inclusive split):</span>
-        <span>₹ ${sgst}</span>
-      </div>
+
       ${bill.discount && bill.discount > 0 ? `
-        <div class="row" style="font-size: 10px; color: #b91c1c;">
-          <span>DISCOUNT:</span>
-          <span>- ₹ ${Number(bill.discount).toFixed(2)}</span>
+        <div style="display:flex; justify-content:space-between; font-size:13px; margin:3px 0;">
+          <span>Discount:</span>
+          <span>- ${Number(bill.discount).toFixed(2)}</span>
         </div>
+        <div class="dash-line"></div>
       ` : ''}
-      
-      <div class="double-line"></div>
-      <div class="row bold" style="font-size: 13px;">
-        <span>NET PAYABLE:</span>
-        <span class="black">₹ ${Number(bill.total || 0).toFixed(2)}</span>
+
+      <div style="display:flex; justify-content:space-between; align-items:baseline; font-size:16px; font-weight:900; margin:4px 0;">
+        <span>Total Rs.</span>
+        <span>${Number(bill.total || 0).toFixed(2)}</span>
       </div>
-      <div class="double-line"></div>
-      
-      <div class="row" style="font-size: 10px; margin-top: 2px;">
-        <span>PAYMENT MODE:</span>
-        <strong class="uppercase">${bill.paymentMethod ? `${bill.paymentMethod} ${bill.roomNumber ? `(Room ${bill.roomNumber})` : ''}` : (isGuestCheck ? 'PENDING SETTLEMENT' : 'PAID')}</strong>
+
+      <div class="dash-line" style="border-bottom:1px dashed #000;"></div>
+
+      ${gstNumber ? `<div style="font-size:11px; margin-top:4px;">GSTIN: ${gstNumber}</div>` : ''}
+
+      <div style="font-size:12px; margin-top:3px;">
+        Payment Mode: <strong class="uppercase">${bill.paymentMethod
+          ? `${bill.paymentMethod}${bill.roomNumber ? ` (Room ${bill.roomNumber})` : ''}`
+          : (isGuestCheck ? 'Pending' : 'Cash')}</strong>
       </div>
-      
+      ${bill.splitDetails ? `<div style="font-size:11px; margin-top:2px;">Breakdown: ${bill.splitDetails}</div>` : ''}
+
       <div class="dash-line"></div>
-      <div class="center bold" style="font-size: 10px; margin-top: 4px;">
-        Thank you for dining with us! Please visit again.
-      </div>
-      <div class="center" style="font-size: 9px; margin-top: 2px;">
-        -- Software generated bill --
-      </div>
+      <div class="center" style="font-size:11px; margin-top:4px;">Thank you! Please visit again.</div>
+      <div class="center" style="font-size:10px; margin-top:2px;">-- Software generated bill --</div>
     `;
 
     triggerThermalPrint(`BILL-${bill.billNumber}`, html);
@@ -755,6 +773,12 @@ export const RestaurantBarView: React.FC = () => {
 
     let splitDetailsStr = '';
     if (settlePaymentMethod === 'Split') {
+      const netBill = Math.max(0, (settleTargetTable.total || 0) - (Number(settleDiscount) || 0));
+      const splitTotal = (settleSplitDetails.cash || 0) + (settleSplitDetails.card || 0) + (settleSplitDetails.upi || 0);
+      if (Math.abs(splitTotal - netBill) > 0.5) {
+        alert(`Split total (₹${splitTotal}) must match net bill amount (₹${netBill}). Difference: ₹${(netBill - splitTotal).toFixed(2)}`);
+        return;
+      }
       splitDetailsStr = `Cash: ₹${settleSplitDetails.cash}, Card: ₹${settleSplitDetails.card}, UPI: ₹${settleSplitDetails.upi}`;
     }
 
@@ -782,6 +806,7 @@ export const RestaurantBarView: React.FC = () => {
         tax: res.order.tax,
         total: res.order.total,
         paymentMethod: settlePaymentMethod,
+        splitDetails: settlePaymentMethod === 'Split' ? splitDetailsStr : undefined,
         discount: Number(settleDiscount) || 0,
         isBar: isBarMode,
         status: 'Settled'
@@ -824,14 +849,29 @@ export const RestaurantBarView: React.FC = () => {
       ? (activeGuestName || `Room ${selectedRoomNumber}`) 
       : (walkInName.trim() || 'Walk-In Guest');
 
+    let splitDetailsStr = '';
+    if (posOrderMode === 'WalkIn' && walkInPaymentMethod === 'Split') {
+      const splitTotal = (walkInSplitDetails.cash || 0) + (walkInSplitDetails.card || 0) + (walkInSplitDetails.upi || 0);
+      if (Math.abs(splitTotal - cartTotal) > 0.5) {
+        alert(`Split total (₹${splitTotal}) must match order total (₹${cartTotal}). Difference: ₹${(cartTotal - splitTotal).toFixed(2)}`);
+        return;
+      }
+      splitDetailsStr = `Cash: ₹${walkInSplitDetails.cash}, Card: ₹${walkInSplitDetails.card}, UPI: ₹${walkInSplitDetails.upi}`;
+    }
+
     await addRestaurantBarOrder({
       type: posOrderMode === 'Room' ? 'Room' : 'WalkIn',
       roomNumber: posOrderMode === 'Room' ? selectedRoomNumber : undefined,
       guestName: finalGuestName,
       items: cart,
       subtotal: cartTotal,
-      isBar: isBarMode
+      isBar: isBarMode,
+      paymentMethod: posOrderMode === 'Room' ? 'Room' : walkInPaymentMethod,
+      splitDetails: posOrderMode === 'WalkIn' && walkInPaymentMethod === 'Split' ? splitDetailsStr : undefined
     });
+
+    setWalkInPaymentMethod('Cash');
+    setWalkInSplitDetails({ cash: 0, card: 0, upi: 0 });
 
     clearCart();
     confetti({
@@ -1657,6 +1697,98 @@ export const RestaurantBarView: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Walk-In Payment Method & Split Selector */}
+                {posOrderMode === 'WalkIn' && (
+                  <div className="space-y-2 pt-1 border-t border-slate-200/50 dark:border-slate-800/50">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                      Settlement Mode *
+                    </label>
+                    <div className="grid grid-cols-4 gap-1">
+                      {(['Cash', 'Card', 'UPI', 'Split'] as const).map(mode => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => {
+                            setWalkInPaymentMethod(mode);
+                            if (mode === 'Split') {
+                              if (walkInSplitDetails.cash === 0 && walkInSplitDetails.card === 0 && walkInSplitDetails.upi === 0) {
+                                setWalkInSplitDetails({ cash: cartTotal, card: 0, upi: 0 });
+                              }
+                            }
+                          }}
+                          className={`py-1.5 rounded-lg text-xs font-bold transition-all ${
+                            walkInPaymentMethod === mode
+                              ? 'bg-emerald-600 text-white shadow-sm'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                          }`}
+                        >
+                          {mode === 'Split' ? '✂️ Split' : mode}
+                        </button>
+                      ))}
+                    </div>
+
+                    {walkInPaymentMethod === 'Split' && (
+                      <div className="p-2.5 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-xl space-y-2 text-xs">
+                        <div className="grid grid-cols-3 gap-1.5">
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400">Cash (₹)</label>
+                            <input
+                              type="number"
+                              min={0}
+                              step="any"
+                              value={walkInSplitDetails.cash || ''}
+                              onChange={e => setWalkInSplitDetails(prev => ({ ...prev, cash: parseFloat(e.target.value) || 0 }))}
+                              className="w-full p-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs font-mono font-bold"
+                              placeholder="0"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400">Card (₹)</label>
+                            <input
+                              type="number"
+                              min={0}
+                              step="any"
+                              value={walkInSplitDetails.card || ''}
+                              onChange={e => setWalkInSplitDetails(prev => ({ ...prev, card: parseFloat(e.target.value) || 0 }))}
+                              className="w-full p-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs font-mono font-bold"
+                              placeholder="0"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400">UPI (₹)</label>
+                            <input
+                              type="number"
+                              min={0}
+                              step="any"
+                              value={walkInSplitDetails.upi || ''}
+                              onChange={e => setWalkInSplitDetails(prev => ({ ...prev, upi: parseFloat(e.target.value) || 0 }))}
+                              className="w-full p-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs font-mono font-bold"
+                              placeholder="0"
+                            />
+                          </div>
+                        </div>
+
+                        {(() => {
+                          const splitSum = (walkInSplitDetails.cash || 0) + (walkInSplitDetails.card || 0) + (walkInSplitDetails.upi || 0);
+                          const diff = Math.round((cartTotal - splitSum) * 100) / 100;
+                          return (
+                            <div className="flex items-center justify-between text-[11px] font-mono pt-1 border-t border-amber-200/50">
+                              <span>Sum: ₹{splitSum}</span>
+                              {diff === 0 ? (
+                                <span className="text-emerald-600 dark:text-emerald-400 font-bold">✓ Matches Total</span>
+                              ) : diff > 0 ? (
+                                <span className="text-amber-700 dark:text-amber-400 font-bold">Remaining: ₹{diff}</span>
+                              ) : (
+                                <span className="text-rose-600 dark:text-rose-400 font-bold">Excess: ₹{Math.abs(diff)}</span>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Main Action Buttons */}
                 <div className="flex gap-2 pt-1">
                   <button
@@ -2001,10 +2133,17 @@ export const RestaurantBarView: React.FC = () => {
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                             order.status === 'PostedToRoom'
                               ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
+                              : order.paymentMethod === 'Split'
+                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
                               : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
                           }`}>
-                            {order.status}
+                            {order.paymentMethod ? (order.paymentMethod === 'Split' ? '✂️ Split' : order.paymentMethod) : order.status}
                           </span>
+                          {order.splitDetails && (
+                            <div className="text-[9px] text-slate-500 font-mono mt-0.5 max-w-[130px] leading-tight truncate" title={order.splitDetails}>
+                              {order.splitDetails}
+                            </div>
+                          )}
                         </td>
                         <td className="p-3.5 text-right">
                           <button
@@ -2492,11 +2631,11 @@ export const RestaurantBarView: React.FC = () => {
 
               {/* Financial Calculations (GST Inclusive) */}
               <div className="p-3 bg-indigo-50/40 dark:bg-indigo-950/20 border border-indigo-200/50 dark:border-indigo-800/50 rounded-xl space-y-1.5 font-mono text-xs">
-                <div className="flex justify-between text-slate-600">
+                <div className="flex justify-between text-slate-600 dark:text-slate-400">
                   <span>Taxable Base Value:</span>
                   <span>₹{settleTargetTable.subtotal}</span>
                 </div>
-                <div className="flex justify-between text-slate-600 text-[11px]">
+                <div className="flex justify-between text-slate-600 dark:text-slate-400 text-[11px]">
                   <span>GST Taxes (Inclusive):</span>
                   <span>₹{settleTargetTable.tax}</span>
                 </div>
@@ -2504,28 +2643,169 @@ export const RestaurantBarView: React.FC = () => {
                   <span>Total Gross Folio:</span>
                   <span className="text-indigo-600 dark:text-indigo-400">₹{settleTargetTable.total}</span>
                 </div>
+                <div className="flex justify-between items-center text-xs pt-1 border-t border-indigo-200/60 dark:border-indigo-800/60">
+                  <span className="text-slate-600 dark:text-slate-400">Special Discount (₹):</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={settleTargetTable.total}
+                    value={settleDiscount || ''}
+                    onChange={e => {
+                      const disc = parseFloat(e.target.value) || 0;
+                      setSettleDiscount(disc);
+                      if (settlePaymentMethod === 'Split') {
+                        const newNet = Math.max(0, (settleTargetTable.total || 0) - disc);
+                        setSettleSplitDetails({ cash: newNet, card: 0, upi: 0 });
+                      }
+                    }}
+                    placeholder="0"
+                    className="w-20 p-1 text-right font-mono font-bold bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs"
+                  />
+                </div>
+                {settleDiscount > 0 && (
+                  <div className="flex justify-between text-xs font-bold text-emerald-600 dark:text-emerald-400 pt-0.5">
+                    <span>Net Amount to Settle:</span>
+                    <span>₹{Math.max(0, (settleTargetTable.total || 0) - (Number(settleDiscount) || 0))}</span>
+                  </div>
+                )}
               </div>
 
               {/* Payment Method Selector */}
               <div className="space-y-2">
                 <label className="font-bold text-slate-500 block">Select Settlement Mode *</label>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {(['Cash', 'Card', 'UPI', 'Room'] as const).map(mode => (
+                <div className="grid grid-cols-5 gap-1.5">
+                  {(['Cash', 'Card', 'UPI', 'Room', 'Split'] as const).map(mode => (
                     <button
                       key={mode}
                       type="button"
-                      onClick={() => setSettlePaymentMethod(mode)}
+                      onClick={() => {
+                        setSettlePaymentMethod(mode);
+                        if (mode === 'Split') {
+                          const net = Math.max(0, (settleTargetTable.total || 0) - (Number(settleDiscount) || 0));
+                          if (settleSplitDetails.cash === 0 && settleSplitDetails.card === 0 && settleSplitDetails.upi === 0) {
+                            setSettleSplitDetails({ cash: net, card: 0, upi: 0 });
+                          }
+                        }
+                      }}
                       className={`py-2 rounded-xl text-xs font-bold transition-all ${
                         settlePaymentMethod === mode
                           ? 'bg-emerald-600 text-white shadow-md'
                           : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
                       }`}
                     >
-                      {mode === 'Room' ? '🏨 Post to Room' : mode}
+                      {mode === 'Room' ? '🏨 Room' : mode === 'Split' ? '✂️ Split' : mode}
                     </button>
                   ))}
                 </div>
               </div>
+
+              {/* If Split is selected */}
+              {settlePaymentMethod === 'Split' && (
+                <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-xl space-y-2.5 animate-fadeIn">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-amber-900 dark:text-amber-200 text-xs flex items-center gap-1.5">
+                      ✂️ Split Payment Breakdown
+                    </span>
+                    <span className="text-[10px] font-mono font-bold text-slate-500">
+                      Target: ₹{Math.max(0, (settleTargetTable.total || 0) - (Number(settleDiscount) || 0))}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400">💵 Cash (₹)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={settleSplitDetails.cash || ''}
+                        onChange={e => setSettleSplitDetails(prev => ({ ...prev, cash: parseFloat(e.target.value) || 0 }))}
+                        className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg font-mono font-bold text-xs"
+                        placeholder="0"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400">💳 Card (₹)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={settleSplitDetails.card || ''}
+                        onChange={e => setSettleSplitDetails(prev => ({ ...prev, card: parseFloat(e.target.value) || 0 }))}
+                        className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg font-mono font-bold text-xs"
+                        placeholder="0"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400">📱 UPI (₹)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={settleSplitDetails.upi || ''}
+                        onChange={e => setSettleSplitDetails(prev => ({ ...prev, upi: parseFloat(e.target.value) || 0 }))}
+                        className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg font-mono font-bold text-xs"
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const netTarget = Math.max(0, (settleTargetTable.total || 0) - (Number(settleDiscount) || 0));
+                    const splitSum = (settleSplitDetails.cash || 0) + (settleSplitDetails.card || 0) + (settleSplitDetails.upi || 0);
+                    const diff = Math.round((netTarget - splitSum) * 100) / 100;
+                    return (
+                      <div className="space-y-1.5 pt-1 border-t border-amber-200/60 dark:border-amber-800/40">
+                        <div className="flex items-center justify-between text-[11px] font-mono">
+                          <span className="text-slate-600 dark:text-slate-400">
+                            Split Sum: <strong>₹{splitSum}</strong>
+                          </span>
+                          {diff === 0 ? (
+                            <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
+                              ✓ Matches Net Bill
+                            </span>
+                          ) : diff > 0 ? (
+                            <span className="text-amber-700 dark:text-amber-400 font-bold">
+                              Remaining to Allocate: ₹{diff}
+                            </span>
+                          ) : (
+                            <span className="text-rose-600 dark:text-rose-400 font-bold">
+                              Excess Allocated: ₹{Math.abs(diff)}
+                            </span>
+                          )}
+                        </div>
+
+                        {diff > 0 && (
+                          <div className="flex items-center gap-1.5 text-[10px]">
+                            <span className="text-slate-500">Quick allocate ₹{diff} to:</span>
+                            <button
+                              type="button"
+                              onClick={() => setSettleSplitDetails(prev => ({ ...prev, cash: Math.round(((prev.cash || 0) + diff) * 100) / 100 }))}
+                              className="px-2 py-0.5 bg-white dark:bg-slate-800 border rounded font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100"
+                            >
+                              + Cash
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSettleSplitDetails(prev => ({ ...prev, card: Math.round(((prev.card || 0) + diff) * 100) / 100 }))}
+                              className="px-2 py-0.5 bg-white dark:bg-slate-800 border rounded font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100"
+                            >
+                              + Card
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSettleSplitDetails(prev => ({ ...prev, upi: Math.round(((prev.upi || 0) + diff) * 100) / 100 }))}
+                              className="px-2 py-0.5 bg-white dark:bg-slate-800 border rounded font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100"
+                            >
+                              + UPI
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
 
               {/* If Room is selected */}
               {settlePaymentMethod === 'Room' && (
@@ -2704,6 +2984,18 @@ export const RestaurantBarView: React.FC = () => {
                 <span>TOTAL SETTLED:</span>
                 <span>₹{selectedOrderForReceipt.total}</span>
               </div>
+              <div className="flex justify-between text-[11px] font-bold pt-1 text-slate-700 dark:text-slate-300">
+                <span>PAYMENT METHOD:</span>
+                <span className="uppercase text-emerald-600 dark:text-emerald-400">
+                  {selectedOrderForReceipt.paymentMethod || (selectedOrderForReceipt.status === 'PostedToRoom' ? 'Room' : 'Settled')}
+                </span>
+              </div>
+              {selectedOrderForReceipt.splitDetails && (
+                <div className="p-2 bg-amber-50 dark:bg-amber-950/30 rounded-lg text-[10px] font-mono text-amber-800 dark:text-amber-300 border border-amber-200/50">
+                  <span className="font-bold block text-[9px] uppercase text-amber-600">Split Breakdown:</span>
+                  {selectedOrderForReceipt.splitDetails}
+                </div>
+              )}
             </div>
 
             <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -2723,7 +3015,8 @@ export const RestaurantBarView: React.FC = () => {
                   subtotal: selectedOrderForReceipt.subtotal,
                   tax: selectedOrderForReceipt.tax,
                   total: selectedOrderForReceipt.total,
-                  paymentMethod: selectedOrderForReceipt.status === 'PostedToRoom' ? 'Room' : 'Settled',
+                  paymentMethod: selectedOrderForReceipt.status === 'PostedToRoom' ? 'Room' : (selectedOrderForReceipt.paymentMethod || 'Settled'),
+                  splitDetails: selectedOrderForReceipt.splitDetails,
                   status: 'Settled',
                   isBar: selectedOrderForReceipt.isBar
                 })}

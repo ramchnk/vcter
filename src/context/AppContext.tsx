@@ -1505,7 +1505,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       timestamp: new Date().toISOString(),
       tax: taxAmount,
       total: grandTotal,
-      status: isPostedToRoom ? 'PostedToRoom' : 'Paid'
+      status: isPostedToRoom ? 'PostedToRoom' : 'Paid',
+      paymentMethod: (order as any).paymentMethod || (isPostedToRoom ? 'Room' : 'Cash'),
+      splitDetails: (order as any).splitDetails || ''
     } as any;
 
     try {
