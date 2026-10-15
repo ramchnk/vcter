@@ -20,7 +20,8 @@ import {
   Pencil,
   Globe,
   IndianRupee,
-  Printer
+  Printer,
+  Edit3
 } from 'lucide-react';
 import { getRoomCheckoutAlert, getEffectiveCheckoutTime, isDirectBookingSource, formatTime12h, formatTime24h, RoomCheckoutAlert, getNextAdvanceReceiptNumber, formatReceiptDate } from '../utils/dateUtils';
 import { AdvanceReceiptModal, AdvanceReceiptData } from '../components/AdvanceReceiptModal';
@@ -116,6 +117,25 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [checkInTimeInput, setCheckInTimeInput] = useState<string>('');
 
   const [transferTargetRoomId, setTransferTargetRoomId] = useState('');
+
+  // Edit Check-In Details Modal state
+  const [showEditCheckInModal, setShowEditCheckInModal] = useState(false);
+  const [editCheckInRoom, setEditCheckInRoom] = useState<Room | null>(null);
+  const [editGuestName, setEditGuestName] = useState('');
+  const [editGuestPhone, setEditGuestPhone] = useState('');
+  const [editGuestIdProof, setEditGuestIdProof] = useState('');
+  const [editGuestEmail, setEditGuestEmail] = useState('');
+  const [editGuestAddress, setEditGuestAddress] = useState('');
+  const [editGuestGst, setEditGuestGst] = useState('');
+  const [editNoOfGuests, setEditNoOfGuests] = useState(1);
+  const [editCheckInPrice, setEditCheckInPrice] = useState<number | string>(1500);
+  const [editBookingSource, setEditBookingSource] = useState<string>('Direct / Walk-In');
+  const [editBookingReference, setEditBookingReference] = useState<string>('');
+  const [editIsAcSwitchedOff, setEditIsAcSwitchedOff] = useState<boolean>(false);
+  const [editCheckInDate, setEditCheckInDate] = useState<string>('');
+  const [editCheckInTimeInput, setEditCheckInTimeInput] = useState<string>('');
+  const [editCheckOutDate, setEditCheckOutDate] = useState<string>('');
+  const [isSubmittingEditCheckIn, setIsSubmittingEditCheckIn] = useState(false);
 
   // Pre-calculate real-time checkout alerts for all occupied rooms
   const roomAlertMap = useMemo(() => {
@@ -562,6 +582,59 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     }
   };
 
+  const handleOpenEditCheckIn = (room: Room, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setEditCheckInRoom(room);
+    setEditGuestName(room.guestName || '');
+    setEditGuestPhone(room.guestPhone || '');
+    setEditGuestEmail(room.guestEmail || '');
+    setEditGuestAddress(room.guestAddress || '');
+    setEditGuestIdProof(room.guestIdProof || '');
+    setEditGuestGst(room.gstNumber || '');
+    setEditBookingSource(room.bookingSource || 'Direct / Walk-In');
+    setEditBookingReference(room.bookingReference || '');
+    setEditNoOfGuests(room.noOfGuests || 1);
+    setEditCheckInPrice(room.price || room.basePrice || 1500);
+    setEditIsAcSwitchedOff(!!room.isAcSwitchedOff);
+    setEditCheckInDate(room.checkInDate || todayStr);
+    setEditCheckInTimeInput(room.checkInTime || formatTime12h({ hours: new Date().getHours(), minutes: new Date().getMinutes() }));
+    setEditCheckOutDate(room.checkOutDate || new Date(Date.now() + 86400000).toISOString().split('T')[0]);
+    setShowEditCheckInModal(true);
+  };
+
+  const handleEditCheckInSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editCheckInRoom) return;
+    setIsSubmittingEditCheckIn(true);
+    try {
+      const finalPrice = Number(editCheckInPrice) > 0 ? Number(editCheckInPrice) : (editCheckInRoom.price || 1500);
+      const updates: Partial<Room> = {
+        guestName: editGuestName.trim(),
+        guestPhone: editGuestPhone.trim(),
+        guestEmail: editGuestEmail.trim(),
+        guestAddress: editGuestAddress.trim(),
+        guestIdProof: editGuestIdProof.trim(),
+        gstNumber: editGuestGst.trim(),
+        bookingSource: editBookingSource,
+        bookingReference: editBookingReference.trim() || '',
+        noOfGuests: Number(editNoOfGuests) || 1,
+        price: finalPrice,
+        isAcSwitchedOff: editIsAcSwitchedOff,
+        checkInDate: editCheckInDate || editCheckInRoom.checkInDate,
+        checkInTime: editCheckInTimeInput || editCheckInRoom.checkInTime,
+        checkOutDate: editCheckOutDate || editCheckInRoom.checkOutDate
+      };
+
+      await updateRoom(editCheckInRoom.id, updates);
+      setShowEditCheckInModal(false);
+    } catch (err) {
+      console.error('Failed to update check-in details:', err);
+      alert('Failed to update check-in details. Please try again.');
+    } finally {
+      setIsSubmittingEditCheckIn(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       
@@ -771,7 +844,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                       <span className="font-mono font-bold text-slate-700 dark:text-slate-200">₹{room.price}/day</span>
                     </div>
 
-                    {isOccupied && (room.isAcSwitchedOff || (room.bookingSource && room.bookingSource !== 'Direct / Walk-In') || room.groupBookingId || room.bookingReference) && (
+                    {isOccupied && (room.isAcSwitchedOff || (room.bookingSource && room.bookingSource !== 'Direct / Walk-In') || room.groupBookingId || room.bookingReference || room.gstNumber) && (
                       <div className="flex flex-wrap items-center gap-1 mt-1.5">
                         {room.groupBookingId && (
                           <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-bold border border-purple-200/50 dark:border-purple-800/50">
@@ -791,6 +864,11 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                         {room.bookingReference && (
                           <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 font-mono font-bold border border-amber-200/60 dark:border-amber-800/60 flex items-center gap-0.5">
                             <Globe className="w-2.5 h-2.5" /> Ref: #{room.bookingReference}
+                          </span>
+                        )}
+                        {room.gstNumber && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-mono font-bold border border-blue-200/50 dark:border-blue-800/50">
+                            GST: {room.gstNumber}
                           </span>
                         )}
                       </div>
@@ -855,9 +933,19 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                 {/* Body: Guest details if occupied */}
                 {isOccupied && (
                   <div className="p-3 bg-white/50 dark:bg-slate-900/40 rounded-xl space-y-2 border border-white/40 dark:border-slate-800/40 text-xs">
-                    <div>
-                      <p className="text-[10px] text-slate-400 leading-none">Guest Name</p>
-                      <p className="font-bold text-slate-800 dark:text-slate-200 mt-0.5 truncate">{room.guestName}</p>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-[10px] text-slate-400 leading-none">Guest Name</p>
+                        <p className="font-bold text-slate-800 dark:text-slate-200 mt-0.5 truncate">{room.guestName}</p>
+                      </div>
+                      <button
+                        onClick={(e) => handleOpenEditCheckIn(room, e)}
+                        className="px-2 py-0.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/70 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 rounded-md text-[10px] font-bold border border-indigo-200/60 dark:border-indigo-800/60 flex items-center gap-1 transition-colors shrink-0 shadow-xs"
+                        title="Edit Check-In Details (Channel, GST, Rate, Contact)"
+                      >
+                        <Edit3 className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        <span>Edit</span>
+                      </button>
                     </div>
                     
                     <div className="grid grid-cols-2 gap-2 text-[10px]">
@@ -1038,6 +1126,13 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                       title="Add Other Service Charges / Extend Stay"
                     >
                       <Plus className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleOpenEditCheckIn(room)}
+                      className="p-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 rounded-lg text-[10px] font-bold border border-indigo-200/60 dark:border-indigo-800/60"
+                      title="Edit Check-In Details (Channel, GST, Rate, Contact)"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 )}
@@ -1824,8 +1919,24 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                   {/* Guest details */}
                   <div className="grid grid-cols-2 gap-2 p-3 bg-slate-50 dark:bg-slate-950 rounded-xl">
                     <div>
-                      <span className="text-slate-400 text-[10px]">Guest Name</span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 text-[10px]">Guest Name</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowBillModal(false);
+                            handleOpenEditCheckIn(selectedRoom);
+                          }}
+                          className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline flex items-center gap-0.5"
+                          title="Edit Guest & Check-In Details"
+                        >
+                          <Edit3 className="w-2.5 h-2.5" /> Edit
+                        </button>
+                      </div>
                       <p className="font-bold text-slate-800 dark:text-slate-150">{summary.guestName}</p>
+                      {selectedRoom.gstNumber && (
+                        <p className="text-[10px] font-mono font-bold text-blue-600 dark:text-blue-400 mt-0.5">GST: {selectedRoom.gstNumber}</p>
+                      )}
                     </div>
                     <div className="text-right">
                       <span className="text-slate-400 text-[10px]">Check-In</span>
@@ -1835,6 +1946,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                           ({selectedRoom.checkInTime || summary.checkInTime || settings.checkInTime || '12:00 PM'})
                         </span>
                       </p>
+                      <p className="text-[9px] text-slate-400 mt-0.5">Channel: <span className="font-semibold text-slate-600 dark:text-slate-300">{selectedRoom.bookingSource || 'Direct'}</span></p>
                     </div>
                   </div>
 
@@ -2325,6 +2437,330 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                 >
                   <Printer className="w-3.5 h-3.5" />
                   {isSubmittingAdvance ? 'Recording...' : 'Collect & Print Receipt'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 8. EDIT CHECK-IN DETAILS MODAL */}
+      {showEditCheckInModal && editCheckInRoom && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-2xl shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b pb-2.5 border-slate-100 dark:border-slate-800">
+              <div>
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <span className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400">
+                    <Edit3 className="w-4 h-4" />
+                  </span>
+                  <span>Edit Check-In Details — Room {editCheckInRoom.roomNumber}</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Update booking channel, corporate GSTIN, guest contact info, or tariff for this active stay
+                </p>
+              </div>
+              <button 
+                onClick={() => setShowEditCheckInModal(false)} 
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl font-bold p-1 rounded-lg"
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleEditCheckInSubmit} className="space-y-4 text-xs">
+              
+              {/* Dynamic Timing Policy Banner */}
+              {(() => {
+                const isDirect = isDirectBookingSource(editBookingSource);
+                const expectedCheckoutTime = getEffectiveCheckoutTime(editBookingSource, editCheckInTimeInput, settings.checkOutTime);
+                return (
+                  <div className={`p-2.5 rounded-xl border flex items-center justify-between text-xs transition-colors ${
+                    isDirect 
+                      ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-200/80 dark:border-amber-800/60' 
+                      : 'bg-indigo-50/70 dark:bg-indigo-950/30 border-indigo-200/80 dark:border-indigo-800/60'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <Clock className={`w-4 h-4 shrink-0 ${isDirect ? 'text-amber-600 dark:text-amber-400' : 'text-indigo-600 dark:text-indigo-400'}`} />
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">
+                            {isDirect ? 'Direct / Walk-In Timing Policy' : `${editBookingSource} Online Timing Policy`}
+                          </span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase ${
+                            isDirect 
+                              ? 'bg-amber-200 dark:bg-amber-900/80 text-amber-900 dark:text-amber-100' 
+                              : 'bg-indigo-200 dark:bg-indigo-900/80 text-indigo-900 dark:text-indigo-100'
+                          }`}>
+                            {isDirect ? '24-Hour Checkout' : '12:00 PM Standard'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                          Expected Checkout: <span className="font-mono font-bold">{expectedCheckoutTime}</span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* 1. Fast Booking Channel / Source & OTA Reference */}
+              <div className="p-3.5 bg-indigo-50/40 dark:bg-indigo-950/30 border border-indigo-200/60 dark:border-indigo-800/60 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 text-xs">
+                    <Globe className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span>Booking Channel / Source *</span>
+                  </label>
+                  <span className="text-[10px] font-bold text-slate-400">
+                    Channel tracks OTA vs Walk-in rate variations & checkout policy
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 dark:text-slate-300 text-[11px] block">
+                      Booking Channel
+                    </label>
+                    <select
+                      value={editBookingSource}
+                      onChange={e => setEditBookingSource(e.target.value)}
+                      className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg font-semibold text-slate-800 dark:text-slate-200 text-xs focus:ring-2 focus:ring-indigo-500"
+                    >
+                      {BOOKING_SOURCES.map(source => (
+                        <option key={source} value={source}>
+                          {source === 'Direct / Walk-In' ? '🚶 ' : ''}
+                          {source === 'MakeMyTrip' ? '🌐 ' : ''}
+                          {source === 'Booking.com' ? '🏨 ' : ''}
+                          {source === 'Agoda' ? '✈️ ' : ''}
+                          {source === 'Goibibo' ? '🌍 ' : ''}
+                          {source === 'Airbnb' ? '🏡 ' : ''}
+                          {source === 'Corporate / Travel Agent' ? '🏢 ' : ''}
+                          {source === 'Phone / WhatsApp Booking' ? '📞 ' : ''}
+                          {source}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 dark:text-slate-300 text-[11px] block">
+                      Booking Reference / Voucher ID
+                    </label>
+                    <input
+                      type="text"
+                      value={editBookingReference}
+                      onChange={e => setEditBookingReference(e.target.value)}
+                      className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg font-mono font-bold text-xs uppercase"
+                      placeholder={isOnlineBookingSource(editBookingSource) ? "e.g. MMT98234120, BDC-88491..." : "Optional booking ref"}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Fast Corporate GSTIN / GST Details */}
+              <div className="p-3.5 bg-blue-50/50 dark:bg-blue-950/30 border border-blue-200/70 dark:border-blue-800/70 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5 text-xs">
+                    <Receipt className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                    <span>Corporate GSTIN / GST Details</span>
+                  </label>
+                  <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400">
+                    B2B Tax Invoice & Audit
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  <input
+                    type="text"
+                    value={editGuestGst}
+                    onChange={e => setEditGuestGst(e.target.value.toUpperCase())}
+                    className="w-full p-2 bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-700 rounded-lg font-mono font-bold text-blue-950 dark:text-blue-100 text-xs uppercase tracking-wider focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g. 33AAHCJ3990L1Z5 (Leave blank if personal/non-GST)"
+                  />
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                    Directly updates invoice GSTIN for corporate billing and Unified Checkout.
+                  </p>
+                </div>
+              </div>
+
+              {/* 3. Tariff & AC Mode */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 dark:text-slate-300 text-[11px] block">
+                      Agreed Room Rate (₹/Night) *
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2 font-mono font-bold text-slate-400">₹</span>
+                      <input
+                        type="number"
+                        required
+                        step="any"
+                        min="0"
+                        value={editCheckInPrice}
+                        onChange={e => setEditCheckInPrice(e.target.value)}
+                        className="w-full pl-7 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg font-bold font-mono text-indigo-600 dark:text-indigo-400 text-sm focus:ring-2 focus:ring-indigo-500/20"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 dark:text-slate-300 text-[11px] block">
+                      Room AC Usage Mode
+                    </label>
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditIsAcSwitchedOff(false);
+                          setEditCheckInPrice(editCheckInRoom.basePrice || editCheckInRoom.price || 1500);
+                        }}
+                        className={`flex-1 py-1 px-2 rounded-lg text-[10px] font-bold transition-all ${
+                          !editIsAcSwitchedOff
+                            ? 'bg-indigo-600 text-white shadow-sm'
+                            : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        ❄️ AC Mode
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditIsAcSwitchedOff(true);
+                          const base = editCheckInRoom.basePrice || editCheckInRoom.price || 1500;
+                          setEditCheckInPrice(Math.max(500, Math.round(base * 0.67)));
+                        }}
+                        className={`flex-1 py-1 px-2 rounded-lg text-[10px] font-bold transition-all ${
+                          editIsAcSwitchedOff
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        🍃 Non-AC
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 4. Guest Details */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-300">Guest Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editGuestName}
+                    onChange={e => setEditGuestName(e.target.value)}
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg text-xs"
+                    placeholder="e.g. Rajesh Kumar"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-300">Phone Number *</label>
+                  <input
+                    type="tel"
+                    required
+                    value={editGuestPhone}
+                    onChange={e => setEditGuestPhone(e.target.value)}
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg text-xs"
+                    placeholder="e.g. 9876543210"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-300">Email Address</label>
+                  <input
+                    type="email"
+                    value={editGuestEmail}
+                    onChange={e => setEditGuestEmail(e.target.value)}
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg text-xs"
+                    placeholder="guest@gmail.com"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-300">ID Proof Details</label>
+                  <input
+                    type="text"
+                    value={editGuestIdProof}
+                    onChange={e => setEditGuestIdProof(e.target.value)}
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg text-xs"
+                    placeholder="Aadhaar / Passport Details"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-300">Address</label>
+                  <input
+                    type="text"
+                    value={editGuestAddress}
+                    onChange={e => setEditGuestAddress(e.target.value)}
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg text-xs"
+                    placeholder="Complete Address"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-300">No of Guests</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={editNoOfGuests}
+                    onChange={e => setEditNoOfGuests(Number(e.target.value))}
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Stay Dates & Timings */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-300">Check-In Date</label>
+                  <input
+                    type="date"
+                    value={editCheckInDate}
+                    onChange={e => setEditCheckInDate(e.target.value)}
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg text-xs font-semibold"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-300">Check-In Time</label>
+                  <input
+                    type="time"
+                    value={formatTime24h(editCheckInTimeInput)}
+                    onChange={e => setEditCheckInTimeInput(e.target.value ? formatTime12h(e.target.value) : editCheckInTimeInput)}
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg text-xs font-semibold"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-300">Expected Check-Out</label>
+                  <input
+                    type="date"
+                    value={editCheckOutDate}
+                    onChange={e => setEditCheckOutDate(e.target.value)}
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg text-xs font-semibold"
+                  />
+                </div>
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex gap-2 justify-end pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowEditCheckInModal(false)}
+                  className="px-4 py-2 border dark:border-slate-800 text-slate-500 dark:text-slate-400 font-semibold rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingEditCheckIn}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-sm transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>{isSubmittingEditCheckIn ? 'Saving...' : 'Save Changes'}</span>
                 </button>
               </div>
             </form>
