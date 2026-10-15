@@ -1467,6 +1467,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                       <option value="UPI">📱 UPI / GPay / PhonePe</option>
                       <option value="Card">💳 Debit / Credit Card</option>
                       <option value="Bank Transfer">🏦 Bank Transfer / NEFT</option>
+                      <option value="Prepaid/OTI">🌐 Prepaid/OTI</option>
                     </select>
                   </div>
                 </div>
@@ -2268,6 +2269,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                     <option value="UPI">UPI / GPay / PhonePe</option>
                     <option value="Card">Debit / Credit Card</option>
                     <option value="Bank Transfer">Bank Transfer / NEFT</option>
+                    <option value="Prepaid/OTI">Prepaid/OTI</option>
                     <option value="Cheque">Cheque</option>
                   </select>
                 </div>

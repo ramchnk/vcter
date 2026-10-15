@@ -536,7 +536,7 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
         upi += item.amount;
       } else if (mode.includes('bank') || mode.includes('neft') || mode.includes('rtgs') || mode.includes('transfer')) {
         bankTransfer += item.amount;
-      } else if (mode.includes('prepaid') || mode.includes('ota') || mode.includes('makemytrip') || mode.includes('agoda')) {
+      } else if (mode.includes('prepaid') || mode.includes('ota') || mode.includes('oti') || mode.includes('makemytrip') || mode.includes('agoda')) {
         prepaid += item.amount;
       } else if (mode.includes('btc') || mode.includes('crypto')) {
         btc += item.amount;

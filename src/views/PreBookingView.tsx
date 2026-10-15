@@ -1239,6 +1239,7 @@ export const PreBookingView: React.FC = () => {
                         <option value="UPI">📱 UPI / GPay / PhonePe</option>
                         <option value="Card">💳 Debit / Credit Card</option>
                         <option value="Bank Transfer">🏦 Bank Transfer / NEFT</option>
+                        <option value="Prepaid/OTI">🌐 Prepaid/OTI</option>
                       </select>
                     </div>
                   )}
@@ -1809,6 +1810,7 @@ export const PreBookingView: React.FC = () => {
                         <option value="UPI">📱 UPI</option>
                         <option value="Card">💳 Card</option>
                         <option value="Bank Transfer">🏦 Bank Transfer</option>
+                        <option value="Prepaid/OTI">🌐 Prepaid/OTI</option>
                       </select>
                     )}
                   </div>
