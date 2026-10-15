@@ -38,6 +38,7 @@ import {
   Eye
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { BarDayBookModal } from '../components/BarDayBookModal';
 
 export const RestaurantBarView: React.FC = () => {
   const { 
@@ -136,6 +137,7 @@ export const RestaurantBarView: React.FC = () => {
   // Selected Order for Receipt / History Modal
   const [selectedOrderForReceipt, setSelectedOrderForReceipt] = useState<Order | null>(null);
   const [successMessage, setSuccessMessage] = useState('');
+  const [showBarDayBookModal, setShowBarDayBookModal] = useState(false);
 
   // History search & filters
   const [historySearch, setHistorySearch] = useState('');
@@ -967,6 +969,17 @@ export const RestaurantBarView: React.FC = () => {
               <History className="w-3.5 h-3.5" /> History
             </button>
           </div>
+
+          {/* Bar Day Book Button */}
+          <button
+            type="button"
+            onClick={() => setShowBarDayBookModal(true)}
+            className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0 hover:shadow-purple-500/20"
+            title="Generate & View Bar Day Book (Stock & Sales Report)"
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            <span>Day Book</span>
+          </button>
         </div>
       </div>
 
@@ -2845,6 +2858,14 @@ export const RestaurantBarView: React.FC = () => {
 
           </div>
         </div>
+      )}
+
+      {/* Bar & Lounge Day Book (Stock & Sales Report Modal) */}
+      {showBarDayBookModal && (
+        <BarDayBookModal
+          isOpen={showBarDayBookModal}
+          onClose={() => setShowBarDayBookModal(false)}
+        />
       )}
 
     </div>

@@ -243,12 +243,15 @@ export interface Order {
   orderNumber: string;
   type: 'WalkIn' | 'Room';
   roomNumber?: string;
+  tableNumber?: string;
   guestName?: string;
   items: OrderItem[];
   subtotal: number;
   tax: number;
   total: number;
   status: 'Pending' | 'Paid' | 'PostedToRoom';
+  paymentMethod?: string;
+  splitDetails?: string;
   isBar: boolean;
   timestamp: string;
 }
@@ -318,6 +321,7 @@ export interface PurchaseLog {
   gstAmount: number;
   totalAmount: number;
   date: string;
+  timestamp?: string;
 }
 
 export interface StockAdjustmentLog {
