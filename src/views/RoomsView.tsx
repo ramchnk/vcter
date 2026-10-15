@@ -107,6 +107,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [guestGst, setGuestGst] = useState('');
   const [noOfGuests, setNoOfGuests] = useState(1);
   const [advancePaid, setAdvancePaid] = useState<number | string>(0);
+  const [checkInPaymentMethod, setCheckInPaymentMethod] = useState<string>('Cash');
   const [checkInPrice, setCheckInPrice] = useState<number | string>(1500);
   const [bookingSource, setBookingSource] = useState<string>('Direct / Walk-In');
   const [bookingReference, setBookingReference] = useState<string>('');
@@ -219,6 +220,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       setGuestGst(booking.gstNumber || '');
       setNoOfGuests(booking.noOfGuests || 1);
       setAdvancePaid(booking.advancePaid || 0);
+      setCheckInPaymentMethod(booking.advancePaymentMethod || (booking.bookingSource?.toLowerCase().includes('makemytrip') ? 'UPI' : 'Cash'));
       setCheckInPrice(booking.roomPrice || selectedRoom?.price || 1500);
       setBookingSource(booking.bookingSource || 'MakeMyTrip');
       setBookingReference(booking.bookingReference || '');
@@ -235,6 +237,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       setGuestGst('');
       setNoOfGuests(1);
       setAdvancePaid(0);
+      setCheckInPaymentMethod('Cash');
       setBookingReference('');
       setCheckOutDate(new Date(Date.now() + 86400000).toISOString().split('T')[0]);
       setCheckInTimeInput(formatTime12h({ hours: new Date().getHours(), minutes: new Date().getMinutes() }));
@@ -304,7 +307,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         advancePaid: paidAdv,
         advanceReceiptNumber: receiptNo,
         advancePaymentDate: todayStr,
-        advancePaymentMethod: 'Cash',
+        advancePaymentMethod: checkInPaymentMethod,
         price: Number(checkInPrice),
         bookingSource: bookingSource,
         bookingReference: bookingReference.trim() || undefined,
@@ -326,7 +329,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         advancePaid: paidAdv,
         advanceReceiptNumber: receiptNo,
         advancePaymentDate: todayStr,
-        advancePaymentMethod: 'Cash',
+        advancePaymentMethod: checkInPaymentMethod,
         price: Number(checkInPrice),
         bookingSource: bookingSource,
         bookingReference: bookingReference.trim() || undefined,
@@ -348,7 +351,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         roomCategory: selectedRoom.category,
         amount: paidAdv,
         date: todayStr,
-        paymentMethod: 'Cash',
+        paymentMethod: checkInPaymentMethod,
         receivedBy: 'Manager (Front Desk Manager)',
         hotelName: settings.name || 'HOTEL SUBRA GRAND',
         tagline: settings.tagline || 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
@@ -1436,12 +1439,38 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                     type="number"
                     step="any"
                     min="0"
+                    placeholder="0"
                     value={advancePaid}
                     onChange={e => setAdvancePaid(e.target.value)}
-                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg"
+                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg font-mono font-bold text-emerald-600 dark:text-emerald-400"
                   />
                 </div>
               </div>
+
+              {Number(advancePaid) > 0 && (
+                <div className="p-3 bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-800/60 rounded-xl flex items-center justify-between gap-4">
+                  <div>
+                    <label className="font-bold text-emerald-800 dark:text-emerald-300 text-xs block">
+                      Advance Payment Mode *
+                    </label>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                      Select collection mode for ₹{advancePaid} advance
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={checkInPaymentMethod}
+                      onChange={e => setCheckInPaymentMethod(e.target.value)}
+                      className="p-2 border rounded-xl bg-white dark:bg-slate-950 dark:border-slate-800 font-bold text-xs focus:ring-2 focus:ring-emerald-500"
+                    >
+                      <option value="Cash">💵 Cash</option>
+                      <option value="UPI">📱 UPI / GPay / PhonePe</option>
+                      <option value="Card">💳 Debit / Credit Card</option>
+                      <option value="Bank Transfer">🏦 Bank Transfer / NEFT</option>
+                    </select>
+                  </div>
+                </div>
+              )}
 
               <div className="flex gap-2 justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
                 <button

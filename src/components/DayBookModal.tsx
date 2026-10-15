@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Printer, X, Calendar, Download, RefreshCw, ArrowLeft } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { isDateInRange } from '../utils/dateUtils';
+import { isDateInRange, getEffectiveCheckoutTime, formatTime24h, formatTime12h, isDirectBookingSource } from '../utils/dateUtils';
 
 interface DayBookModalProps {
   isOpen: boolean;
@@ -97,13 +97,14 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
     // Active rooms checked in on reportDate
     tenantRooms.forEach(r => {
       if ((r.status === 'Occupied' || r.guestName) && r.checkInDate === reportDate) {
-        const timePart = r.checkInTime || '12:00 PM';
+        const timePart = r.checkInTime ? formatTime24h(r.checkInTime) : '12:00';
         const [y, m, d] = (r.checkInDate || reportDate).split('-');
+        const src = isDirectBookingSource(r.bookingSource) ? 'Direct' : (r.bookingSource || 'Direct');
         list.push({
           sNo: 0,
           guestName: (r.guestName || 'GUEST').toUpperCase(),
           roomNumber: r.roomNumber,
-          source: r.bookingSource || 'Direct',
+          source: src,
           checkInTime: `${d}-${m}-${y} ${timePart}`,
           phone: r.guestPhone || '—',
           pax: r.noOfGuests || 1,
@@ -119,12 +120,13 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
       if (pb.status === 'CheckedOut' && pb.checkInDate === reportDate) {
         if (!list.some(item => item.roomNumber === pb.roomNumber && item.guestName.toLowerCase() === (pb.guestName || '').toLowerCase())) {
           const [y, m, d] = (pb.checkInDate || reportDate).split('-');
-          const timePart = pb.checkInTime || '12:00 PM';
+          const timePart = pb.checkInTime ? formatTime24h(pb.checkInTime) : '12:00';
+          const src = isDirectBookingSource(pb.bookingSource) ? 'Direct' : (pb.bookingSource || 'Direct');
           list.push({
             sNo: 0,
             guestName: (pb.guestName || pb.occupantName || 'GUEST').toUpperCase(),
             roomNumber: pb.roomNumber || '—',
-            source: pb.bookingSource || 'Direct',
+            source: src,
             checkInTime: `${d}-${m}-${y} ${timePart}`,
             phone: pb.phone || '—',
             pax: pb.noOfGuests || 1,
@@ -151,11 +153,12 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
             const [y, m, d] = reportDate.split('-');
             const sourceMatch = a.details?.match(/via\s+(.+?)(?:\s*\(|$)/i);
             const rentMatch = a.details?.match(/@\s*₹?([0-9.]+)/);
+            const src = sourceMatch ? (isDirectBookingSource(sourceMatch[1]) ? 'Direct' : sourceMatch[1].trim()) : 'Direct';
             list.push({
               sNo: 0,
               guestName: gName,
               roomNumber: rNo,
-              source: sourceMatch ? sourceMatch[1].trim() : 'Direct',
+              source: src,
               checkInTime: `${d}-${m}-${y} ${hh}:${mm}`,
               phone: '—',
               pax: 1,
@@ -195,12 +198,13 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
         (!r.checkOutDate || r.checkOutDate >= reportDate)
       ) {
         const [y, m, d] = r.checkInDate.split('-');
-        const timePart = r.checkInTime ? ` ${r.checkInTime}` : '';
+        const timePart = r.checkInTime ? ` ${formatTime24h(r.checkInTime)}` : ' 12:00';
+        const src = isDirectBookingSource(r.bookingSource) ? 'Direct' : (r.bookingSource || 'Direct');
         list.push({
           sNo: 0,
           guestName: (r.guestName || 'GUEST').toUpperCase(),
           roomNumber: r.roomNumber,
-          source: r.bookingSource || 'Direct',
+          source: src,
           checkInDate: `${d}-${m}-${y}${timePart}`,
           phone: r.guestPhone || '—',
           pax: r.noOfGuests || 1,
@@ -229,26 +233,67 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
       folioTotal: number;
     }> = [];
 
-    // From preBookings
+    // From preBookings (completed / checked-out stays)
     tenantPreBookings.forEach(pb => {
       const outDate = pb.checkOutDate || (pb.status === 'CheckedOut' ? pb.bookingDate : '');
       if (pb.status === 'CheckedOut' && outDate === reportDate) {
         const [y, m, d] = reportDate.split('-');
+        const guest = (pb.guestName || pb.occupantName || 'GUEST').toUpperCase();
+        const rNo = pb.roomNumber || '—';
+
+        // Find exact checkout time and folio from matching audit logs if present
+        const matchingAudit = tenantAuditLogs.find(a => {
+          const aDate = a.timestamp ? a.timestamp.split('T')[0] : '';
+          return (
+            a.action === 'Check-Out' &&
+            aDate === reportDate &&
+            a.details?.toLowerCase().includes(`room ${String(rNo).toLowerCase()}`)
+          );
+        });
+
+        let formattedTime = '';
+        let folio = pb.totalAmount || pb.roomRentTotal || 0;
+
+        if (matchingAudit && matchingAudit.timestamp) {
+          const timeObj = new Date(matchingAudit.timestamp);
+          const hh = String(timeObj.getHours()).padStart(2, '0');
+          const mm = String(timeObj.getMinutes()).padStart(2, '0');
+          formattedTime = `${hh}:${mm}`;
+          const totalMatch = matchingAudit.details?.match(/Total Folio:\s*₹?([0-9.]+)/i);
+          if (totalMatch && parseFloat(totalMatch[1]) > 0) {
+            folio = parseFloat(totalMatch[1]);
+          }
+        } else if (pb.checkOutTime) {
+          formattedTime = formatTime24h(pb.checkOutTime);
+        } else {
+          // Expected checkout time using booking source rules:
+          // Direct / Walk-In: 24h cycle (checkout time = check-in time)
+          // Online / OTA: Standard 12:00 PM checkout
+          const effTime = getEffectiveCheckoutTime(
+            pb.bookingSource,
+            pb.checkInTime,
+            settings?.checkOutTime
+          );
+          formattedTime = formatTime24h(effTime);
+        }
+
+        const src = isDirectBookingSource(pb.bookingSource) ? 'Direct' : (pb.bookingSource || 'Direct');
+
         list.push({
           sNo: 0,
-          guestName: (pb.guestName || pb.occupantName || 'GUEST').toUpperCase(),
-          roomNumber: pb.roomNumber || '—',
-          source: pb.bookingSource || 'Direct',
-          checkOutTime: `${d}-${m}-${y}`,
+          guestName: guest,
+          roomNumber: rNo,
+          source: src,
+          checkOutTime: `${d}-${m}-${y} ${formattedTime}`,
           phone: pb.phone || '—',
           pax: pb.noOfGuests || 1,
           plan: 'EP',
-          folioTotal: pb.totalAmount || pb.roomRentTotal || 0
+          folioTotal: folio
         });
       }
     });
 
-    // From audit logs
+    // Fallback: Check-Out audit logs for reportDate not already captured in preBookings
     tenantAuditLogs.forEach(a => {
       const aDate = a.timestamp ? a.timestamp.split('T')[0] : '';
       if (a.action === 'Check-Out' && aDate === reportDate) {
@@ -262,11 +307,12 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
             const mm = String(timeObj.getMinutes()).padStart(2, '0');
             const [y, m, d] = reportDate.split('-');
             const totalMatch = a.details?.match(/Total Folio:\s*₹?([0-9.]+)/i);
+            const sourceMatch = a.details?.match(/via\s+(.+?)(?:\s*\(|$)/i);
             list.push({
               sNo: 0,
               guestName: gName,
               roomNumber: rNo,
-              source: 'Direct',
+              source: sourceMatch ? (isDirectBookingSource(sourceMatch[1]) ? 'Direct' : sourceMatch[1].trim()) : 'Direct',
               checkOutTime: `${d}-${m}-${y} ${hh}:${mm}`,
               phone: '—',
               pax: 1,
@@ -279,7 +325,7 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
     });
 
     return list.map((item, idx) => ({ ...item, sNo: idx + 1 }));
-  }, [tenantPreBookings, tenantAuditLogs, reportDate]);
+  }, [tenantPreBookings, tenantAuditLogs, reportDate, settings?.checkOutTime]);
 
   // ==========================================
   // 4. DAYBOOK IN (COLLECTIONS ON REPORT DATE)
@@ -310,9 +356,9 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
             roomNumber: r.roomNumber,
             entryNumber: r.advanceReceiptNumber || String(entryCounter--),
             billItems: 'Advance Paid',
-            paymentMode: r.advancePaymentMethod || (r.bookingSource?.toLowerCase().includes('makemytrip') ? 'Prepaid' : 'Online (UPI)'),
+            paymentMode: r.advancePaymentMethod || (isDirectBookingSource(r.bookingSource) ? 'Cash' : 'Prepaid'),
             amount: Number(r.advancePaid),
-            orderDateTime: `${d}-${m}-${y} ${r.checkInTime || '12:00'}`
+            orderDateTime: `${d}-${m}-${y} ${formatTime24h(r.checkInTime || '12:00')}`
           });
         }
       }
@@ -330,9 +376,9 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
             roomNumber: pb.roomNumber || '—',
             entryNumber: pb.advanceReceiptNumber || String(entryCounter--),
             billItems: 'Advance Paid',
-            paymentMode: pb.advancePaymentMethod || (pb.bookingSource?.toLowerCase().includes('makemytrip') ? 'Prepaid' : 'Online (UPI)'),
+            paymentMode: pb.advancePaymentMethod || (isDirectBookingSource(pb.bookingSource) ? 'Cash' : 'Prepaid'),
             amount: Number(pb.advancePaid),
-            orderDateTime: `${d}-${m}-${y}`
+            orderDateTime: `${d}-${m}-${y} ${formatTime24h(pb.checkInTime || '12:00')}`
           });
         }
       }
@@ -510,7 +556,12 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
     const map = new Map<string, { checkIns: number; roomSales: number; foodSales: number; otherSales: number; totalSales: number }>();
 
     checkInsList.forEach(item => {
-      const src = item.source?.toUpperCase().includes('MAKE') ? 'MAKE MY TRIP' : (item.source || 'Direct');
+      let src = item.source || 'Direct';
+      if (src.toUpperCase().includes('MAKE')) {
+        src = 'MAKE MY TRIP';
+      } else if (isDirectBookingSource(src)) {
+        src = 'Direct';
+      }
       const existing = map.get(src) || { checkIns: 0, roomSales: 0, foodSales: 0, otherSales: 0, totalSales: 0 };
       existing.checkIns += 1;
       existing.roomSales += item.roomRent;

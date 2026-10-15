@@ -59,6 +59,7 @@ export const PreBookingView: React.FC = () => {
   const [roomCategory, setRoomCategory] = useState<RoomCategory>('Deluxe AC');
   const [noOfGuests, setNoOfGuests] = useState(1);
   const [advancePaid, setAdvancePaid] = useState<number | string>(0);
+  const [advancePaymentMethod, setAdvancePaymentMethod] = useState<string>('Cash');
   const [roomPrice, setRoomPrice] = useState<number | string>(1500);
   const [isAcSwitchedOff, setIsAcSwitchedOff] = useState<boolean>(false);
   const [assignSpecificRoom, setAssignSpecificRoom] = useState(false);
@@ -66,6 +67,7 @@ export const PreBookingView: React.FC = () => {
 
   // Bulk / Multi-Room Group State
   const [bulkAdvancePaid, setBulkAdvancePaid] = useState<number | string>(0);
+  const [bulkPaymentMethod, setBulkPaymentMethod] = useState<string>('Cash');
   const [bulkBookingReference, setBulkBookingReference] = useState<string>('');
   const [bulkRooms, setBulkRooms] = useState<BulkRoomDraft[]>([]);
   const [batchCategory, setBatchCategory] = useState<RoomCategory>('Deluxe AC');
@@ -344,6 +346,7 @@ export const PreBookingView: React.FC = () => {
       advancePaid: paidAdv,
       advanceReceiptNumber: paidAdv > 0 ? receiptNo : undefined,
       advancePaymentDate: paidAdv > 0 ? new Date().toISOString().split('T')[0] : undefined,
+      advancePaymentMethod: paidAdv > 0 ? advancePaymentMethod : undefined,
       totalAmount: estTotalFolio,
       roomRentTotal: estTotalFolio,
       specialRequests: specialRequests || undefined
@@ -357,7 +360,7 @@ export const PreBookingView: React.FC = () => {
         roomCategory: roomCategory,
         amount: paidAdv,
         date: new Date().toISOString().split('T')[0],
-        paymentMethod: 'Cash',
+        paymentMethod: advancePaymentMethod,
         hotelName: settings.name || 'HOTEL SUBRA GRAND',
         tagline: settings.tagline || 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
         address: settings.address || '57, New street, near church corner , Karur - 01',
@@ -564,6 +567,7 @@ export const PreBookingView: React.FC = () => {
       checkInDate,
       checkOutDate,
       totalAdvancePaid: Number(bulkAdvancePaid) || 0,
+      advancePaymentMethod: Number(bulkAdvancePaid) > 0 ? bulkPaymentMethod : undefined,
       specialRequests: specialRequests || undefined,
       rooms: bulkRooms.map(r => ({
         roomCategory: r.roomCategory,
@@ -587,7 +591,7 @@ export const PreBookingView: React.FC = () => {
           roomCategory: 'Group Booking',
           amount: paidBulkAdv,
           date: new Date().toISOString().split('T')[0],
-          paymentMethod: 'Cash',
+          paymentMethod: bulkPaymentMethod,
           hotelName: settings.name || 'HOTEL SUBRA GRAND',
           tagline: settings.tagline || 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
           address: settings.address || '57, New street, near church corner , Karur - 01',
@@ -1217,11 +1221,27 @@ export const PreBookingView: React.FC = () => {
                       type="number"
                       step="any"
                       min={0}
+                      placeholder="0"
                       value={advancePaid}
                       onChange={e => setAdvancePaid(e.target.value)}
-                      className="w-full p-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-mono font-bold"
+                      className="w-full p-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-mono font-bold text-emerald-600 dark:text-emerald-400"
                     />
                   </div>
+                  {Number(advancePaid) > 0 && (
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-500">Payment Mode</label>
+                      <select
+                        value={advancePaymentMethod}
+                        onChange={e => setAdvancePaymentMethod(e.target.value)}
+                        className="w-full p-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-semibold text-xs"
+                      >
+                        <option value="Cash">💵 Cash</option>
+                        <option value="UPI">📱 UPI / GPay / PhonePe</option>
+                        <option value="Card">💳 Debit / Credit Card</option>
+                        <option value="Bank Transfer">🏦 Bank Transfer / NEFT</option>
+                      </select>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-1">
@@ -1776,9 +1796,21 @@ export const PreBookingView: React.FC = () => {
                       min={0}
                       value={bulkAdvancePaid}
                       onChange={e => setBulkAdvancePaid(e.target.value)}
-                      className="w-36 p-1.5 bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-700 rounded-xl font-mono font-bold text-right text-purple-600 dark:text-purple-400 text-sm"
+                      className="w-32 p-1.5 bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-700 rounded-xl font-mono font-bold text-right text-purple-600 dark:text-purple-400 text-sm"
                       placeholder="0"
                     />
+                    {Number(bulkAdvancePaid) > 0 && (
+                      <select
+                        value={bulkPaymentMethod}
+                        onChange={e => setBulkPaymentMethod(e.target.value)}
+                        className="p-1.5 bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-700 rounded-xl font-semibold text-xs"
+                      >
+                        <option value="Cash">💵 Cash</option>
+                        <option value="UPI">📱 UPI</option>
+                        <option value="Card">💳 Card</option>
+                        <option value="Bank Transfer">🏦 Bank Transfer</option>
+                      </select>
+                    )}
                   </div>
                 </div>
 

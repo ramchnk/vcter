@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { api, socket } from '../api';
-import { formatTime12h } from '../utils/dateUtils';
+import { formatTime12h, formatTime24h } from '../utils/dateUtils';
 
 // ==========================================
 // TYPES DEFINITIONS
@@ -140,6 +140,7 @@ export interface PreBooking {
   checkInDate: string;
   checkInTime?: string;
   checkOutDate: string;
+  checkOutTime?: string;
   noOfGuests: number;
   advancePaid: number;
   advanceReceiptNumber?: string;
@@ -173,6 +174,7 @@ export interface BulkPreBookingPayload {
   checkInDate: string;
   checkOutDate: string;
   totalAdvancePaid: number;
+  advancePaymentMethod?: string;
   specialRequests?: string;
   rooms: BulkRoomItem[];
 }
@@ -1262,11 +1264,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         (pb.roomNumber === room.roomNumber || (pb.phone && pb.phone === room.guestPhone)) &&
         (pb.status === 'CheckedIn' || pb.status === 'Confirmed')
       );
+      const currentTimeStr = formatTime24h(new Date().toTimeString().slice(0, 5));
       if (matchingPre) {
         const updateData: Partial<PreBooking> = {
           status: 'CheckedOut',
           checkInDate: checkInDate,
+          checkInTime: matchingPre.checkInTime || room.checkInTime,
           checkOutDate: checkOutDate,
+          checkOutTime: currentTimeStr,
           roomRentTotal: roomRent,
           totalAmount: totalFolio,
           advancePaid: room.advancePaid || matchingPre.advancePaid || 0
@@ -1286,9 +1291,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           gstNumber: room.gstNumber || '',
           roomCategory: room.category,
           roomNumber: room.roomNumber,
+          bookingSource: room.bookingSource || 'Direct / Walk-In',
           bookingDate: checkInDate,
           checkInDate: checkInDate,
+          checkInTime: room.checkInTime,
           checkOutDate: checkOutDate,
+          checkOutTime: currentTimeStr,
           noOfGuests: room.noOfGuests || 1,
           advancePaid: room.advancePaid || 0,
           roomRentTotal: roomRent,
@@ -1788,6 +1796,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         checkOutDate: payload.checkOutDate,
         noOfGuests: rm.noOfGuests || 1,
         advancePaid: advancePerRoom,
+        advancePaymentMethod: payload.advancePaymentMethod || 'Cash',
+        advancePaymentDate: totalAdvance > 0 ? today : undefined,
         totalAmount: totalAmount,
         roomRentTotal: totalAmount,
         specialRequests: payload.specialRequests,

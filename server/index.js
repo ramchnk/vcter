@@ -19,6 +19,32 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 5001;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://vcter:livedb@cluster0.uxuamo6.mongodb.net/vcter?retryWrites=true&w=majority';
 
+// Mongoose connection options to prevent exhausting MongoDB Atlas M0 (500 connections limit)
+const MONGO_OPTIONS = {
+  maxPoolSize: process.env.VERCEL ? 5 : 10,
+  minPoolSize: 1,
+  serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 45000,
+};
+
+let cached = global.mongoose;
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
+
+async function connectToDatabase() {
+  if (cached.conn) {
+    return cached.conn;
+  }
+  if (!cached.promise) {
+    cached.promise = mongoose.connect(MONGODB_URI, MONGO_OPTIONS).then((mongooseInstance) => {
+      return mongooseInstance;
+    });
+  }
+  cached.conn = await cached.promise;
+  return cached.conn;
+}
+
 app.use(cors());
 app.use(express.json({ limit: '15mb' }));
 
@@ -26,7 +52,7 @@ app.use(express.json({ limit: '15mb' }));
 app.use(async (req, res, next) => {
   if (mongoose.connection.readyState !== 1) {
     try {
-      await mongoose.connect(MONGODB_URI);
+      await connectToDatabase();
       await seedDefaultData();
     } catch (err) {
       console.error('MongoDB Connection Middleware Error:', err);
@@ -2080,7 +2106,7 @@ io.on('connection', (socket) => {
 // START SERVER (LOCAL / NON-SERVERLESS)
 // ==========================================
 if (!process.env.VERCEL) {
-  mongoose.connect(MONGODB_URI)
+  connectToDatabase()
     .then(async () => {
       console.log(' Connected to MongoDB Atlas:', MONGODB_URI.split('@')[1] || MONGODB_URI);
       await seedDefaultData();
@@ -2091,6 +2117,22 @@ if (!process.env.VERCEL) {
     .catch((err) => {
       console.error(' MongoDB Connection Error:', err);
     });
+
+  const handleShutdown = async (signal) => {
+    console.log(`\nReceived ${signal}. Closing server and MongoDB connections gracefully...`);
+    try {
+      await mongoose.connection.close(false);
+      console.log('MongoDB connection closed cleanly.');
+      server.close(() => {
+        process.exit(0);
+      });
+    } catch (e) {
+      process.exit(0);
+    }
+  };
+
+  process.on('SIGINT', () => handleShutdown('SIGINT'));
+  process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 }
 
 export default app;
