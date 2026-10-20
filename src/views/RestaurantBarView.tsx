@@ -35,10 +35,12 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronUp,
-  Eye
+  Eye,
+  WalletCards
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { BarDayBookModal } from '../components/BarDayBookModal';
+import { CashWalletModal } from '../components/CashWalletModal';
 
 export const RestaurantBarView: React.FC = () => {
   const { 
@@ -140,6 +142,7 @@ export const RestaurantBarView: React.FC = () => {
   const [selectedOrderForReceipt, setSelectedOrderForReceipt] = useState<Order | null>(null);
   const [successMessage, setSuccessMessage] = useState('');
   const [showBarDayBookModal, setShowBarDayBookModal] = useState(false);
+  const [showBarWalletModal, setShowBarWalletModal] = useState(false);
 
   // History search & filters
   const [historySearch, setHistorySearch] = useState('');
@@ -1019,6 +1022,17 @@ export const RestaurantBarView: React.FC = () => {
           >
             <BookOpen className="w-3.5 h-3.5" />
             <span>Day Book</span>
+          </button>
+
+          {/* Bar Cash Wallet Button */}
+          <button
+            type="button"
+            onClick={() => setShowBarWalletModal(true)}
+            className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0 hover:shadow-emerald-500/20 cursor-pointer"
+            title="Bar Cash Wallet & Drawer (Carry forward, Float Top-up & Withdrawals)"
+          >
+            <WalletCards className="w-3.5 h-3.5" />
+            <span>Cash Wallet</span>
           </button>
         </div>
       </div>
@@ -3158,6 +3172,15 @@ export const RestaurantBarView: React.FC = () => {
         <BarDayBookModal
           isOpen={showBarDayBookModal}
           onClose={() => setShowBarDayBookModal(false)}
+        />
+      )}
+
+      {/* Bar Cash Wallet Modal */}
+      {showBarWalletModal && (
+        <CashWalletModal
+          isOpen={showBarWalletModal}
+          onClose={() => setShowBarWalletModal(false)}
+          defaultDepartment="Bar"
         />
       )}
 

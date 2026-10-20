@@ -21,10 +21,14 @@ import {
   Globe,
   IndianRupee,
   Printer,
-  Edit3
+  Edit3,
+  WalletCards,
+  BookOpen
 } from 'lucide-react';
 import { getRoomCheckoutAlert, getEffectiveCheckoutTime, isDirectBookingSource, formatTime12h, formatTime24h, RoomCheckoutAlert, getNextAdvanceReceiptNumber, formatReceiptDate } from '../utils/dateUtils';
 import { AdvanceReceiptModal, AdvanceReceiptData } from '../components/AdvanceReceiptModal';
+import { CashWalletModal } from '../components/CashWalletModal';
+import { DayBookModal } from '../components/DayBookModal';
 
 interface RoomsViewProps {
   setTab: (tab: string) => void;
@@ -71,6 +75,9 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [extendDays, setExtendDays] = useState(0);
   const [extraServiceName, setExtraServiceName] = useState('');
   const [extraServiceAmount, setExtraServiceAmount] = useState<number | string>('');
+  const [extraServicePaymentOption, setExtraServicePaymentOption] = useState<'checkout' | 'collect_now'>('checkout');
+  const [extraServicePaymentMode, setExtraServicePaymentMode] = useState<string>('Cash');
+  const [extraServiceReceiptNo, setExtraServiceReceiptNo] = useState<string>('');
   const [isSubmittingExtendOrCharge, setIsSubmittingExtendOrCharge] = useState(false);
   const [showChargeModal, setShowChargeModal] = useState(false);
   const [chargeAmount, setChargeAmount] = useState<number | string>(500);
@@ -89,6 +96,8 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   // Advance Receipt Modal state
   const [receiptModalData, setReceiptModalData] = useState<AdvanceReceiptData | null>(null);
   const [showAdvanceReceiptModal, setShowAdvanceReceiptModal] = useState(false);
+  const [showRoomWalletModal, setShowRoomWalletModal] = useState(false);
+  const [showDayBookModal, setShowDayBookModal] = useState(false);
 
   // Collect Advance Payment Modal state
   const [showCollectAdvanceModal, setShowCollectAdvanceModal] = useState(false);
@@ -106,6 +115,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [guestEmail, setGuestEmail] = useState('');
   const [guestAddress, setGuestAddress] = useState('');
   const [guestGst, setGuestGst] = useState('');
+  const [companyName, setCompanyName] = useState('');
   const [noOfGuests, setNoOfGuests] = useState(1);
   const [advancePaid, setAdvancePaid] = useState<number | string>(0);
   const [checkInPaymentMethod, setCheckInPaymentMethod] = useState<string>('Cash');
@@ -127,6 +137,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [editGuestEmail, setEditGuestEmail] = useState('');
   const [editGuestAddress, setEditGuestAddress] = useState('');
   const [editGuestGst, setEditGuestGst] = useState('');
+  const [editCompanyName, setEditCompanyName] = useState('');
   const [editNoOfGuests, setEditNoOfGuests] = useState(1);
   const [editCheckInPrice, setEditCheckInPrice] = useState<number | string>(1500);
   const [editBookingSource, setEditBookingSource] = useState<string>('Direct / Walk-In');
@@ -238,6 +249,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       setGuestAddress(booking.address || '');
       setGuestIdProof(booking.idProof || '');
       setGuestGst(booking.gstNumber || '');
+      setCompanyName(booking.companyName || '');
       setNoOfGuests(booking.noOfGuests || 1);
       setAdvancePaid(booking.advancePaid || 0);
       setCheckInPaymentMethod(booking.advancePaymentMethod || (booking.bookingSource?.toLowerCase().includes('makemytrip') ? 'UPI' : 'Cash'));
@@ -255,6 +267,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       setGuestAddress('');
       setGuestIdProof('');
       setGuestGst('');
+      setCompanyName('');
       setNoOfGuests(1);
       setAdvancePaid(0);
       setCheckInPaymentMethod('Cash');
@@ -306,6 +319,11 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       return;
     }
 
+    if (guestGst.trim() && !companyName.trim()) {
+      alert('Please enter the Company Name since GST Number is provided.');
+      return;
+    }
+
     const paidAdv = Number(advancePaid) || 0;
     const existingAdvNo = selectedRoom.advanceReceiptNumber;
     let receiptNo = existingAdvNo || '';
@@ -322,7 +340,8 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         email: guestEmail,
         address: guestAddress,
         idProof: guestIdProof,
-        gstNumber: guestGst,
+        gstNumber: guestGst.trim().toUpperCase(),
+        companyName: companyName.trim(),
         noOfGuests: noOfGuests,
         advancePaid: paidAdv,
         advanceReceiptNumber: receiptNo,
@@ -344,7 +363,8 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         email: guestEmail,
         address: guestAddress,
         idProof: guestIdProof,
-        gstNumber: guestGst,
+        gstNumber: guestGst.trim().toUpperCase(),
+        companyName: companyName.trim(),
         noOfGuests: noOfGuests,
         advancePaid: paidAdv,
         advanceReceiptNumber: receiptNo,
@@ -361,6 +381,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     }
     
     setShowCheckInModal(false);
+    setCompanyName('');
 
     // If advance was paid at check-in, automatically display the advance receipt
     if (paidAdv > 0) {
@@ -479,6 +500,9 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     setExtendDays(0);
     setExtraServiceName('');
     setExtraServiceAmount('');
+    setExtraServicePaymentOption('checkout');
+    setExtraServicePaymentMode('Cash');
+    setExtraServiceReceiptNo(getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber)));
     setExtendModalTab('service');
     setShowExtendModal(true);
   };
@@ -489,11 +513,26 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     setIsSubmittingExtendOrCharge(true);
     try {
       let auditMsgs: string[] = [];
+      const isCollectNow = extraServicePaymentOption === 'collect_now';
+      const receiptNo = extraServiceReceiptNo.trim() || getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber));
+      const amountNum = Number(extraServiceAmount);
+
       if (extendModalTab === 'service') {
-        if (Number(extraServiceAmount) > 0) {
+        if (amountNum > 0) {
           const serviceDesc = extraServiceName.trim() || 'Other Service';
-          await addRoomCharge(selectedRoom.id, Number(extraServiceAmount), serviceDesc);
-          auditMsgs.push(`Added ₹${extraServiceAmount} (${serviceDesc}) to invoice`);
+          await addRoomCharge(selectedRoom.id, amountNum, serviceDesc, {
+            collectNow: isCollectNow,
+            paymentMethod: isCollectNow ? extraServicePaymentMode : undefined,
+            receiptNumber: isCollectNow ? receiptNo : undefined,
+            receivedBy: 'Front Desk / Cashier',
+            notes: `${serviceDesc} payment`
+          });
+
+          if (isCollectNow) {
+            auditMsgs.push(`Added ₹${amountNum} (${serviceDesc}) & collected via ${extraServicePaymentMode} [Receipt #${receiptNo}]`);
+          } else {
+            auditMsgs.push(`Added ₹${amountNum} (${serviceDesc}) to invoice (To settle at checkout)`);
+          }
         }
         if (Number(extendDays) > 0) {
           await extendStay(selectedRoom.id, Number(extendDays));
@@ -509,9 +548,34 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       setShowExtendModal(false);
       setExtraServiceName('');
       setExtraServiceAmount('');
+      setExtraServicePaymentOption('checkout');
+      setExtraServicePaymentMode('Cash');
+      setExtraServiceReceiptNo('');
       setExtendDays(0);
+
       if (auditMsgs.length > 0) {
-        alert(`Room ${selectedRoom.roomNumber}: ${auditMsgs.join(' & ')} successfully!`);
+        if (isCollectNow && amountNum > 0) {
+          if (window.confirm(`Room ${selectedRoom.roomNumber}: ${auditMsgs.join(' & ')} successfully!\n\nWould you like to view & print the Advance Payment Receipt now?`)) {
+            setReceiptModalData({
+              receiptNumber: receiptNo,
+              guestName: selectedRoom.guestName || 'In-House Guest',
+              roomNumber: selectedRoom.roomNumber,
+              roomCategory: selectedRoom.category,
+              amount: (selectedRoom.advancePaid || 0) + amountNum,
+              date: formatReceiptDate(new Date().toISOString().split('T')[0]),
+              paymentMethod: extraServicePaymentMode,
+              receivedBy: 'Manager (Front Desk Manager)',
+              phone: selectedRoom.guestPhone,
+              hotelName: settings.name || 'HOTEL SUBRA GRAND',
+              tagline: settings.tagline || 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
+              address: settings.address || '57, New street, near church corner , Karur - 01',
+              email: settings.email || 'jagodahospitality@gmail.com'
+            });
+            setShowAdvanceReceiptModal(true);
+          }
+        } else {
+          alert(`Room ${selectedRoom.roomNumber}: ${auditMsgs.join(' & ')} successfully!`);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -591,6 +655,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     setEditGuestAddress(room.guestAddress || '');
     setEditGuestIdProof(room.guestIdProof || '');
     setEditGuestGst(room.gstNumber || '');
+    setEditCompanyName(room.companyName || '');
     setEditBookingSource(room.bookingSource || 'Direct / Walk-In');
     setEditBookingReference(room.bookingReference || '');
     setEditNoOfGuests(room.noOfGuests || 1);
@@ -606,6 +671,12 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     e.preventDefault();
     if (!editCheckInRoom) return;
     setIsSubmittingEditCheckIn(true);
+    if (editGuestGst.trim() && !editCompanyName.trim()) {
+      alert('Please enter the Company Name since GST Number is provided.');
+      setIsSubmittingEditCheckIn(false);
+      return;
+    }
+
     try {
       const finalPrice = Number(editCheckInPrice) > 0 ? Number(editCheckInPrice) : (editCheckInRoom.price || 1500);
       const updates: Partial<Room> = {
@@ -614,7 +685,8 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         guestEmail: editGuestEmail.trim(),
         guestAddress: editGuestAddress.trim(),
         guestIdProof: editGuestIdProof.trim(),
-        gstNumber: editGuestGst.trim(),
+        gstNumber: editGuestGst.trim().toUpperCase(),
+        companyName: editCompanyName.trim(),
         bookingSource: editBookingSource,
         bookingReference: editBookingReference.trim() || '',
         noOfGuests: Number(editNoOfGuests) || 1,
@@ -784,16 +856,41 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
           </div>
         </div>
 
-        {/* Search input */}
-        <div className="relative w-full md:w-64">
-          <Search className="absolute left-3 top-2 w-3.5 h-3.5 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search Room, Name, Phone..."
-            value={roomSearchTerm}
-            onChange={e => setRoomSearchTerm(e.target.value)}
-            className="w-full pl-8 pr-4 py-1.5 text-xs border dark:border-slate-800 dark:bg-slate-950 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500/20"
-          />
+        {/* Actions & Search */}
+        <div className="flex items-center gap-2 w-full md:w-auto shrink-0 flex-wrap">
+          {/* Room Cash Wallet Button */}
+          <button
+            type="button"
+            onClick={() => setShowRoomWalletModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0 cursor-pointer shadow-emerald-500/20"
+            title="Room Cash Drawer & Wallet (Opening balance, float top-ups & withdrawals)"
+          >
+            <WalletCards className="w-3.5 h-3.5" />
+            <span>Cash Wallet</span>
+          </button>
+
+          {/* Room Day Book Button */}
+          <button
+            type="button"
+            onClick={() => setShowDayBookModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0 cursor-pointer shadow-indigo-500/20"
+            title="Room Day Book & Daily Sales Summary"
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            <span>Day Book</span>
+          </button>
+
+          {/* Search input */}
+          <div className="relative w-full sm:w-52">
+            <Search className="absolute left-3 top-2 w-3.5 h-3.5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search Room, Name..."
+              value={roomSearchTerm}
+              onChange={e => setRoomSearchTerm(e.target.value)}
+              className="w-full pl-8 pr-4 py-1.5 text-xs border dark:border-slate-800 dark:bg-slate-950 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500/20"
+            />
+          </div>
         </div>
 
       </div>
@@ -868,7 +965,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                         )}
                         {room.gstNumber && (
                           <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-mono font-bold border border-blue-200/50 dark:border-blue-800/50">
-                            GST: {room.gstNumber}
+                            GST: {room.gstNumber}{room.companyName ? ` (${room.companyName})` : ''}
                           </span>
                         )}
                       </div>
@@ -1475,15 +1572,32 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                     placeholder="Complete Address"
                   />
                 </div>
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-500">GST Number</label>
-                  <input
-                    type="text"
-                    value={guestGst}
-                    onChange={e => setGuestGst(e.target.value)}
-                    className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg"
-                    placeholder="Optional"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-500">GST Number</label>
+                    <input
+                      type="text"
+                      value={guestGst}
+                      onChange={e => setGuestGst(e.target.value.toUpperCase())}
+                      className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg uppercase font-mono text-xs"
+                      placeholder="Optional (e.g. 33AAAAA0000A1Z5)"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-500 flex items-center justify-between">
+                      <span>Company Name</span>
+                      {guestGst.trim() && (
+                        <span className="text-[10px] text-rose-500 font-bold">* Required for GST</span>
+                      )}
+                    </label>
+                    <input
+                      type="text"
+                      value={companyName}
+                      onChange={e => setCompanyName(e.target.value)}
+                      className={`w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg text-xs ${guestGst.trim() && !companyName.trim() ? 'border-amber-500 ring-1 ring-amber-500' : ''}`}
+                      placeholder={guestGst.trim() ? "Required: Legal Business / Company Name" : "Optional (Company Name)"}
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -1723,12 +1837,15 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                     </label>
                     <div className="grid grid-cols-3 gap-1.5">
                       {[
+                        { label: 'Early Check-in (₹500)', amount: 500, desc: 'Early Check-in Fee' },
+                        { label: 'Late Checkout (₹500)', amount: 500, desc: 'Late Check-out Fee' },
                         { label: 'Extra Bed (₹500)', amount: 500, desc: 'Extra Bed / Rollaway Mattress' },
                         { label: 'Extra Bed (₹800)', amount: 800, desc: 'Extra Bed / Rollaway Mattress' },
                         { label: 'Laundry (₹300)', amount: 300, desc: 'Laundry & Ironing' },
                         { label: 'Airport Cab (₹800)', amount: 800, desc: 'Airport Cab Transfer' },
-                        { label: 'Late Checkout (₹500)', amount: 500, desc: 'Late Check-out Fee' },
                         { label: 'Extra Towels (₹150)', amount: 150, desc: 'Extra Towel & Linen' },
+                        { label: 'Room Upgrade (₹1000)', amount: 1000, desc: 'Room Category Upgrade Fee' },
+                        { label: 'Minibar / Snacks (₹250)', amount: 250, desc: 'Minibar & Refreshment Charges' },
                       ].map((preset, idx) => (
                         <button
                           key={idx}
@@ -1757,7 +1874,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                     <input
                       type="text"
                       required
-                      placeholder="e.g. Extra Bed, Laundry, Airport Cab, Minibar, Extra Towel"
+                      placeholder="e.g. Early Check-in, Extra Bed, Laundry, Airport Cab, Minibar"
                       value={extraServiceName}
                       onChange={e => setExtraServiceName(e.target.value)}
                       className="w-full p-2.5 border rounded-xl dark:bg-slate-950 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-medium text-xs focus:ring-2 focus:ring-indigo-500"
@@ -1782,6 +1899,106 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                         className="w-full pl-8 pr-3 py-2.5 border rounded-xl dark:bg-slate-950 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-mono font-bold text-sm focus:ring-2 focus:ring-indigo-500"
                       />
                     </div>
+                  </div>
+
+                  {/* Input 3: Payment Settlement Mode (Collect Now or Pay at Checkout) */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="font-bold text-slate-700 dark:text-slate-200">
+                        Payment Settlement Mode <span className="text-rose-500">*</span>
+                      </label>
+                      <span className="text-[10px] text-slate-400">Collect now or bill to room</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setExtraServicePaymentOption('checkout')}
+                        className={`p-2 rounded-xl border text-left flex items-center gap-2 transition-all ${
+                          extraServicePaymentOption === 'checkout'
+                            ? 'bg-indigo-50 dark:bg-indigo-950/70 border-indigo-500 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-500'
+                            : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className={`p-1.5 rounded-lg ${extraServicePaymentOption === 'checkout' ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
+                          <Receipt className="w-3.5 h-3.5" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold leading-tight">Pay at Check-Out</div>
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400">Bill to Room Folio</div>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExtraServicePaymentOption('collect_now');
+                          if (!extraServiceReceiptNo) {
+                            setExtraServiceReceiptNo(getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber)));
+                          }
+                        }}
+                        className={`p-2 rounded-xl border text-left flex items-center gap-2 transition-all ${
+                          extraServicePaymentOption === 'collect_now'
+                            ? 'bg-emerald-50 dark:bg-emerald-950/70 border-emerald-500 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500'
+                            : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className={`p-1.5 rounded-lg ${extraServicePaymentOption === 'collect_now' ? 'bg-emerald-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
+                          <IndianRupee className="w-3.5 h-3.5" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold leading-tight">Collect Now</div>
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400">Immediate Payment</div>
+                        </div>
+                      </button>
+                    </div>
+
+                    {extraServicePaymentOption === 'collect_now' ? (
+                      <div className="p-3 bg-emerald-50/60 dark:bg-emerald-950/40 rounded-xl border border-emerald-200/80 dark:border-emerald-800/80 space-y-2.5 animate-in fade-in duration-150">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <label className="text-[11px] font-bold text-slate-700 dark:text-slate-200">
+                              Payment Mode <span className="text-rose-500">*</span>
+                            </label>
+                            <select
+                              value={extraServicePaymentMode}
+                              onChange={e => setExtraServicePaymentMode(e.target.value)}
+                              className="w-full p-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700 font-bold text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500"
+                            >
+                              <option value="Cash">Cash</option>
+                              <option value="UPI">UPI / GPay / PhonePe</option>
+                              <option value="Card">Debit / Credit Card</option>
+                              <option value="Bank Transfer">Bank Transfer / NEFT</option>
+                              <option value="Cheque">Cheque</option>
+                            </select>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-[11px] font-bold text-slate-700 dark:text-slate-200">
+                              Receipt / Voucher No.
+                            </label>
+                            <input
+                              type="text"
+                              value={extraServiceReceiptNo}
+                              onChange={e => setExtraServiceReceiptNo(e.target.value)}
+                              placeholder="Auto-assigned"
+                              className="w-full p-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700 font-mono font-bold text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500"
+                            />
+                          </div>
+                        </div>
+                        <div className="text-[10px] text-emerald-800 dark:text-emerald-300 font-medium flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                          <span>
+                            ₹{Number(extraServiceAmount) || 0} will be recorded as collected via {extraServicePaymentMode} with instant receipt generation option.
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-2.5 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200/80 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                        <Receipt className="w-4 h-4 text-indigo-500 shrink-0" />
+                        <span>Payment mode will be chosen while checking out the room in Unified Billing.</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Optional: Also Extend Stay Checkbox */}
@@ -1812,10 +2029,22 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                   {/* Live Impact Preview */}
                   <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/30 rounded-xl border border-emerald-200/70 dark:border-emerald-800/70 text-xs space-y-1">
                     <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                      <span>Will add to Room Invoice:</span>
+                      <span>Service Charge to Invoice:</span>
                       <span className="font-bold text-emerald-700 dark:text-emerald-300">
                         +₹{Number(extraServiceAmount) || 0}
                       </span>
+                    </div>
+                    <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                      <span>Settlement Status:</span>
+                      {extraServicePaymentOption === 'checkout' ? (
+                        <span className="font-semibold text-amber-600 dark:text-amber-400">
+                          Pay at Check-Out (Added to Bill)
+                        </span>
+                      ) : (
+                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                          Paid Now via {extraServicePaymentMode} (Advance Deposit)
+                        </span>
+                      )}
                     </div>
                     {extendDays > 0 && (
                       <div className="flex justify-between text-[11px] text-indigo-600 dark:text-indigo-400">
@@ -1891,7 +2120,13 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                   className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-sm transition-colors flex items-center gap-1.5"
                 >
                   <Check className="w-3.5 h-3.5" />
-                  <span>{extendModalTab === 'service' ? 'Add Charge to Invoice' : 'Apply Extension'}</span>
+                  <span>
+                    {extendModalTab === 'service'
+                      ? extraServicePaymentOption === 'checkout'
+                        ? 'Add Charge (Pay at Checkout)'
+                        : `Collect ₹${Number(extraServiceAmount) || 0} & Add Charge`
+                      : 'Apply Extension'}
+                  </span>
                 </button>
               </div>
             </form>
@@ -1935,7 +2170,9 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                       </div>
                       <p className="font-bold text-slate-800 dark:text-slate-150">{summary.guestName}</p>
                       {selectedRoom.gstNumber && (
-                        <p className="text-[10px] font-mono font-bold text-blue-600 dark:text-blue-400 mt-0.5">GST: {selectedRoom.gstNumber}</p>
+                        <p className="text-[10px] font-mono font-bold text-blue-600 dark:text-blue-400 mt-0.5">
+                          GST: {selectedRoom.gstNumber}{selectedRoom.companyName ? ` (${selectedRoom.companyName})` : ''}
+                        </p>
                       )}
                     </div>
                     <div className="text-right">
@@ -2101,12 +2338,13 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                 </label>
                 <div className="grid grid-cols-2 gap-2">
                   {[
+                    { label: 'Early Check-in Fee (₹500)', amount: 500, desc: 'Early Check-in Charge' },
+                    { label: 'Late Checkout Fee (₹500)', amount: 500, desc: 'Late Check-out Charge' },
                     { label: 'Extra Bed (₹500)', amount: 500, desc: 'Extra Bed / Rollaway Mattress' },
                     { label: 'Extra Bed (₹800)', amount: 800, desc: 'Extra Bed / Rollaway Mattress' },
                     { label: 'Extra Bed (₹1000)', amount: 1000, desc: 'Extra Bed / Rollaway Mattress' },
                     { label: 'Rollaway Cot (₹600)', amount: 600, desc: 'Rollaway Cot' },
                     { label: 'Extra Linen / Towel (₹150)', amount: 150, desc: 'Extra Linen & Towel Set' },
-                    { label: 'Late Checkout Fee (₹500)', amount: 500, desc: 'Late Check-out Charge' },
                   ].map((preset, idx) => (
                     <button
                       key={idx}
@@ -2562,24 +2800,42 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                 <div className="flex items-center justify-between">
                   <label className="font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5 text-xs">
                     <Receipt className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                    <span>Corporate GSTIN / GST Details</span>
+                    <span>Corporate GSTIN & Company Details</span>
                   </label>
                   <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400">
                     B2B Tax Invoice & Audit
                   </span>
                 </div>
-                <div className="space-y-1">
-                  <input
-                    type="text"
-                    value={editGuestGst}
-                    onChange={e => setEditGuestGst(e.target.value.toUpperCase())}
-                    className="w-full p-2 bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-700 rounded-lg font-mono font-bold text-blue-950 dark:text-blue-100 text-xs uppercase tracking-wider focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g. 33AAHCJ3990L1Z5 (Leave blank if personal/non-GST)"
-                  />
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                    Directly updates invoice GSTIN for corporate billing and Unified Checkout.
-                  </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Corporate GSTIN</label>
+                    <input
+                      type="text"
+                      value={editGuestGst}
+                      onChange={e => setEditGuestGst(e.target.value.toUpperCase())}
+                      className="w-full p-2 bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-700 rounded-lg font-mono font-bold text-blue-950 dark:text-blue-100 text-xs uppercase tracking-wider focus:ring-2 focus:ring-blue-500"
+                      placeholder="e.g. 33AAHCJ3990L1Z5"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center justify-between">
+                      <span>Company Name</span>
+                      {editGuestGst.trim() && (
+                        <span className="text-[10px] text-rose-500 font-bold">* Required</span>
+                      )}
+                    </label>
+                    <input
+                      type="text"
+                      value={editCompanyName}
+                      onChange={e => setEditCompanyName(e.target.value)}
+                      className={`w-full p-2 bg-white dark:bg-slate-900 border ${editGuestGst.trim() && !editCompanyName.trim() ? 'border-amber-500 ring-1 ring-amber-500' : 'border-blue-300 dark:border-blue-700'} rounded-lg text-xs font-semibold`}
+                      placeholder={editGuestGst.trim() ? "Required: Company Name" : "Company / Business Name"}
+                    />
+                  </div>
                 </div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                  Directly updates invoice GSTIN and Company Name for corporate billing and Unified Checkout.
+                </p>
               </div>
 
               {/* 3. Tariff & AC Mode */}
@@ -2779,6 +3035,23 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         }}
         data={receiptModalData}
       />
+
+      {/* Room Cash Drawer Wallet Modal */}
+      {showRoomWalletModal && (
+        <CashWalletModal
+          isOpen={showRoomWalletModal}
+          onClose={() => setShowRoomWalletModal(false)}
+          defaultDepartment="Rooms"
+        />
+      )}
+
+      {/* Room Day Book Modal */}
+      {showDayBookModal && (
+        <DayBookModal
+          isOpen={showDayBookModal}
+          onClose={() => setShowDayBookModal(false)}
+        />
+      )}
 
     </div>
   );

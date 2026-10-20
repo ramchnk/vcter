@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Printer, X, Calendar, Download, RefreshCw, ArrowLeft } from 'lucide-react';
+import { Printer, X, Calendar, Download, RefreshCw, ArrowLeft, WalletCards } from 'lucide-react';
+import { CashWalletModal } from './CashWalletModal';
 import { useApp } from '../context/AppContext';
 import { isDateInRange, getEffectiveCheckoutTime, formatTime24h, formatTime12h, isDirectBookingSource } from '../utils/dateUtils';
 
@@ -24,7 +25,8 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
     settings,
     tenantId,
     activeTenantId,
-    getBillSummary
+    getBillSummary,
+    cashWalletTransactions = []
   } = useApp();
 
   const effectiveTenantId = currentTenant?.id || tenantId || activeTenantId;
@@ -32,6 +34,9 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
   // Selected Report Date (defaults to today: YYYY-MM-DD)
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
   const [reportDate, setReportDate] = useState<string>(initialDate || todayStr);
+
+  // Room Cash Wallet modal state
+  const [showRoomWalletModal, setShowRoomWalletModal] = useState(false);
 
   // Sync initialDate when changed
   React.useEffect(() => {
@@ -384,20 +389,47 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
       }
     });
 
-    // 3. Check-Out collections from audit logs on reportDate
+    // 3. Check-Out collections on reportDate (ONLY actual net cash/UPI collected at checkout)
     tenantAuditLogs.forEach(a => {
       const aDate = a.timestamp ? a.timestamp.split('T')[0] : '';
       if (a.action === 'Check-Out' && aDate === reportDate) {
         const matchRoom = a.details?.match(/Room\s+([A-Za-z0-9_-]+)/i);
         const matchGuest = a.details?.match(/Guest\s+(.+?)\s+checked out/i);
         const matchTotal = a.details?.match(/Total Folio:\s*₹?([0-9.]+)/i);
-        const matchMethod = a.details?.match(/Paid via\s+([^.]+)/i);
-        if (matchTotal) {
-          const amt = parseFloat(matchTotal[1]);
-          const roomNo = matchRoom ? matchRoom[1] : '—';
-          const guest = matchGuest ? matchGuest[1].trim().toUpperCase() : 'GUEST';
-          // Avoid duplicate if already added
-          if (!list.some(item => item.roomNumber === roomNo && item.customerName === guest && item.billItems === 'Checkout Settlement')) {
+        const matchNet = a.details?.match(/Net Settled:\s*₹?([0-9.]+)/i);
+        const matchAdv = a.details?.match(/Advance:\s*₹?([0-9.]+)/i);
+        const matchDisc = a.details?.match(/Discount:\s*₹?([0-9.]+)/i);
+        const matchMethod = a.details?.match(/Paid via\s+([^.]+?)(?:\.\s*Discount|$)/i);
+
+        const roomNo = matchRoom ? matchRoom[1].trim() : '—';
+        const guest = matchGuest ? matchGuest[1].trim().toUpperCase() : 'GUEST';
+
+        // Find matching checked-out stay record in preBookings to ensure exact financial accuracy
+        const matchingPb = tenantPreBookings.find(pb => 
+          pb.status === 'CheckedOut' && 
+          pb.roomNumber === roomNo && 
+          (pb.checkOutDate === reportDate || !pb.checkOutDate)
+        );
+
+        let netSettled = 0;
+        if (matchNet) {
+          netSettled = parseFloat(matchNet[1]);
+        } else if (matchingPb) {
+          const totalAmt = matchingPb.totalAmount || (matchTotal ? parseFloat(matchTotal[1]) : 0);
+          const advPaid = matchingPb.advancePaid || (matchAdv ? parseFloat(matchAdv[1]) : 0);
+          const disc = matchingPb.discount || (matchDisc ? parseFloat(matchDisc[1]) : 0);
+          netSettled = Math.max(0, totalAmt - advPaid - disc);
+        } else if (matchTotal) {
+          const totalAmt = parseFloat(matchTotal[1]);
+          const advPaid = matchAdv ? parseFloat(matchAdv[1]) : 0;
+          const disc = matchDisc ? parseFloat(matchDisc[1]) : 0;
+          netSettled = Math.max(0, totalAmt - advPaid - disc);
+        }
+
+        // ONLY record a checkout collection if actual money was received at checkout!
+        // If netSettled === 0, the stay was already 100% covered by advance (or discount), so no money was collected at checkout today.
+        if (netSettled > 0) {
+          if (!list.some(item => item.roomNumber === roomNo && item.customerName === guest && item.billItems.startsWith('Checkout Settlement'))) {
             const timeObj = new Date(a.timestamp);
             const hh = String(timeObj.getHours()).padStart(2, '0');
             const mm = String(timeObj.getMinutes()).padStart(2, '0');
@@ -409,8 +441,34 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
               entryNumber: String(entryCounter--),
               billItems: 'Checkout Settlement',
               paymentMode: matchMethod ? matchMethod[1].trim() : 'Online (UPI)',
-              amount: amt,
+              amount: netSettled,
               orderDateTime: `${d}-${m}-${y} ${hh}:${mm}`
+            });
+          }
+        }
+      }
+    });
+
+    // Also check for any checked-out stays in preBookings for reportDate that might not have an audit log entry
+    tenantPreBookings.forEach(pb => {
+      const outDate = pb.checkOutDate || (pb.status === 'CheckedOut' ? pb.bookingDate : '');
+      if (pb.status === 'CheckedOut' && outDate === reportDate) {
+        const roomNo = pb.roomNumber || '—';
+        const guest = (pb.guestName || pb.occupantName || 'GUEST').toUpperCase();
+        
+        if (!list.some(item => item.roomNumber === roomNo && item.customerName === guest && item.billItems.startsWith('Checkout Settlement'))) {
+          const netSettled = Math.max(0, (pb.totalAmount || pb.roomRentTotal || 0) - (pb.advancePaid || 0) - (pb.discount || 0));
+          if (netSettled > 0) {
+            const [y, m, d] = reportDate.split('-');
+            list.push({
+              sNo: 0,
+              customerName: guest,
+              roomNumber: roomNo,
+              entryNumber: String(entryCounter--),
+              billItems: 'Checkout Settlement',
+              paymentMode: pb.advancePaymentMethod || (isDirectBookingSource(pb.bookingSource) ? 'Cash' : 'Online (UPI)'),
+              amount: netSettled,
+              orderDateTime: `${d}-${m}-${y} ${formatTime24h(pb.checkOutTime || '12:00')}`
             });
           }
         }
@@ -516,6 +574,21 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
   }, [expensesList]);
 
   // ==========================================
+  // 6.5 OTHER SERVICES SALES ON REPORT DATE
+  // ==========================================
+  const totalOtherSales = useMemo(() => {
+    return tenantAuditLogs
+      .filter(a => {
+        const aDate = a.timestamp ? a.timestamp.split('T')[0] : '';
+        return aDate === reportDate && (a.action === 'Room Charge Added' || a.action === 'Room Charge & Payment Collected');
+      })
+      .reduce((sum, a) => {
+        const m = a.details?.match(/charge of ₹?([0-9.]+)/i);
+        return sum + (m ? parseFloat(m[1]) : 0);
+      }, 0);
+  }, [tenantAuditLogs, reportDate]);
+
+  // ==========================================
   // 7. PAYMENT BREAKUP (COLLECTION BREAKUP)
   // ==========================================
   const paymentBreakup = useMemo(() => {
@@ -528,9 +601,23 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
 
     dayBookInList.forEach(item => {
       const mode = (item.paymentMode || '').toLowerCase();
-      if (mode.includes('cash')) {
-        cash += item.amount;
-      } else if (mode.includes('card') || mode.includes('pos')) {
+      if (mode.includes('split')) {
+        const cashMatch = mode.match(/cash:\s*₹?([0-9.]+)/i);
+        const cardMatch = mode.match(/card:\s*₹?([0-9.]+)/i);
+        const upiMatch = mode.match(/upi:\s*₹?([0-9.]+)/i);
+        const splitCash = cashMatch ? parseFloat(cashMatch[1]) : 0;
+        const splitCard = cardMatch ? parseFloat(cardMatch[1]) : 0;
+        const splitUpi = upiMatch ? parseFloat(upiMatch[1]) : 0;
+        
+        cash += splitCash;
+        card += splitCard;
+        upi += splitUpi;
+        
+        const parsedSum = splitCash + splitCard + splitUpi;
+        if (parsedSum < item.amount) {
+          cash += (item.amount - parsedSum);
+        }
+      } else if (mode.includes('card') || mode.includes('pos') || mode.includes('debit') || mode.includes('credit')) {
         card += item.amount;
       } else if (mode.includes('upi') || mode.includes('gpay') || mode.includes('phonepe') || mode.includes('online')) {
         upi += item.amount;
@@ -550,11 +637,126 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
   }, [dayBookInList]);
 
   // ==========================================
+  // ROOM CASH WALLET CARRY FORWARD & RECONCILIATION
+  // ==========================================
+  const roomWalletData = useMemo(() => {
+    const deptTxs = (cashWalletTransactions || []).filter(tx => 
+      (!effectiveTenantId || !tx.tenantId || tx.tenantId === effectiveTenantId) &&
+      tx.department === 'Rooms'
+    );
+
+    // 1. Calculate opening balance carried forward from all dates prior to reportDate
+    let opening = 0;
+    deptTxs.forEach(tx => {
+      if (tx.date < reportDate) {
+        if (tx.type === 'TopUp' || tx.type === 'OpeningAdjustment') {
+          opening += Number(tx.amount || 0);
+        } else if (tx.type === 'Withdrawal') {
+          opening -= Number(tx.amount || 0);
+        }
+      }
+    });
+
+    // Room cash advances prior to reportDate
+    tenantRooms.forEach(r => {
+      const isCash = !r.advancePaymentMethod || r.advancePaymentMethod === 'Cash';
+      const advDate = r.advancePaymentDate || r.checkInDate;
+      if (isCash && advDate && advDate < reportDate && Number(r.advancePaid || 0) > 0) {
+        opening += Number(r.advancePaid);
+      }
+    });
+
+    tenantPreBookings.forEach(pb => {
+      const isCash = !pb.advancePaymentMethod || pb.advancePaymentMethod === 'Cash';
+      const advDate = pb.advancePaymentDate || pb.checkInDate;
+      if (isCash && advDate && advDate < reportDate && Number(pb.advancePaid || 0) > 0) {
+        opening += Number(pb.advancePaid);
+      }
+    });
+
+    // Check-out net settled in Cash prior to reportDate
+    tenantAuditLogs.forEach(a => {
+      if (a.action === 'Check-Out' && a.details) {
+        const matchMethod = a.details.match(/Paid via\s+([A-Za-z0-9\s]+?)(?:\s*\(|\.|$)/i);
+        const isCash = matchMethod && matchMethod[1].toLowerCase().includes('cash');
+        if (isCash) {
+          const dateStr = a.timestamp?.split('T')[0] || '';
+          if (dateStr && dateStr < reportDate) {
+            const matchNet = a.details.match(/Net Settled:\s*₹?([0-9.]+)/i);
+            const matchRent = a.details.match(/Room Rent:\s*₹?([0-9.]+)/i);
+            const amt = matchNet ? parseFloat(matchNet[1]) : (matchRent ? parseFloat(matchRent[1]) : 0);
+            if (amt > 0) opening += amt;
+          }
+        }
+      }
+    });
+
+    // Prior cash expenses
+    tenantExpenses.forEach(e => {
+      const eDate = e.date ? e.date.split('T')[0] : '';
+      const isCash = !e.paymentMethod || e.paymentMethod.toLowerCase() === 'cash';
+      if (eDate && eDate < reportDate && isCash) {
+        const dept = (e.department || '').toLowerCase().trim();
+        if (dept === 'rooms') {
+          opening -= Number(e.amount || 0);
+        } else if (dept !== 'bar' && dept !== 'restaurant') {
+          const cat = (e.category || '').toLowerCase();
+          const title = (e.title || '').toLowerCase();
+          if (!cat.includes('bar') && !cat.includes('liquor') && !cat.includes('beer') && !title.includes('bar') && !title.includes('liquor')) {
+            opening -= Number(e.amount || 0);
+          }
+        }
+      }
+    });
+
+    // Transactions on reportDate
+    const todayTxs = deptTxs.filter(tx => tx.date === reportDate);
+    const topUps = todayTxs
+      .filter(tx => tx.type === 'TopUp' || tx.type === 'OpeningAdjustment')
+      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    const withdrawals = todayTxs
+      .filter(tx => tx.type === 'Withdrawal')
+      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+
+    // Today Cash Collections
+    const todayCashCollections = paymentBreakup.cash;
+
+    // Today Cash Expenses
+    const todayCashExpenses = tenantExpenses.filter(e => {
+      const eDate = e.date ? e.date.split('T')[0] : '';
+      if (eDate !== reportDate) return false;
+      const isCash = !e.paymentMethod || e.paymentMethod.toLowerCase() === 'cash';
+      if (!isCash) return false;
+      const dept = (e.department || '').toLowerCase().trim();
+      if (dept === 'rooms') return true;
+      if (dept === 'bar' || dept === 'restaurant') return false;
+      const cat = (e.category || '').toLowerCase();
+      const title = (e.title || '').toLowerCase();
+      return !(cat.includes('bar') || cat.includes('liquor') || cat.includes('beer') || title.includes('bar') || title.includes('liquor'));
+    }).reduce((sum, e) => sum + Number(e.amount || 0), 0);
+
+    const totalAvailable = opening + topUps + todayCashCollections;
+    const closing = totalAvailable - todayCashExpenses - withdrawals;
+
+    return {
+      opening,
+      topUps,
+      todayCashCollections,
+      todayCashExpenses,
+      withdrawals,
+      todayTxs,
+      totalAvailable,
+      closing
+    };
+  }, [cashWalletTransactions, effectiveTenantId, reportDate, tenantRooms, tenantPreBookings, tenantAuditLogs, tenantExpenses, paymentBreakup.cash]);
+
+  // ==========================================
   // 8. CHECK-IN & SALES SOURCE BREAKDOWN
   // ==========================================
   const sourceBreakdown = useMemo(() => {
     const map = new Map<string, { checkIns: number; roomSales: number; foodSales: number; otherSales: number; totalSales: number }>();
 
+    // 1. Check-ins today
     checkInsList.forEach(item => {
       let src = item.source || 'Direct';
       if (src.toUpperCase().includes('MAKE')) {
@@ -564,6 +766,20 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
       }
       const existing = map.get(src) || { checkIns: 0, roomSales: 0, foodSales: 0, otherSales: 0, totalSales: 0 };
       existing.checkIns += 1;
+      existing.roomSales += item.roomRent;
+      existing.totalSales += item.roomRent;
+      map.set(src, existing);
+    });
+
+    // 2. Continuing occupied rooms today
+    roomsContinuedList.forEach(item => {
+      let src = item.source || 'Direct';
+      if (src.toUpperCase().includes('MAKE')) {
+        src = 'MAKE MY TRIP';
+      } else if (isDirectBookingSource(src)) {
+        src = 'Direct';
+      }
+      const existing = map.get(src) || { checkIns: 0, roomSales: 0, foodSales: 0, otherSales: 0, totalSales: 0 };
       existing.roomSales += item.roomRent;
       existing.totalSales += item.roomRent;
       map.set(src, existing);
@@ -591,15 +807,15 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
     });
 
     return { rows, total: { source: 'TOTAL', checkIns: totCheckIns, roomSales: totRoom, foodSales: totFood, otherSales: totOther, totalSales: totTotal } };
-  }, [checkInsList]);
+  }, [checkInsList, roomsContinuedList]);
 
   // ==========================================
   // 9. BUSINESS SUMMARY & RECEIVABLES
   // ==========================================
   const roomSalesReceivable = useMemo(() => {
     // Total room rent generated by today's check-ins and continued rooms
-    return sourceBreakdown.total.roomSales || totalDayBookIn;
-  }, [sourceBreakdown, totalDayBookIn]);
+    return sourceBreakdown.total.roomSales;
+  }, [sourceBreakdown]);
 
   const totalCheckInsCount = checkInsList.length;
   const totalCheckOutsCount = checkOutsList.length;
@@ -607,7 +823,7 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
   const totalOccupiedToday = totalCheckInsCount + roomsContinuedCount;
   const totalRoomsCount = tenantRooms.length || 33;
   const occupancyPercent = totalRoomsCount > 0 ? Number(((totalOccupiedToday / totalRoomsCount) * 100).toFixed(2)) : 0;
-  const totalSalesAmount = totalDayBookIn > 0 ? totalDayBookIn : roomSalesReceivable;
+  const totalSalesAmount = totalDayBookIn;
   const arr = totalOccupiedToday > 0 ? Number((roomSalesReceivable / totalOccupiedToday).toFixed(2)) : 0;
 
   // Print function using isolated iframe for exact styling
@@ -726,6 +942,9 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
               font-style: italic;
               margin: 4px 0 8px 0;
             }
+            .no-print {
+              display: none !important;
+            }
           </style>
         </head>
         <body>
@@ -781,6 +1000,16 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
                 className="bg-transparent font-mono font-bold text-slate-800 dark:text-slate-200 text-xs focus:outline-none"
               />
             </div>
+
+            {/* Cash Wallet Button */}
+            <button
+              type="button"
+              onClick={() => setShowRoomWalletModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition-all"
+            >
+              <WalletCards className="w-3.5 h-3.5" />
+              <span>Cash Wallet</span>
+            </button>
 
             <button
               onClick={handlePrint}
@@ -882,11 +1111,11 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
                     </tr>
                     <tr>
                       <td className="border border-slate-300 p-1">Other Services Sales</td>
-                      <td className="border border-slate-300 p-1 text-right font-mono font-medium">₹ 0.00</td>
+                      <td className="border border-slate-300 p-1 text-right font-mono font-medium">₹ {totalOtherSales.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                     <tr className="font-bold bg-slate-50">
                       <td className="border border-slate-300 p-1">Total</td>
-                      <td className="border border-slate-300 p-1 text-right font-mono">₹ {(roomSalesReceivable + totalFoodSales).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td className="border border-slate-300 p-1 text-right font-mono">₹ {(roomSalesReceivable + totalFoodSales + totalOtherSales).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -985,6 +1214,91 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
                 </table>
                 <p className="text-[9px] text-slate-500 italic mt-1">
                   Guest details, DayBook In, food/KOT details and expense details are attached only when selected during report download.
+                </p>
+              </div>
+
+              {/* 6. Room Cash Drawer & Wallet Reconciliation */}
+              <div className="mb-2">
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <span>6. Room Cash Drawer & Wallet Reconciliation</span>
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowRoomWalletModal(true)}
+                    className="no-print text-[10px] font-bold text-emerald-700 dark:text-emerald-300 hover:text-emerald-900 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-md flex items-center gap-1 hover:bg-emerald-100 transition-colors shadow-xs"
+                  >
+                    <WalletCards className="w-3 h-3" /> Manage Cash Wallet
+                  </button>
+                </div>
+                <table className="w-full border-collapse border border-slate-300 text-[9.5px]">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-700 font-bold">
+                      <th className="border border-slate-300 p-1 text-left">Cash Flow Particular</th>
+                      <th className="border border-slate-300 p-1 text-right">Amount (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="border border-slate-300 p-1 font-medium">
+                        1. Opening Cash Balance (Carried forward from yesterday)
+                      </td>
+                      <td className="border border-slate-300 p-1 text-right font-mono font-bold text-slate-800">
+                        ₹ {roomWalletData.opening.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 p-1 text-emerald-700 font-medium">
+                        (+) Float Top-Ups Today
+                      </td>
+                      <td className="border border-slate-300 p-1 text-right font-mono text-emerald-700 font-bold">
+                        + ₹ {roomWalletData.topUps.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 p-1 font-medium">
+                        (+) Gross Cash Collections Today (DayBook In cash)
+                      </td>
+                      <td className="border border-slate-300 p-1 text-right font-mono font-bold text-blue-700">
+                        + ₹ {roomWalletData.todayCashCollections.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                    <tr className="bg-slate-50 font-bold">
+                      <td className="border border-slate-300 p-1 text-slate-700">
+                        (=) Total Available Cash in Hand
+                      </td>
+                      <td className="border border-slate-300 p-1 text-right font-mono font-bold text-slate-900">
+                        ₹ {roomWalletData.totalAvailable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 p-1 text-red-600 font-medium">
+                        (-) Less: Cash Expenses (paid from front desk drawer)
+                      </td>
+                      <td className="border border-slate-300 p-1 text-right font-mono text-red-600 font-bold">
+                        - ₹ {roomWalletData.todayCashExpenses.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 p-1 text-rose-600 font-medium">
+                        (-) Less: Cash Withdrawals / Drops (to owner/bank)
+                      </td>
+                      <td className="border border-slate-300 p-1 text-right font-mono text-rose-600 font-bold">
+                        - ₹ {roomWalletData.withdrawals.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                    <tr className="bg-emerald-50 font-bold text-emerald-900">
+                      <td className="border border-slate-300 p-1 font-black text-emerald-950">
+                        NET CLOSING CASH IN DRAWER (Carries forward)
+                      </td>
+                      <td className="border border-slate-300 p-1 text-right font-mono font-black text-emerald-700 text-[10.5px]">
+                        ₹ {roomWalletData.closing.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p className="text-[9px] text-slate-500 italic mt-1">
+                  Front Desk register drawer balance. Net closing cash automatically carries forward as tomorrow's opening balance.
                 </p>
               </div>
 
@@ -1255,6 +1569,16 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
         </div>
 
       </div>
+
+      {/* Room Cash Wallet Modal */}
+      {showRoomWalletModal && (
+        <CashWalletModal
+          isOpen={showRoomWalletModal}
+          onClose={() => setShowRoomWalletModal(false)}
+          initialDate={reportDate}
+          defaultDepartment="Rooms"
+        />
+      )}
     </div>
   );
 };

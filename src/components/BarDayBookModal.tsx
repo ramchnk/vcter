@@ -16,8 +16,12 @@ import {
   Bed, 
   ShoppingBag,
   Search,
-  CheckCircle2
+  CheckCircle2,
+  PlusCircle,
+  Plus,
+  WalletCards
 } from 'lucide-react';
+import { CashWalletModal } from './CashWalletModal';
 import { useApp, InventoryItem, Order, PurchaseLog, Expense } from '../context/AppContext';
 
 interface BarDayBookModalProps {
@@ -40,7 +44,9 @@ export const BarDayBookModal: React.FC<BarDayBookModalProps> = ({
     currentTenant, 
     tenantId, 
     activeTenantId,
-    settings 
+    settings,
+    addExpense,
+    cashWalletTransactions = []
   } = useApp();
 
   const effectiveTenantId = currentTenant?.id || tenantId || activeTenantId;
@@ -48,6 +54,19 @@ export const BarDayBookModal: React.FC<BarDayBookModalProps> = ({
   // Selected Report Date (defaults to today: YYYY-MM-DD)
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
   const [reportDate, setReportDate] = useState<string>(initialDate || todayStr);
+
+  // Bar Cash Wallet modal state
+  const [showBarWalletModal, setShowBarWalletModal] = useState(false);
+
+  // Quick Add Bar Expense Modal State
+  const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
+  const [newExpTitle, setNewExpTitle] = useState('');
+  const [newExpCategory, setNewExpCategory] = useState('Ice & Cooling Supplies');
+  const [newExpAmount, setNewExpAmount] = useState<number | string>('');
+  const [newExpPaymentMethod, setNewExpPaymentMethod] = useState<'Cash' | 'UPI' | 'Card' | 'Bank Transfer'>('Cash');
+  const [newExpPaidTo, setNewExpPaidTo] = useState('');
+  const [newExpNotes, setNewExpNotes] = useState('');
+  const [isSubmittingExpense, setIsSubmittingExpense] = useState(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   React.useEffect(() => {
@@ -166,16 +185,118 @@ export const BarDayBookModal: React.FC<BarDayBookModalProps> = ({
   const barExpensesOnDate = useMemo(() => {
     return tenantExpenses.filter(e => {
       const eDate = e.date ? e.date.split('T')[0] : '';
+      if (eDate !== reportDate) return false;
+
+      const dept = (e.department || '').toLowerCase().trim();
+      // Explicit Department check
+      if (dept === 'bar') return true;
+      if (dept === 'restaurant' || dept === 'rooms') return false;
+
+      // Fallback for unclassified or legacy expenses matching bar keywords
       const cat = (e.category || '').toLowerCase();
       const title = (e.title || '').toLowerCase();
-      const isBarExp = cat.includes('bar') || cat.includes('liquor') || title.includes('bar') || title.includes('liquor');
-      return eDate === reportDate && isBarExp;
+      return (
+        cat.includes('bar') || 
+        cat.includes('liquor') || 
+        cat.includes('beer') || 
+        cat.includes('wine') || 
+        cat.includes('whisky') || 
+        cat.includes('brandy') || 
+        cat.includes('rum') || 
+        title.includes('bar') || 
+        title.includes('liquor') || 
+        title.includes('beer')
+      );
     });
   }, [tenantExpenses, reportDate]);
 
   const totalBarExpenses = useMemo(() => {
     return barExpensesOnDate.reduce((sum, e) => sum + Number(e.amount || 0), 0);
   }, [barExpensesOnDate]);
+
+  const totalBarCashExpenses = useMemo(() => {
+    return barExpensesOnDate
+      .filter(e => !e.paymentMethod || e.paymentMethod.toLowerCase() === 'cash')
+      .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  }, [barExpensesOnDate]);
+
+  const totalBarNonCashExpenses = useMemo(() => {
+    return barExpensesOnDate
+      .filter(e => e.paymentMethod && e.paymentMethod.toLowerCase() !== 'cash')
+      .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  }, [barExpensesOnDate]);
+
+  // Bar Cash Wallet Carry Forward & Drawer Reconciliation
+  const barWalletData = useMemo(() => {
+    const deptTxs = (cashWalletTransactions || []).filter(tx => 
+      (!effectiveTenantId || !tx.tenantId || tx.tenantId === effectiveTenantId) &&
+      tx.department === 'Bar'
+    );
+
+    // 1. Calculate opening balance carried forward from all dates prior to reportDate
+    let opening = 0;
+    deptTxs.forEach(tx => {
+      if (tx.date < reportDate) {
+        if (tx.type === 'TopUp' || tx.type === 'OpeningAdjustment') {
+          opening += Number(tx.amount || 0);
+        } else if (tx.type === 'Withdrawal') {
+          opening -= Number(tx.amount || 0);
+        }
+      }
+    });
+
+    tenantOrders.forEach(o => {
+      const oDate = o.timestamp ? o.timestamp.split('T')[0] : '';
+      if (oDate && oDate < reportDate && o.isBar && (o.status as any) !== 'Cancelled') {
+        const amt = Number(o.total || 0);
+        const method = (o.paymentMethod || '').toLowerCase();
+        if (o.type !== 'Room' && method !== 'room' && !method.includes('upi') && !method.includes('card') && !method.includes('pos')) {
+          if (method.includes('split') && o.splitDetails) {
+            try {
+              const cMatch = o.splitDetails.match(/Cash:\s*₹?([0-9.]+)/i);
+              if (cMatch) opening += Number(cMatch[1]);
+              else opening += amt;
+            } catch { opening += amt; }
+          } else {
+            opening += amt;
+          }
+        }
+      }
+    });
+
+    tenantExpenses.forEach(e => {
+      const eDate = e.date ? e.date.split('T')[0] : '';
+      const isCash = !e.paymentMethod || e.paymentMethod.toLowerCase() === 'cash';
+      if (eDate && eDate < reportDate && isCash) {
+        const dept = (e.department || '').toLowerCase().trim();
+        const cat = (e.category || '').toLowerCase();
+        const title = (e.title || '').toLowerCase();
+        if (dept === 'bar' || ((!dept || dept === 'general') && (cat.includes('bar') || title.includes('bar')))) {
+          opening -= Number(e.amount || 0);
+        }
+      }
+    });
+
+    const todayTxs = deptTxs.filter(tx => tx.date === reportDate);
+    const topUps = todayTxs
+      .filter(tx => tx.type === 'TopUp' || tx.type === 'OpeningAdjustment')
+      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    const withdrawals = todayTxs
+      .filter(tx => tx.type === 'Withdrawal')
+      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+
+    const totalAvailable = opening + topUps + salesBreakup.cash;
+    const closing = totalAvailable - totalBarCashExpenses - withdrawals;
+
+    return {
+      opening,
+      topUps,
+      withdrawals,
+      todayTxs,
+      totalAvailable,
+      closing
+    };
+  }, [cashWalletTransactions, effectiveTenantId, reportDate, tenantOrders, tenantExpenses, salesBreakup.cash, totalBarCashExpenses]);
 
   // 5. Item-wise Sold Quantities Map from Bar Orders
   const itemsSoldMap = useMemo(() => {
@@ -337,7 +458,8 @@ export const BarDayBookModal: React.FC<BarDayBookModalProps> = ({
   // Cost of Goods Sold (COGS) = Opening Stock + Purchases - Closing Stock
   const cogs = Math.max(0, (openingStockValue + purchasesValue) - closingStockValue);
   const grossProfit = Math.max(0, salesValue - cogs);
-  const netCashInHand = Math.max(0, salesBreakup.cash - totalBarExpenses);
+  // Net cash in hand accurately deducts only CASH expenses paid from cash drawer
+  const netCashInHand = Math.max(0, salesBreakup.cash - totalBarCashExpenses);
 
   // Search filtered rows for display
   const displayedStockRows = useMemo(() => {
@@ -458,6 +580,7 @@ export const BarDayBookModal: React.FC<BarDayBookModalProps> = ({
             .text-purple { color: #6b21a8; }
             .text-emerald { color: #047857; }
             .bg-highlight { background-color: #f3e8ff !important; font-weight: 700; }
+            .no-print { display: none !important; }
           </style>
         </head>
         <body>
@@ -803,37 +926,86 @@ export const BarDayBookModal: React.FC<BarDayBookModalProps> = ({
             {/* 5. BAR EXPENSES & RECONCILIATION */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-2">
               <div>
-                <h3 className="text-xs font-bold text-slate-900 mb-1">5. Bar Expenses / DayBook Out</h3>
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <span>5. Bar Expenses / DayBook Out</span>
+                    <span className="text-[10px] font-normal text-slate-500">
+                      ({barExpensesOnDate.length} {barExpensesOnDate.length === 1 ? 'entry' : 'entries'})
+                    </span>
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddExpenseModal(true)}
+                    className="no-print text-[10px] font-bold text-purple-700 dark:text-purple-300 hover:text-purple-900 bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800 px-2 py-0.5 rounded-md flex items-center gap-1 hover:bg-purple-100 transition-colors shadow-xs"
+                  >
+                    <Plus className="w-3 h-3" /> Add Bar Expense
+                  </button>
+                </div>
                 <table className="w-full border-collapse border border-slate-300 text-[9.5px]">
                   <thead>
                     <tr className="bg-slate-100 text-slate-700 font-bold">
+                      <th className="border border-slate-300 p-1 text-center w-7">#</th>
                       <th className="border border-slate-300 p-1 text-left">Expense Particular</th>
+                      <th className="border border-slate-300 p-1 text-left">Category</th>
+                      <th className="border border-slate-300 p-1 text-center">Mode</th>
                       <th className="border border-slate-300 p-1 text-right">Amount (₹)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {barExpensesOnDate.length === 0 ? (
                       <tr>
-                        <td colSpan={2} className="border border-slate-300 p-1.5 text-center text-slate-400">No bar expenses on this date.</td>
+                        <td colSpan={5} className="border border-slate-300 p-2 text-center text-slate-400">
+                          No bar expenses recorded on this date.
+                        </td>
                       </tr>
                     ) : (
-                      barExpensesOnDate.map((e, idx) => (
-                        <tr key={idx}>
-                          <td className="border border-slate-300 p-1">{e.title || e.category || 'General Expense'}</td>
-                          <td className="border border-slate-300 p-1 text-right font-mono">₹{Number(e.amount || 0).toFixed(2)}</td>
-                        </tr>
-                      ))
+                      barExpensesOnDate.map((e, idx) => {
+                        const isCash = !e.paymentMethod || e.paymentMethod.toLowerCase() === 'cash';
+                        return (
+                          <tr key={idx} className={idx % 2 === 1 ? 'bg-slate-50/50' : ''}>
+                            <td className="border border-slate-300 p-1 text-center font-mono text-slate-400">{idx + 1}</td>
+                            <td className="border border-slate-300 p-1 font-semibold text-slate-800">
+                              {e.title || e.category || 'Bar Expense'}
+                              {e.paidTo && <span className="text-[8.5px] text-slate-500 font-normal ml-1">({e.paidTo})</span>}
+                            </td>
+                            <td className="border border-slate-300 p-1 text-slate-600">{e.category || 'Bar Expense'}</td>
+                            <td className="border border-slate-300 p-1 text-center">
+                              <span className={`px-1 py-0.5 rounded text-[8.5px] font-bold ${isCash ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+                                {e.paymentMethod || 'Cash'}
+                              </span>
+                            </td>
+                            <td className="border border-slate-300 p-1 text-right font-mono font-bold text-slate-900">
+                              ₹{Number(e.amount || 0).toFixed(2)}
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                     <tr className="bg-slate-100 font-bold">
-                      <td className="border border-slate-300 p-1">TOTAL EXPENSES</td>
-                      <td className="border border-slate-300 p-1 text-right font-mono">₹{totalBarExpenses.toFixed(2)}</td>
+                      <td colSpan={4} className="border border-slate-300 p-1 text-slate-700">
+                        TOTAL BAR EXPENSES {totalBarNonCashExpenses > 0 ? `(Cash: ₹${totalBarCashExpenses.toFixed(2)} | Online: ₹${totalBarNonCashExpenses.toFixed(2)})` : ''}
+                      </td>
+                      <td className="border border-slate-300 p-1 text-right font-mono text-slate-950 font-black">
+                        ₹{totalBarExpenses.toFixed(2)}
+                      </td>
                     </tr>
                   </tbody>
                 </table>
               </div>
 
               <div>
-                <h3 className="text-xs font-bold text-slate-900 mb-1">6. Cash In Hand Reconciliation</h3>
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <span>6. Cash Drawer & Wallet Reconciliation</span>
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowBarWalletModal(true)}
+                    className="no-print text-[10px] font-bold text-emerald-700 dark:text-emerald-300 hover:text-emerald-900 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-md flex items-center gap-1 hover:bg-emerald-100 transition-colors shadow-xs"
+                  >
+                    <WalletCards className="w-3 h-3" /> Manage Cash Wallet
+                  </button>
+                </div>
                 <table className="w-full border-collapse border border-slate-300 text-[9.5px]">
                   <thead>
                     <tr className="bg-slate-100 text-slate-700 font-bold">
@@ -843,27 +1015,65 @@ export const BarDayBookModal: React.FC<BarDayBookModalProps> = ({
                   </thead>
                   <tbody>
                     <tr>
-                      <td className="border border-slate-300 p-1">Gross Cash Sales</td>
+                      <td className="border border-slate-300 p-1 font-medium">
+                        1. Opening Cash Balance (Carried forward from yesterday)
+                      </td>
                       <td className="border border-slate-300 p-1 text-right font-mono font-bold text-slate-800">
-                        ₹{salesBreakup.cash.toFixed(2)}
+                        ₹{barWalletData.opening.toFixed(2)}
                       </td>
                     </tr>
                     <tr>
-                      <td className="border border-slate-300 p-1 text-red-600">Less: Cash Expenses</td>
-                      <td className="border border-slate-300 p-1 text-right font-mono text-red-600 font-medium">
-                        - ₹{totalBarExpenses.toFixed(2)}
+                      <td className="border border-slate-300 p-1 text-emerald-700 font-medium">
+                        (+) Float Top-Ups Today
+                      </td>
+                      <td className="border border-slate-300 p-1 text-right font-mono text-emerald-700 font-bold">
+                        + ₹{barWalletData.topUps.toFixed(2)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 p-1 font-medium">
+                        (+) Gross Cash Sales Today (from bar orders)
+                      </td>
+                      <td className="border border-slate-300 p-1 text-right font-mono font-bold text-blue-700">
+                        + ₹{salesBreakup.cash.toFixed(2)}
+                      </td>
+                    </tr>
+                    <tr className="bg-slate-50 font-bold">
+                      <td className="border border-slate-300 p-1 text-slate-700">
+                        (=) Total Available Cash in Hand
+                      </td>
+                      <td className="border border-slate-300 p-1 text-right font-mono font-bold text-slate-900">
+                        ₹{barWalletData.totalAvailable.toFixed(2)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 p-1 text-red-600 font-medium">
+                        (-) Less: Cash Expenses (paid from cash drawer)
+                      </td>
+                      <td className="border border-slate-300 p-1 text-right font-mono text-red-600 font-bold">
+                        - ₹{totalBarCashExpenses.toFixed(2)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 p-1 text-rose-600 font-medium">
+                        (-) Less: Cash Withdrawals / Drops (to owner/bank)
+                      </td>
+                      <td className="border border-slate-300 p-1 text-right font-mono text-rose-600 font-bold">
+                        - ₹{barWalletData.withdrawals.toFixed(2)}
                       </td>
                     </tr>
                     <tr className="bg-emerald-50 font-bold text-emerald-900">
-                      <td className="border border-slate-300 p-1">NET CASH IN HAND</td>
-                      <td className="border border-slate-300 p-1 text-right font-mono font-black text-emerald-700">
-                        ₹{netCashInHand.toFixed(2)}
+                      <td className="border border-slate-300 p-1 font-black text-emerald-950">
+                        NET CLOSING CASH IN DRAWER (Carries forward)
+                      </td>
+                      <td className="border border-slate-300 p-1 text-right font-mono font-black text-emerald-700 text-[10.5px]">
+                        ₹{barWalletData.closing.toFixed(2)}
                       </td>
                     </tr>
                   </tbody>
                 </table>
                 <p className="text-[9px] text-slate-500 italic mt-1.5">
-                  Official Bar Day Book summary generated from HotelVista ERP. Retain printed copy with cashier sign.
+                  Official Bar Day Book & Cash Drawer summary generated from HotelVista ERP. Retain printed copy with cashier sign.
                 </p>
               </div>
             </div>
@@ -873,6 +1083,176 @@ export const BarDayBookModal: React.FC<BarDayBookModalProps> = ({
         </div>
 
       </div>
+
+      {/* Quick Add Bar Expense Modal */}
+      {showAddExpenseModal && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md p-5 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 flex items-center justify-center font-bold">
+                  <Wine className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Record Bar Expense</h3>
+                  <p className="text-[10px] text-slate-500 font-mono">Date: {reportDate}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddExpenseModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg font-bold"
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              if (!newExpTitle.trim() || Number(newExpAmount) <= 0) {
+                alert('Please enter a valid expense title and amount.');
+                return;
+              }
+              setIsSubmittingExpense(true);
+              try {
+                await addExpense({
+                  tenantId: effectiveTenantId,
+                  date: reportDate,
+                  department: 'Bar',
+                  category: newExpCategory,
+                  title: newExpTitle.trim(),
+                  amount: Number(newExpAmount),
+                  paymentMethod: newExpPaymentMethod,
+                  paidTo: newExpPaidTo.trim() || undefined,
+                  notes: newExpNotes.trim() || undefined,
+                  recordedBy: 'Bar Cashier'
+                });
+                setNewExpTitle('');
+                setNewExpAmount('');
+                setNewExpPaidTo('');
+                setNewExpNotes('');
+                setShowAddExpenseModal(false);
+              } catch (err) {
+                console.error(err);
+                alert('Failed to save expense.');
+              } finally {
+                setIsSubmittingExpense(false);
+              }
+            }} className="space-y-3 mt-4 text-xs">
+              <div className="space-y-1">
+                <label className="font-bold text-slate-600 dark:text-slate-300">Expense Title / Description *</label>
+                <input
+                  type="text"
+                  required
+                  value={newExpTitle}
+                  onChange={e => setNewExpTitle(e.target.value)}
+                  placeholder="e.g. 5 bags ice cubes, Lemons & mint"
+                  className="w-full p-2 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 rounded-xl"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-300">Amount (₹) *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    required
+                    value={newExpAmount}
+                    onChange={e => setNewExpAmount(e.target.value)}
+                    placeholder="e.g. 250"
+                    className="w-full p-2 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 rounded-xl font-mono font-bold"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-300">Payment Mode</label>
+                  <select
+                    value={newExpPaymentMethod}
+                    onChange={e => setNewExpPaymentMethod(e.target.value as any)}
+                    className="w-full p-2 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 rounded-xl font-semibold"
+                  >
+                    <option value="Cash">Cash (From Drawer)</option>
+                    <option value="UPI">UPI / GPay / QR</option>
+                    <option value="Card">Card / POS</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-600 dark:text-slate-300">Category</label>
+                <select
+                  value={newExpCategory}
+                  onChange={e => setNewExpCategory(e.target.value)}
+                  className="w-full p-2 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 rounded-xl"
+                >
+                  <option value="Ice & Cooling Supplies">Ice & Cooling Supplies</option>
+                  <option value="Mixers, Sodas & Juices">Mixers, Sodas & Juices</option>
+                  <option value="Bar Snacks & Fresh Garnishes">Bar Snacks & Fresh Garnishes</option>
+                  <option value="Beer, Ciders & Coolers">Beer, Ciders & Coolers</option>
+                  <option value="Spirits & Hard Liquor Restock">Spirits & Hard Liquor Restock</option>
+                  <option value="Wine & Champagne">Wine & Champagne</option>
+                  <option value="Barware, Glasses & Shakers">Barware, Glasses & Shakers</option>
+                  <option value="Bar Disposables & Straws">Bar Disposables & Straws</option>
+                  <option value="Staff Meals & Welfare">Staff Meals & Welfare</option>
+                  <option value="Liquor License & Permit Fees">Liquor License & Permit Fees</option>
+                  <option value="Miscellaneous Bar Expense">Miscellaneous Bar Expense</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-300">Paid To (Optional)</label>
+                  <input
+                    type="text"
+                    value={newExpPaidTo}
+                    onChange={e => setNewExpPaidTo(e.target.value)}
+                    placeholder="Vendor / Person"
+                    className="w-full p-2 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 rounded-xl"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-300">Notes / Bill Ref (Optional)</label>
+                  <input
+                    type="text"
+                    value={newExpNotes}
+                    onChange={e => setNewExpNotes(e.target.value)}
+                    placeholder="Receipt / Voucher #"
+                    className="w-full p-2 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 rounded-xl"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowAddExpenseModal(false)}
+                  className="px-3 py-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingExpense}
+                  className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold flex items-center gap-1.5 shadow-md shadow-purple-500/20 disabled:opacity-50"
+                >
+                  {isSubmittingExpense ? 'Saving...' : 'Add to Day Book'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Bar Cash Wallet Modal */}
+      {showBarWalletModal && (
+        <CashWalletModal
+          isOpen={showBarWalletModal}
+          onClose={() => setShowBarWalletModal(false)}
+          defaultDepartment="Bar"
+          initialDate={reportDate}
+        />
+      )}
     </div>
   );
 };

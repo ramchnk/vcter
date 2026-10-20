@@ -117,6 +117,7 @@ const roomSchema = new mongoose.Schema({
   guestAddress: { type: String, default: '' },
   guestIdProof: { type: String, default: '' },
   gstNumber: { type: String, default: '' },
+  companyName: { type: String, default: '' },
   checkInDate: { type: String, default: '' },
   checkInTime: { type: String, default: '' },
   checkOutDate: { type: String, default: '' },
@@ -281,6 +282,7 @@ const preBookingSchema = new mongoose.Schema({
   address: String,
   idProof: String,
   gstNumber: String,
+  companyName: String,
   roomCategory: String,
   roomNumber: String,
   roomPrice: Number,
@@ -301,6 +303,7 @@ const preBookingSchema = new mongoose.Schema({
   advanceReceivedBy: { type: String, default: 'Manager (Front Desk Manager)' },
   totalAmount: { type: Number, default: 0 },
   roomRentTotal: { type: Number, default: 0 },
+  discount: { type: Number, default: 0 },
   specialRequests: String,
   status: { type: String, default: 'Pending' },
   bookingDate: { type: String, default: () => new Date().toISOString().split('T')[0] }
@@ -418,6 +421,22 @@ export const AuditLog = mongoose.model('AuditLog', auditLogSchema);
 export const Settings = mongoose.model('Settings', settingsSchema);
 export const Notification = mongoose.model('Notification', notificationSchema);
 export const RestaurantTable = mongoose.model('RestaurantTable', restaurantTableSchema);
+
+const cashWalletTransactionSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true },
+  tenantId: { type: String, required: true },
+  department: { type: String, required: true }, // 'Rooms' | 'Bar'
+  type: { type: String, required: true }, // 'TopUp' | 'Withdrawal' | 'OpeningAdjustment'
+  amount: { type: Number, required: true },
+  date: { type: String, default: () => new Date().toISOString().split('T')[0] },
+  time: { type: String, default: '' },
+  performedBy: { type: String, default: 'Cashier' },
+  recipient: { type: String, default: '' },
+  notes: { type: String, default: '' }
+}, { timestamps: true });
+cashWalletTransactionSchema.index({ id: 1, tenantId: 1 }, { unique: true });
+
+export const CashWalletTransaction = mongoose.model('CashWalletTransaction', cashWalletTransactionSchema);
 
 // ==========================================
 // SEED INITIAL DEFAULTS IF EMPTY
@@ -1686,6 +1705,55 @@ app.delete('/api/expenses/:id', async (req, res) => {
   }
 });
 
+// --- CASH WALLET TRANSACTIONS (ROOMS & BAR) ---
+app.get('/api/cash-wallet-transactions', async (req, res) => {
+  const { tenantId, department, date, startDate, endDate } = req.query;
+  try {
+    const filter = {};
+    if (tenantId) filter.tenantId = tenantId;
+    if (department && department !== 'ALL') filter.department = department;
+    if (date) filter.date = date;
+    if (startDate && endDate) {
+      filter.date = { $gte: startDate, $lte: endDate };
+    } else if (startDate) {
+      filter.date = { $gte: startDate };
+    } else if (endDate) {
+      filter.date = { $lte: endDate };
+    }
+    const transactions = await CashWalletTransaction.find(filter).sort({ date: 1, createdAt: 1 });
+    res.json(transactions);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/cash-wallet-transactions', async (req, res) => {
+  try {
+    const payload = {
+      id: req.body.id || `cwt_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      tenantId: req.body.tenantId || req.query.tenantId || 't_1791275687940',
+      ...req.body
+    };
+    const tx = await CashWalletTransaction.create(payload);
+    io.emit('cash_wallet_transaction_created', tx);
+    res.json(tx);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/cash-wallet-transactions/:id', async (req, res) => {
+  const { tenantId } = req.query;
+  try {
+    const filter = tenantId ? { id: req.params.id, tenantId } : { id: req.params.id };
+    await CashWalletTransaction.deleteOne(filter);
+    io.emit('cash_wallet_transaction_deleted', { id: req.params.id, tenantId });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- AUDIT LOGS ---
 app.get('/api/audit-logs', async (req, res) => {
   const { tenantId } = req.query;
@@ -2129,6 +2197,7 @@ if (!process.env.VERCEL) {
   const handleShutdown = async (signal) => {
     console.log(`\nReceived ${signal}. Closing server and MongoDB connections gracefully...`);
     try {
+      setTimeout(() => process.exit(0), 800).unref();
       await mongoose.connection.close(false);
       console.log('MongoDB connection closed cleanly.');
       server.close(() => {

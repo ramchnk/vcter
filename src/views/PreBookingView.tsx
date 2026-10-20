@@ -49,6 +49,7 @@ export const PreBookingView: React.FC = () => {
   const [address, setAddress] = useState('');
   const [idProof, setIdProof] = useState('');
   const [gstNumber, setGstNumber] = useState('');
+  const [companyName, setCompanyName] = useState('');
   const [bookingSource, setBookingSource] = useState<string>('Direct / Walk-In');
   const [bookingReference, setBookingReference] = useState<string>('');
   const [checkInDate, setCheckInDate] = useState('');
@@ -315,6 +316,11 @@ export const PreBookingView: React.FC = () => {
       return;
     }
 
+    if (gstNumber.trim() && !companyName.trim()) {
+      alert('Please enter the Company Name since GST Number is provided.');
+      return;
+    }
+
     let assignedRoomNumber: string | undefined = undefined;
     if (assignSpecificRoom && selectedSpecificRoomId) {
       const rm = rooms.find(r => r.id === selectedSpecificRoomId);
@@ -333,7 +339,8 @@ export const PreBookingView: React.FC = () => {
       email,
       address,
       idProof: idProof || undefined,
-      gstNumber: gstNumber || undefined,
+      gstNumber: gstNumber.trim().toUpperCase() || undefined,
+      companyName: companyName.trim() || undefined,
       roomCategory,
       roomNumber: assignedRoomNumber,
       roomPrice: nightlyRate,
@@ -379,6 +386,7 @@ export const PreBookingView: React.FC = () => {
     setAddress('');
     setIdProof('');
     setGstNumber('');
+    setCompanyName('');
     setCheckInDate('');
     setCheckOutDate('');
     setNoOfGuests(1);
@@ -546,6 +554,11 @@ export const PreBookingView: React.FC = () => {
       return;
     }
 
+    if (gstNumber.trim() && !companyName.trim()) {
+      alert('Please enter the Company Name since GST Number is provided.');
+      return;
+    }
+
     // Strict Overbooking Guard
     if (bulkOverbookingIssues.length > 0) {
       const issueDetails = bulkOverbookingIssues
@@ -561,7 +574,8 @@ export const PreBookingView: React.FC = () => {
       email,
       address,
       idProof: idProof || undefined,
-      gstNumber: gstNumber || undefined,
+      gstNumber: gstNumber.trim().toUpperCase() || undefined,
+      companyName: companyName.trim() || undefined,
       bookingSource,
       bookingReference: bulkBookingReference.trim() || undefined,
       checkInDate,
@@ -611,6 +625,7 @@ export const PreBookingView: React.FC = () => {
       setAddress('');
       setIdProof('');
       setGstNumber('');
+      setCompanyName('');
       setCheckInDate('');
       setCheckOutDate('');
       setBulkAdvancePaid(0);
@@ -1170,25 +1185,41 @@ export const PreBookingView: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div className="space-y-1">
-                    <label className="font-bold text-slate-500">ID Proof (Aadhaar / Passport) (Optional)</label>
-                    <input
-                      type="text"
-                      value={idProof}
-                      onChange={e => setIdProof(e.target.value)}
-                      className="w-full p-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl"
-                      placeholder="e.g. Aadhaar 4432-xxxx"
-                    />
-                  </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500">ID Proof (Aadhaar / Passport) (Optional)</label>
+                  <input
+                    type="text"
+                    value={idProof}
+                    onChange={e => setIdProof(e.target.value)}
+                    className="w-full p-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl"
+                    placeholder="e.g. Aadhaar 4432-xxxx"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div className="space-y-1">
                     <label className="font-bold text-slate-500">Corporate GSTIN (Optional)</label>
                     <input
                       type="text"
                       value={gstNumber}
-                      onChange={e => setGstNumber(e.target.value)}
-                      className="w-full p-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl"
+                      onChange={e => setGstNumber(e.target.value.toUpperCase())}
+                      className="w-full p-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl uppercase font-mono"
                       placeholder="29ABCDE1234F1Z5"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-500 flex items-center justify-between">
+                      <span>Company Name</span>
+                      {gstNumber.trim() && (
+                        <span className="text-[10px] text-rose-500 font-bold">* Required for GST</span>
+                      )}
+                    </label>
+                    <input
+                      type="text"
+                      value={companyName}
+                      onChange={e => setCompanyName(e.target.value)}
+                      className={`w-full p-2.5 bg-white dark:bg-slate-950 border ${gstNumber.trim() && !companyName.trim() ? 'border-amber-500 ring-1 ring-amber-500' : 'border-slate-200 dark:border-slate-800'} rounded-xl`}
+                      placeholder={gstNumber.trim() ? "Required: Company Name" : "Company / Business Name"}
                     />
                   </div>
                 </div>
@@ -1328,15 +1359,30 @@ export const PreBookingView: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                     <div className="space-y-1">
-                      <label className="font-bold text-slate-600 dark:text-slate-300">Corporate GSTIN (B2B Invoice)</label>
+                      <label className="font-bold text-slate-600 dark:text-slate-300">Corporate GSTIN (B2B)</label>
                       <input
                         type="text"
                         value={gstNumber}
-                        onChange={e => setGstNumber(e.target.value)}
+                        onChange={e => setGstNumber(e.target.value.toUpperCase())}
                         className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono uppercase"
                         placeholder="29ABCDE1234F1Z5"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-600 dark:text-slate-300 flex items-center justify-between">
+                        <span>Company Name</span>
+                        {gstNumber.trim() && (
+                          <span className="text-[10px] text-rose-500 font-bold">* Required</span>
+                        )}
+                      </label>
+                      <input
+                        type="text"
+                        value={companyName}
+                        onChange={e => setCompanyName(e.target.value)}
+                        className={`w-full p-2 bg-white dark:bg-slate-900 border ${gstNumber.trim() && !companyName.trim() ? 'border-amber-500 ring-1 ring-amber-500' : 'border-slate-200 dark:border-slate-800'} rounded-xl`}
+                        placeholder={gstNumber.trim() ? "Required: Company Name" : "Company Name"}
                       />
                     </div>
                     <div className="space-y-1">

@@ -101,6 +101,7 @@ export interface Room {
   guestAddress?: string;
   guestIdProof?: string;
   gstNumber?: string;
+  companyName?: string;
   checkInDate?: string;
   checkInTime?: string;
   checkOutDate?: string;
@@ -127,6 +128,7 @@ export interface PreBooking {
   address: string;
   idProof?: string;
   gstNumber?: string;
+  companyName?: string;
   groupBookingId?: string;
   groupBookingName?: string;
   occupantName?: string;
@@ -149,6 +151,7 @@ export interface PreBooking {
   advanceReceivedBy?: string;
   totalAmount?: number;
   roomRentTotal?: number;
+  discount?: number;
   specialRequests?: string;
   status: 'Pending' | 'Confirmed' | 'CheckedIn' | 'CheckedOut' | 'Cancelled';
 }
@@ -169,6 +172,7 @@ export interface BulkPreBookingPayload {
   address?: string;
   idProof?: string;
   gstNumber?: string;
+  companyName?: string;
   bookingSource?: string;
   bookingReference?: string;
   checkInDate: string;
@@ -353,6 +357,20 @@ export interface Expense {
   createdAt?: string;
 }
 
+export interface CashWalletTransaction {
+  id: string;
+  tenantId?: string;
+  department: 'Rooms' | 'Bar';
+  type: 'TopUp' | 'Withdrawal' | 'OpeningAdjustment';
+  amount: number;
+  date: string;
+  time: string;
+  performedBy?: string;
+  recipient?: string;
+  notes?: string;
+  createdAt?: string;
+}
+
 export interface ClientUserAccount {
   id: string;
   name: string;
@@ -472,6 +490,7 @@ interface AppContextType {
     address?: string; 
     idProof?: string; 
     gstNumber?: string; 
+    companyName?: string;
     noOfGuests: number; 
     advancePaid: number;
     advanceReceiptNumber?: string;
@@ -492,7 +511,18 @@ interface AppContextType {
   transferRoom: (fromRoomId: string, toRoomId: string) => Promise<void>;
   updateHousekeeping: (roomId: string, status: RoomStatus) => Promise<void>;
   extendStay: (roomId: string, days: number) => Promise<void>;
-  addRoomCharge: (roomId: string, amount: number, description?: string) => Promise<void>;
+  addRoomCharge: (
+    roomId: string,
+    amount: number,
+    description?: string,
+    paymentOption?: {
+      collectNow?: boolean;
+      paymentMethod?: string;
+      receiptNumber?: string;
+      receivedBy?: string;
+      notes?: string;
+    }
+  ) => Promise<void>;
   recordRoomAdvance: (roomId: string, data: {
     amount: number;
     receiptNumber?: string;
@@ -522,6 +552,10 @@ interface AppContextType {
   recordPurchase: (purchase: Omit<PurchaseLog, 'id' | 'date'>) => any;
   updateStockLevel: (itemId: string, amount: number, direction: 'in' | 'out', category?: string, description?: string) => any;
   
+  cashWalletTransactions: CashWalletTransaction[];
+  addCashWalletTransaction: (tx: Omit<CashWalletTransaction, 'id'>) => Promise<void>;
+  deleteCashWalletTransaction: (id: string) => Promise<void>;
+
   addExpense: (expense: Omit<Expense, 'id'>) => Promise<void>;
   updateExpense: (id: string, updates: Partial<Expense>) => Promise<void>;
   deleteExpense: (id: string) => Promise<void>;
@@ -624,6 +658,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [hallBookings, setHallBookings] = useState<HallBooking[]>([]);
   const [preBookings, setPreBookings] = useState<PreBooking[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [cashWalletTransactions, setCashWalletTransactions] = useState<CashWalletTransaction[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [settings, setSettings] = useState<HotelSettings>({
     name: 'HOTEL SUBRA GRAND',
@@ -707,7 +742,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         auditRes,
         settingsRes,
         notifRes,
-        tablesRes
+        tablesRes,
+        cashWalletRes
       ] = await Promise.all([
         api.get(`/rooms?tenantId=${tId}`),
         api.get(`/orders?tenantId=${tId}`),
@@ -722,7 +758,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         api.get(`/audit-logs?tenantId=${tId}`),
         api.get(`/settings?tenantId=${tId}`),
         api.get(`/notifications?tenantId=${tId}`),
-        api.get(`/tables?tenantId=${tId}`)
+        api.get(`/tables?tenantId=${tId}`),
+        api.get(`/cash-wallet-transactions?tenantId=${tId}`)
       ]);
 
       setRooms(roomsRes.data || []);
@@ -737,6 +774,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setHallBookings(hallRes.data || []);
       setPreBookings(preBookRes.data || []);
       setAuditLogs(auditRes.data || []);
+      setCashWalletTransactions(cashWalletRes.data || []);
       if (settingsRes.data) {
         const cached = localStorage.getItem('hv_settings');
         let cachedTagline = '';
@@ -835,6 +873,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     socket.on('expense_created', (e: Expense) => setExpenses(prev => [e, ...prev.filter(x => x.id !== e.id)]));
     socket.on('expense_updated', (e: Expense) => setExpenses(prev => prev.map(x => x.id === e.id ? e : x)));
     socket.on('expense_deleted', ({ id }: { id: string }) => setExpenses(prev => prev.filter(x => x.id !== id)));
+
+    socket.on('cash_wallet_transaction_created', (tx: CashWalletTransaction) => setCashWalletTransactions(prev => [...prev.filter(x => x.id !== tx.id), tx]));
+    socket.on('cash_wallet_transaction_deleted', ({ id }: { id: string }) => setCashWalletTransactions(prev => prev.filter(x => x.id !== id)));
 
     socket.on('laundry_order_created', (l: LaundryOrder) => setLaundryOrders(prev => [l, ...prev.filter(x => x.id !== l.id)]));
     socket.on('laundry_order_updated', (l: LaundryOrder) => setLaundryOrders(prev => prev.map(x => x.id === l.id ? l : x)));
@@ -1152,6 +1193,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     address?: string; 
     idProof?: string; 
     gstNumber?: string; 
+    companyName?: string; 
     noOfGuests: number; 
     advancePaid: number;
     advanceReceiptNumber?: string;
@@ -1193,6 +1235,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         guestAddress: guestInfo.address || '',
         guestIdProof: guestInfo.idProof || '',
         gstNumber: guestInfo.gstNumber || '',
+        companyName: guestInfo.companyName || '',
         checkInDate: guestInfo.checkInDate || new Date().toISOString().split('T')[0],
         checkInTime: guestInfo.checkInTime || nowTimeStr,
         checkOutDate: guestInfo.checkOutDate || new Date(Date.now() + 86400000).toISOString().split('T')[0],
@@ -1246,6 +1289,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         guestAddress: '',
         guestIdProof: '',
         gstNumber: '',
+        companyName: '',
         checkInDate: '',
         checkInTime: '',
         checkOutDate: '',
@@ -1278,7 +1322,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           checkOutTime: currentTimeStr,
           roomRentTotal: roomRent,
           totalAmount: totalFolio,
-          advancePaid: room.advancePaid || matchingPre.advancePaid || 0
+          advancePaid: room.advancePaid || matchingPre.advancePaid || 0,
+          discount: paymentDetails.discount || 0
         };
         await api.put(`/pre-bookings/${matchingPre.id}?tenantId=${tId}`, updateData);
         setPreBookings(prev => prev.map(p => p.id === matchingPre.id ? { ...p, ...updateData } : p));
@@ -1293,6 +1338,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           address: room.guestAddress || '',
           idProof: room.guestIdProof || '',
           gstNumber: room.gstNumber || '',
+          companyName: room.companyName || '',
           roomCategory: room.category,
           roomNumber: room.roomNumber,
           bookingSource: room.bookingSource || 'Direct / Walk-In',
@@ -1305,6 +1351,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           advancePaid: room.advancePaid || 0,
           roomRentTotal: roomRent,
           totalAmount: totalFolio,
+          discount: paymentDetails.discount || 0,
           status: 'CheckedOut'
         };
         try {
@@ -1316,9 +1363,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
 
+      const advancePaid = room.advancePaid || summary?.advancePaid || 0;
+      const discount = paymentDetails.discount || 0;
+      const netSettled = Math.max(0, totalFolio - advancePaid - discount);
+
       addAudit(
         'Check-Out', 
-        `Guest ${guestName} checked out of Room ${room.roomNumber}. Room Rent: ₹${roomRent}. Total Folio: ₹${totalFolio}. Paid via ${paymentDetails.method}. Discount: ₹${paymentDetails.discount}`, 
+        `Guest ${guestName} checked out of Room ${room.roomNumber}. Room Rent: ₹${roomRent}. Total Folio: ₹${totalFolio}. Net Settled: ₹${netSettled}. Advance: ₹${advancePaid}. Paid via ${paymentDetails.method}${paymentDetails.splitDetails ? ` (${paymentDetails.splitDetails})` : ''}. Discount: ₹${discount}`, 
         'Occupied', 
         'Cleaning'
       );
@@ -1342,6 +1393,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         guestAddress: '',
         guestIdProof: '',
         gstNumber: '',
+        companyName: '',
         checkInDate: '',
         checkInTime: '',
         checkOutDate: '',
@@ -1362,6 +1414,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         guestAddress: source.guestAddress || '',
         guestIdProof: source.guestIdProof || '',
         gstNumber: source.gstNumber || '',
+        companyName: source.companyName || '',
         checkInDate: source.checkInDate || '',
         checkInTime: source.checkInTime || '',
         checkOutDate: source.checkOutDate || '',
@@ -1412,7 +1465,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const addRoomCharge = async (roomId: string, amount: number, description?: string) => {
+  const addRoomCharge = async (
+    roomId: string,
+    amount: number,
+    description?: string,
+    paymentOption?: {
+      collectNow?: boolean;
+      paymentMethod?: string;
+      receiptNumber?: string;
+      receivedBy?: string;
+      notes?: string;
+    }
+  ) => {
     const tId = effectiveTenantId;
     if (!tId) return;
     const room = rooms.find(r => r.id === roomId);
@@ -1420,10 +1484,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newOtherCharges = (Number(room.otherCharges) || 0) + Number(amount);
     const existingDesc = room.otherChargesDescription || '';
     const newDesc = description ? (existingDesc ? `${existingDesc}, ${description}` : description) : existingDesc;
+
+    const payload: any = {
+      otherCharges: newOtherCharges,
+      otherChargesDescription: newDesc
+    };
+
+    const isCollectingNow = Boolean(paymentOption?.collectNow && paymentOption.paymentMethod && paymentOption.paymentMethod !== 'checkout');
+    if (isCollectingNow) {
+      const newAdvanceTotal = (Number(room.advancePaid) || 0) + Number(amount);
+      const receiptNo = paymentOption?.receiptNumber || '1243';
+      const dateStr = new Date().toISOString().split('T')[0];
+      payload.advancePaid = newAdvanceTotal;
+      payload.advanceReceiptNumber = receiptNo;
+      payload.advancePaymentDate = dateStr;
+      payload.advancePaymentMethod = paymentOption?.paymentMethod || 'Cash';
+      payload.advanceReceivedBy = paymentOption?.receivedBy || 'Manager (Front Desk Manager)';
+    }
+
     try {
-      await api.put(`/rooms/${roomId}?tenantId=${tId}`, { otherCharges: newOtherCharges, otherChargesDescription: newDesc });
-      setRooms(prev => prev.map(r => r.id === roomId ? { ...r, otherCharges: newOtherCharges, otherChargesDescription: newDesc } : r));
-      addAudit('Room Charge Added', `Added charge of ₹${amount} (${description || 'Extra Bed / Other Service'}) to Room ${room.roomNumber}`);
+      const res = await api.put(`/rooms/${roomId}?tenantId=${tId}`, payload);
+      const updatedRoom: Room = res.data || { ...room, ...payload };
+      setRooms(prev => prev.map(r => r.id === roomId ? updatedRoom : r));
+      if (isCollectingNow) {
+        addAudit(
+          'Room Charge & Payment Collected',
+          `Added charge of ₹${amount} (${description || 'Service Charge'}) and collected payment via ${paymentOption?.paymentMethod} (Receipt #${payload.advanceReceiptNumber}) for Room ${room.roomNumber}`
+        );
+      } else {
+        addAudit(
+          'Room Charge Added',
+          `Added charge of ₹${amount} (${description || 'Extra Bed / Other Service'}) to Room ${room.roomNumber} (To be paid at Checkout)`
+        );
+      }
     } catch (e) {
       console.error(e);
     }
@@ -1788,6 +1881,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         address: payload.address || '',
         idProof: payload.idProof || '',
         gstNumber: payload.gstNumber || '',
+        companyName: payload.companyName || '',
         roomCategory: rm.roomCategory,
         roomNumber: rm.roomNumber || undefined,
         roomPrice: nightlyRate,
@@ -1880,6 +1974,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         address: pb.address,
         idProof: pb.idProof,
         gstNumber: pb.gstNumber,
+        companyName: pb.companyName,
         noOfGuests: pb.noOfGuests || 1,
         advancePaid: pb.advancePaid || 0,
         price: stayPrice,
@@ -1954,6 +2049,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           address: pb.address,
           idProof: pb.idProof,
           gstNumber: pb.gstNumber,
+          companyName: pb.companyName,
           noOfGuests: pb.noOfGuests || 1,
           advancePaid: pb.advancePaid || 0,
           price: stayPrice,
@@ -2146,6 +2242,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addAudit('Expense Deleted', `Deleted expense record ${id}`);
     } catch (e) {
       console.error('Error deleting expense:', e);
+    }
+  };
+
+  // CASH WALLET TRANSACTIONS
+  const addCashWalletTransaction = async (tx: Omit<CashWalletTransaction, 'id'>) => {
+    const tId = effectiveTenantId;
+    if (!tId) return;
+    const newId = 'cwt_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+    const finalTx: CashWalletTransaction = {
+      ...tx,
+      id: newId,
+      tenantId: tId
+    };
+    try {
+      const res = await api.post('/cash-wallet-transactions', finalTx);
+      const saved = res.data || finalTx;
+      setCashWalletTransactions(prev => [...prev.filter(x => x.id !== saved.id), saved]);
+      addAudit(
+        `Cash Wallet ${tx.type}`,
+        `${tx.department} Wallet: ${tx.type === 'TopUp' ? 'Added float' : 'Withdrew'} ₹${tx.amount} at ${tx.time || 'N/A'}${tx.recipient ? ` [${tx.recipient}]` : ''}`
+      );
+    } catch (e) {
+      console.error('Error adding cash wallet transaction:', e);
+    }
+  };
+
+  const deleteCashWalletTransaction = async (id: string) => {
+    const tId = effectiveTenantId;
+    if (!tId) return;
+    try {
+      await api.delete(`/cash-wallet-transactions/${id}?tenantId=${tId}`);
+      setCashWalletTransactions(prev => prev.filter(x => x.id !== id));
+      addAudit('Cash Wallet Deleted', `Removed cash transaction ${id}`);
+    } catch (e) {
+      console.error('Error deleting cash wallet transaction:', e);
     }
   };
 
@@ -2384,6 +2515,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addExpense,
         updateExpense,
         deleteExpense,
+
+        cashWalletTransactions,
+        addCashWalletTransaction,
+        deleteCashWalletTransaction,
 
         getBillSummary,
         addAudit,

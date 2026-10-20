@@ -39,6 +39,7 @@ export interface InvoicePrintData {
   guestAddress?: string;
   guestIdProof?: string;
   gstNumber?: string;
+  companyName?: string;
   roomNumber: string;
   roomCategory: string;
   checkInDate: string;
@@ -207,6 +208,7 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
       guestAddress: matchedRoom.guestAddress,
       guestIdProof: matchedRoom.guestIdProof,
       gstNumber: matchedRoom.gstNumber,
+      companyName: matchedRoom.companyName,
       roomNumber: matchedRoom.roomNumber,
       roomCategory: matchedRoom.category,
       checkInDate: summary.checkInDate,
@@ -289,6 +291,7 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
       guestAddress: matchedRoom.guestAddress,
       guestIdProof: matchedRoom.guestIdProof,
       gstNumber: matchedRoom.gstNumber,
+      companyName: matchedRoom.companyName,
       roomNumber: matchedRoom.roomNumber,
       roomCategory: matchedRoom.category,
       checkInDate: summary.checkInDate,
@@ -396,6 +399,7 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
           guestAddress: pb.address,
           guestIdProof: pb.idProof,
           gstNumber: pb.gstNumber,
+          companyName: pb.companyName,
           roomNumber: roomNo,
           roomCategory: pb.roomCategory || rm?.category || 'Standard',
           checkInDate: checkIn,
@@ -456,6 +460,7 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
             guestAddress: rm?.guestAddress || '',
             guestIdProof: rm?.guestIdProof || '',
             gstNumber: rm?.gstNumber || '',
+            companyName: rm?.companyName || '',
             roomNumber: roomNo,
             roomCategory: rm?.category || 'Standard',
             checkInDate: dateStr,
@@ -1399,6 +1404,9 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                     {activePrintInvoice.guestAddress && <p className="text-slate-600 text-[10px]">Address: {activePrintInvoice.guestAddress}</p>}
                     {activePrintInvoice.guestIdProof && (
                       <p className="text-[10px] text-slate-500 font-mono">ID Proof: {activePrintInvoice.guestIdProof}</p>
+                    )}
+                    {activePrintInvoice.companyName && (
+                      <p className="text-[11px] font-bold text-slate-900">Company: {activePrintInvoice.companyName}</p>
                     )}
                     {activePrintInvoice.gstNumber && (
                       <p className="text-[10px] font-bold text-indigo-700 font-mono">Corporate GSTIN: {activePrintInvoice.gstNumber}</p>
