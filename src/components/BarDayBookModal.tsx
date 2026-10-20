@@ -233,32 +233,44 @@ export const BarDayBookModal: React.FC<BarDayBookModalProps> = ({
       tx.department === 'Bar'
     );
 
-    // 1. Calculate opening balance carried forward from all dates prior to reportDate
-    let opening = 0;
+    // 1. Calculate opening balance carried forward from latest baseline on or before reportDate
+    const baselines = deptTxs
+      .filter(tx => tx.type === 'OpeningBalance' && tx.date <= reportDate)
+      .sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+    const latestBaseline = baselines[0];
+    const baselineAmount = latestBaseline ? Number(latestBaseline.amount || 0) : 0;
+    const startDate = latestBaseline ? latestBaseline.date : '';
+
+    let netCash = 0;
+
     deptTxs.forEach(tx => {
-      if (tx.date < reportDate) {
+      if (tx.type === 'OpeningBalance') return;
+      const isAfterBaseline = !startDate || tx.date >= startDate;
+      if (isAfterBaseline && tx.date < reportDate) {
         if (tx.type === 'TopUp' || tx.type === 'OpeningAdjustment') {
-          opening += Number(tx.amount || 0);
+          netCash += Number(tx.amount || 0);
         } else if (tx.type === 'Withdrawal') {
-          opening -= Number(tx.amount || 0);
+          netCash -= Number(tx.amount || 0);
         }
       }
     });
 
     tenantOrders.forEach(o => {
       const oDate = o.timestamp ? o.timestamp.split('T')[0] : '';
-      if (oDate && oDate < reportDate && o.isBar && (o.status as any) !== 'Cancelled') {
+      const isAfterBaseline = !startDate || (oDate && oDate >= startDate);
+      if (oDate && isAfterBaseline && oDate < reportDate && o.isBar && (o.status as any) !== 'Cancelled') {
         const amt = Number(o.total || 0);
         const method = (o.paymentMethod || '').toLowerCase();
         if (o.type !== 'Room' && method !== 'room' && !method.includes('upi') && !method.includes('card') && !method.includes('pos')) {
           if (method.includes('split') && o.splitDetails) {
             try {
               const cMatch = o.splitDetails.match(/Cash:\s*₹?([0-9.]+)/i);
-              if (cMatch) opening += Number(cMatch[1]);
-              else opening += amt;
-            } catch { opening += amt; }
+              if (cMatch) netCash += Number(cMatch[1]);
+              else netCash += amt;
+            } catch { netCash += amt; }
           } else {
-            opening += amt;
+            netCash += amt;
           }
         }
       }
@@ -267,17 +279,20 @@ export const BarDayBookModal: React.FC<BarDayBookModalProps> = ({
     tenantExpenses.forEach(e => {
       const eDate = e.date ? e.date.split('T')[0] : '';
       const isCash = !e.paymentMethod || e.paymentMethod.toLowerCase() === 'cash';
-      if (eDate && eDate < reportDate && isCash) {
+      const isAfterBaseline = !startDate || (eDate && eDate >= startDate);
+      if (eDate && isAfterBaseline && eDate < reportDate && isCash) {
         const dept = (e.department || '').toLowerCase().trim();
         const cat = (e.category || '').toLowerCase();
         const title = (e.title || '').toLowerCase();
         if (dept === 'bar' || ((!dept || dept === 'general') && (cat.includes('bar') || title.includes('bar')))) {
-          opening -= Number(e.amount || 0);
+          netCash -= Number(e.amount || 0);
         }
       }
     });
 
-    const todayTxs = deptTxs.filter(tx => tx.date === reportDate);
+    const opening = baselineAmount + netCash;
+
+    const todayTxs = deptTxs.filter(tx => tx.date === reportDate && tx.type !== 'OpeningBalance');
     const topUps = todayTxs
       .filter(tx => tx.type === 'TopUp' || tx.type === 'OpeningAdjustment')
       .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);

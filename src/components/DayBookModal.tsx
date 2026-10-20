@@ -645,14 +645,25 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
       tx.department === 'Rooms'
     );
 
-    // 1. Calculate opening balance carried forward from all dates prior to reportDate
-    let opening = 0;
+    // 1. Calculate opening balance carried forward from latest baseline on or before reportDate
+    const baselines = deptTxs
+      .filter(tx => tx.type === 'OpeningBalance' && tx.date <= reportDate)
+      .sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+    const latestBaseline = baselines[0];
+    const baselineAmount = latestBaseline ? Number(latestBaseline.amount || 0) : 0;
+    const startDate = latestBaseline ? latestBaseline.date : '';
+
+    let netCash = 0;
+
     deptTxs.forEach(tx => {
-      if (tx.date < reportDate) {
+      if (tx.type === 'OpeningBalance') return;
+      const isAfterBaseline = !startDate || tx.date >= startDate;
+      if (isAfterBaseline && tx.date < reportDate) {
         if (tx.type === 'TopUp' || tx.type === 'OpeningAdjustment') {
-          opening += Number(tx.amount || 0);
+          netCash += Number(tx.amount || 0);
         } else if (tx.type === 'Withdrawal') {
-          opening -= Number(tx.amount || 0);
+          netCash -= Number(tx.amount || 0);
         }
       }
     });
@@ -661,16 +672,18 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
     tenantRooms.forEach(r => {
       const isCash = !r.advancePaymentMethod || r.advancePaymentMethod === 'Cash';
       const advDate = r.advancePaymentDate || r.checkInDate;
-      if (isCash && advDate && advDate < reportDate && Number(r.advancePaid || 0) > 0) {
-        opening += Number(r.advancePaid);
+      const isAfterBaseline = !startDate || (advDate && advDate >= startDate);
+      if (isCash && advDate && isAfterBaseline && advDate < reportDate && Number(r.advancePaid || 0) > 0) {
+        netCash += Number(r.advancePaid);
       }
     });
 
     tenantPreBookings.forEach(pb => {
       const isCash = !pb.advancePaymentMethod || pb.advancePaymentMethod === 'Cash';
       const advDate = pb.advancePaymentDate || pb.checkInDate;
-      if (isCash && advDate && advDate < reportDate && Number(pb.advancePaid || 0) > 0) {
-        opening += Number(pb.advancePaid);
+      const isAfterBaseline = !startDate || (advDate && advDate >= startDate);
+      if (isCash && advDate && isAfterBaseline && advDate < reportDate && Number(pb.advancePaid || 0) > 0) {
+        netCash += Number(pb.advancePaid);
       }
     });
 
@@ -681,11 +694,12 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
         const isCash = matchMethod && matchMethod[1].toLowerCase().includes('cash');
         if (isCash) {
           const dateStr = a.timestamp?.split('T')[0] || '';
-          if (dateStr && dateStr < reportDate) {
+          const isAfterBaseline = !startDate || (dateStr && dateStr >= startDate);
+          if (dateStr && isAfterBaseline && dateStr < reportDate) {
             const matchNet = a.details.match(/Net Settled:\s*₹?([0-9.]+)/i);
             const matchRent = a.details.match(/Room Rent:\s*₹?([0-9.]+)/i);
             const amt = matchNet ? parseFloat(matchNet[1]) : (matchRent ? parseFloat(matchRent[1]) : 0);
-            if (amt > 0) opening += amt;
+            if (amt > 0) netCash += amt;
           }
         }
       }
@@ -695,22 +709,25 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
     tenantExpenses.forEach(e => {
       const eDate = e.date ? e.date.split('T')[0] : '';
       const isCash = !e.paymentMethod || e.paymentMethod.toLowerCase() === 'cash';
-      if (eDate && eDate < reportDate && isCash) {
+      const isAfterBaseline = !startDate || (eDate && eDate >= startDate);
+      if (eDate && isAfterBaseline && eDate < reportDate && isCash) {
         const dept = (e.department || '').toLowerCase().trim();
         if (dept === 'rooms') {
-          opening -= Number(e.amount || 0);
+          netCash -= Number(e.amount || 0);
         } else if (dept !== 'bar' && dept !== 'restaurant') {
           const cat = (e.category || '').toLowerCase();
           const title = (e.title || '').toLowerCase();
           if (!cat.includes('bar') && !cat.includes('liquor') && !cat.includes('beer') && !title.includes('bar') && !title.includes('liquor')) {
-            opening -= Number(e.amount || 0);
+            netCash -= Number(e.amount || 0);
           }
         }
       }
     });
 
+    const opening = baselineAmount + netCash;
+
     // Transactions on reportDate
-    const todayTxs = deptTxs.filter(tx => tx.date === reportDate);
+    const todayTxs = deptTxs.filter(tx => tx.date === reportDate && tx.type !== 'OpeningBalance');
     const topUps = todayTxs
       .filter(tx => tx.type === 'TopUp' || tx.type === 'OpeningAdjustment')
       .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);

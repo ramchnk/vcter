@@ -361,7 +361,7 @@ export interface CashWalletTransaction {
   id: string;
   tenantId?: string;
   department: 'Rooms' | 'Bar';
-  type: 'TopUp' | 'Withdrawal' | 'OpeningAdjustment';
+  type: 'TopUp' | 'Withdrawal' | 'OpeningAdjustment' | 'OpeningBalance';
   amount: number;
   date: string;
   time: string;

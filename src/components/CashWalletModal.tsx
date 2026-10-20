@@ -16,7 +16,8 @@ import {
   Building2, 
   Wine, 
   Receipt,
-  ArrowRight
+  ArrowRight,
+  Edit2
 } from 'lucide-react';
 import { useApp, CashWalletTransaction } from '../context/AppContext';
 import { formatTime12h } from '../utils/dateUtils';
@@ -63,6 +64,11 @@ export const CashWalletModal: React.FC<CashWalletModalProps> = ({
   const [actionRecipient, setActionRecipient] = useState<string>('');
   const [actionNotes, setActionNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  // Sub-modal state for Setting / Adjusting Opening Balance
+  const [showOpeningModal, setShowOpeningModal] = useState<boolean>(false);
+  const [openingInputAmount, setOpeningInputAmount] = useState<number | string>('');
+  const [openingNotes, setOpeningNotes] = useState<string>('');
 
   // Filter transactions for this tenant and department
   const deptTransactions = useMemo(() => {
@@ -207,43 +213,56 @@ export const CashWalletModal: React.FC<CashWalletModalProps> = ({
   }, [deptExpenses]);
 
   // 1. CARRY FORWARD OPENING BALANCE CALCULATION
-  // Sum of all net cash for dates STRICTLY BEFORE selectedDate:
-  // Opening = Previous (TopUps + Cash Collections - Cash Expenses - Withdrawals)
+  // Either starts from the latest explicit 'OpeningBalance' baseline on or before selectedDate,
+  // or carries forward from inception.
   const openingBalance = useMemo(() => {
-    let balance = 0;
+    // Find latest OpeningBalance baseline on or before selectedDate
+    const baselines = deptTransactions
+      .filter(tx => tx.type === 'OpeningBalance' && tx.date <= selectedDate)
+      .sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || '').localeCompare(a.createdAt || ''));
 
-    // A. Cash Wallet Transactions prior to selectedDate
+    const latestBaseline = baselines[0];
+    const baselineAmount = latestBaseline ? Number(latestBaseline.amount || 0) : 0;
+    const startDate = latestBaseline ? latestBaseline.date : '';
+
+    let netCash = 0;
+
+    // A. Cash Wallet Transactions between startDate and selectedDate (strictly before selectedDate)
     deptTransactions.forEach(tx => {
-      if (tx.date < selectedDate) {
+      if (tx.type === 'OpeningBalance') return;
+      const isAfterBaseline = !startDate || tx.date >= startDate;
+      if (isAfterBaseline && tx.date < selectedDate) {
         if (tx.type === 'TopUp' || tx.type === 'OpeningAdjustment') {
-          balance += Number(tx.amount || 0);
+          netCash += Number(tx.amount || 0);
         } else if (tx.type === 'Withdrawal') {
-          balance -= Number(tx.amount || 0);
+          netCash -= Number(tx.amount || 0);
         }
       }
     });
 
-    // B. Prior Cash Collections
+    // B. Prior Cash Collections between startDate and selectedDate
     dailyCashCollectionsMap.forEach((amt, date) => {
-      if (date < selectedDate) {
-        balance += amt;
+      const isAfterBaseline = !startDate || date >= startDate;
+      if (isAfterBaseline && date < selectedDate) {
+        netCash += amt;
       }
     });
 
-    // C. Prior Cash Expenses
+    // C. Prior Cash Expenses between startDate and selectedDate
     dailyCashExpensesMap.forEach((amt, date) => {
-      if (date < selectedDate) {
-        balance -= amt;
+      const isAfterBaseline = !startDate || date >= startDate;
+      if (isAfterBaseline && date < selectedDate) {
+        netCash -= amt;
       }
     });
 
-    return balance;
+    return baselineAmount + netCash;
   }, [deptTransactions, dailyCashCollectionsMap, dailyCashExpensesMap, selectedDate]);
 
   // 2. TODAY'S TRANSACTIONS ON SELECTED DATE
   const todayTransactions = useMemo(() => {
     return deptTransactions
-      .filter(tx => tx.date === selectedDate)
+      .filter(tx => tx.date === selectedDate && tx.type !== 'OpeningBalance')
       .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
   }, [deptTransactions, selectedDate]);
 
@@ -327,6 +346,40 @@ export const CashWalletModal: React.FC<CashWalletModalProps> = ({
     } catch (err) {
       console.error(err);
       alert('Failed to save cash transaction. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Submit direct Opening Balance configuration
+  const handleSaveOpeningBalance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amt = Number(openingInputAmount);
+    if (isNaN(amt) || amt < 0) {
+      alert('Please enter a valid opening balance amount.');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const existing = deptTransactions.find(tx => tx.type === 'OpeningBalance' && tx.date === selectedDate);
+      if (existing) {
+        await deleteCashWalletTransaction(existing.id);
+      }
+      await addCashWalletTransaction({
+        tenantId: effectiveTenantId,
+        department: department,
+        type: 'OpeningBalance',
+        amount: amt,
+        date: selectedDate,
+        time: '00:00',
+        performedBy: userRole ? userRole.toUpperCase() : 'MANAGER',
+        recipient: 'Direct Opening Float Config',
+        notes: openingNotes.trim() || 'Opening balance set directly'
+      });
+      setShowOpeningModal(false);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to update opening balance.');
     } finally {
       setIsSubmitting(false);
     }
@@ -497,7 +550,18 @@ export const CashWalletModal: React.FC<CashWalletModalProps> = ({
             <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 flex flex-col justify-between">
               <div className="flex items-center justify-between text-slate-500 mb-1">
                 <span className="text-[11px] font-bold uppercase tracking-wider">1. Opening Bal.</span>
-                <Clock className="w-3.5 h-3.5 text-blue-500" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpeningInputAmount(String(openingBalance || 0));
+                    setOpeningNotes('');
+                    setShowOpeningModal(true);
+                  }}
+                  className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 hover:underline flex items-center gap-0.5"
+                  title="Directly set or edit opening balance"
+                >
+                  <Edit2 className="w-3 h-3" /> Edit
+                </button>
               </div>
               <div>
                 <p className="text-base sm:text-lg font-black font-mono text-slate-900 dark:text-white">
@@ -634,7 +698,20 @@ export const CashWalletModal: React.FC<CashWalletModalProps> = ({
                   {/* Opening Balance */}
                   <tr>
                     <td className="border border-slate-300 dark:border-slate-700 p-2 font-medium">
-                      <strong>1. Opening Cash Balance</strong> (Carry forward from previous shift closing)
+                      <div className="flex items-center justify-between">
+                        <span><strong>1. Opening Cash Balance</strong> (Carry forward from previous shift closing)</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpeningInputAmount(String(openingBalance || 0));
+                            setOpeningNotes('');
+                            setShowOpeningModal(true);
+                          }}
+                          className="no-print text-[10px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline flex items-center gap-1"
+                        >
+                          <Edit2 className="w-2.5 h-2.5" /> Adjust
+                        </button>
+                      </div>
                     </td>
                     <td className="border border-slate-300 dark:border-slate-700 p-2 text-center text-slate-500 font-mono text-[10px]">
                       OPENING
@@ -913,6 +990,95 @@ export const CashWalletModal: React.FC<CashWalletModalProps> = ({
                     className={`px-4 py-2 rounded-xl text-white font-bold flex items-center gap-1.5 shadow-md disabled:opacity-50 ${activeActionModal === 'TopUp' ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20' : 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20'}`}
                   >
                     {isSubmitting ? 'Saving...' : (activeActionModal === 'TopUp' ? 'Confirm Float Top-Up' : 'Confirm Cash Withdrawal')}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Set / Adjust Opening Balance Modal */}
+        {showOpeningModal && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-150">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-5 text-xs text-slate-800 dark:text-slate-100">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
+                    <Clock className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                      Set Opening Cash Balance
+                    </h3>
+                    <p className="text-[10px] text-slate-400">
+                      {department} Register • Effective Date: {selectedDate}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowOpeningModal(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveOpeningBalance} className="space-y-3.5">
+                <div className="p-2.5 rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200/80 dark:border-blue-900/60 text-[10.5px] text-blue-800 dark:text-blue-300">
+                  Setting this will establish the opening cash balance for <strong>{selectedDate}</strong>. All subsequent cash collections, top-ups, expenses and withdrawals will carry forward automatically from this baseline.
+                </div>
+
+                {/* Amount */}
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">
+                    Opening Cash Amount (₹) <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 font-mono font-bold text-slate-400">₹</span>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      required
+                      autoFocus
+                      value={openingInputAmount}
+                      onChange={e => setOpeningInputAmount(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full pl-8 pr-3 py-2 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 rounded-xl font-mono text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Notes */}
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">
+                    Reason / Notes (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={openingNotes}
+                    onChange={e => setOpeningNotes(e.target.value)}
+                    placeholder="e.g. Physical cash count verification, Baseline setup"
+                    className="w-full p-2 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 rounded-xl"
+                  />
+                </div>
+
+                {/* Modal Footer */}
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setShowOpeningModal(false)}
+                    className="px-3.5 py-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="px-4 py-2 rounded-xl text-white font-bold bg-blue-600 hover:bg-blue-700 shadow-md shadow-blue-600/20 disabled:opacity-50"
+                  >
+                    {isSubmitting ? 'Saving...' : 'Save Opening Balance'}
                   </button>
                 </div>
               </form>
