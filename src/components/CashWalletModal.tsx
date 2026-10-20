@@ -157,6 +157,20 @@ export const CashWalletModal: React.FC<CashWalletModalProps> = ({
             }
           }
         }
+
+        // 3. Extra Room Charges & Service collected in Cash
+        if ((a.action === 'Room Charge & Payment Collected' || a.action === 'Room Charge Added') && a.details) {
+          const matchMethod = a.details.match(/via\s+([A-Za-z0-9\s]+?)(?:\s*\(|\.|$)/i);
+          const isCash = matchMethod && matchMethod[1].toLowerCase().includes('cash');
+          if (isCash) {
+            const dateStr = a.timestamp?.split('T')[0] || '';
+            const matchAmt = a.details.match(/charge of ₹?([0-9.]+)/i);
+            const amt = matchAmt ? parseFloat(matchAmt[1]) : 0;
+            if (dateStr && amt > 0) {
+              map.set(dateStr, (map.get(dateStr) || 0) + amt);
+            }
+          }
+        }
       });
     } else {
       // Bar Cash Orders

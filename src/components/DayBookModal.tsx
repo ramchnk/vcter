@@ -493,6 +493,41 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
       }
     });
 
+    // 5. Extra Room Charges & Service collections on reportDate
+    tenantAuditLogs.forEach(a => {
+      const aDate = a.timestamp ? a.timestamp.split('T')[0] : '';
+      if (aDate === reportDate && (a.action === 'Room Charge & Payment Collected' || a.action === 'Room Charge Added')) {
+        const matchAmt = a.details?.match(/charge of ₹?([0-9.]+)/i);
+        const matchRoom = a.details?.match(/Room\s+([A-Za-z0-9_-]+)/i);
+        const matchDesc = a.details?.match(/\((.+?)\)/);
+        const matchMethod = a.details?.match(/via\s+([A-Za-z0-9\s]+?)(?:\s*\(|\.|$)/i);
+        const matchReceipt = a.details?.match(/Receipt\s*#?([0-9]+)/i);
+
+        const amt = matchAmt ? parseFloat(matchAmt[1]) : 0;
+        const roomNo = matchRoom ? matchRoom[1].trim() : '—';
+        const desc = matchDesc ? matchDesc[1].trim() : 'Service Charge';
+        const method = matchMethod ? matchMethod[1].trim() : 'Cash';
+        const receiptNo = matchReceipt ? matchReceipt[1] : String(entryCounter--);
+
+        const matchingRoom = tenantRooms.find(r => r.roomNumber === roomNo);
+        const guest = matchingRoom?.guestName || 'GUEST';
+
+        if (amt > 0) {
+          const [y, m, d] = reportDate.split('-');
+          list.push({
+            sNo: 0,
+            customerName: guest.toUpperCase(),
+            roomNumber: roomNo,
+            entryNumber: receiptNo,
+            billItems: desc,
+            paymentMode: method,
+            amount: amt,
+            orderDateTime: `${d}-${m}-${y}`
+          });
+        }
+      }
+    });
+
     return list.map((item, idx) => ({ ...item, sNo: idx + 1 }));
   }, [tenantRooms, tenantPreBookings, tenantAuditLogs, tenantOrders, reportDate]);
 
