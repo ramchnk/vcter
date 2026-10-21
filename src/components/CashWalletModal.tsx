@@ -20,7 +20,7 @@ import {
   Edit2
 } from 'lucide-react';
 import { useApp, CashWalletTransaction } from '../context/AppContext';
-import { formatTime12h } from '../utils/dateUtils';
+import { formatTime12h, isDirectBookingSource } from '../utils/dateUtils';
 
 interface CashWalletModalProps {
   isOpen: boolean;
@@ -122,22 +122,38 @@ export const CashWalletModal: React.FC<CashWalletModalProps> = ({
     const map = new Map<string, number>();
 
     if (department === 'Rooms') {
-      // 1. Advances paid in Cash
+      const countedBookings = new Set<string>();
+
+      const isCashAdvance = (bookingSource?: string, advancePaymentMethod?: string) => {
+        // Exclude online OTA / non-direct channels (Goibibo, MakeMyTrip, Agoda, Booking.com, Airbnb, etc.)
+        if (!isDirectBookingSource(bookingSource)) return false;
+        const method = (advancePaymentMethod || 'Cash').toLowerCase().trim();
+        return method === 'cash' || (method.includes('cash') && !method.includes('upi') && !method.includes('card') && !method.includes('prepaid') && !method.includes('bank'));
+      };
+
+      // 1. Advances paid in Cash from active rooms
       rooms.forEach(r => {
         if (effectiveTenantId && r.tenantId && r.tenantId !== effectiveTenantId) return;
-        const isCash = !r.advancePaymentMethod || r.advancePaymentMethod === 'Cash';
+        const isCash = isCashAdvance(r.bookingSource, r.advancePaymentMethod);
         const advDate = r.advancePaymentDate || r.checkInDate;
         if (isCash && advDate && Number(r.advancePaid || 0) > 0) {
+          const key = `${r.roomNumber}_${r.advancePaid}_${advDate}`;
+          countedBookings.add(key);
           map.set(advDate, (map.get(advDate) || 0) + Number(r.advancePaid));
         }
       });
 
+      // Advances from checked-out / preBookings
       preBookings.forEach(pb => {
         if (effectiveTenantId && pb.tenantId && pb.tenantId !== effectiveTenantId) return;
-        const isCash = !pb.advancePaymentMethod || pb.advancePaymentMethod === 'Cash';
+        const isCash = isCashAdvance(pb.bookingSource, pb.advancePaymentMethod);
         const advDate = pb.advancePaymentDate || pb.checkInDate;
         if (isCash && advDate && Number(pb.advancePaid || 0) > 0) {
-          map.set(advDate, (map.get(advDate) || 0) + Number(pb.advancePaid));
+          const key = `${pb.roomNumber}_${pb.advancePaid}_${advDate}`;
+          if (!countedBookings.has(key)) {
+            countedBookings.add(key);
+            map.set(advDate, (map.get(advDate) || 0) + Number(pb.advancePaid));
+          }
         }
       });
 

@@ -355,13 +355,16 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
         const payDate = r.advancePaymentDate || r.checkInDate;
         if (payDate === reportDate) {
           const [y, m, d] = reportDate.split('-');
+          const isDirect = isDirectBookingSource(r.bookingSource);
+          const rawMethod = r.advancePaymentMethod || (isDirect ? 'Cash' : 'Prepaid');
+          const resolvedMode = !isDirect && rawMethod.toLowerCase().includes('cash') ? 'Prepaid' : rawMethod;
           list.push({
             sNo: 0,
             customerName: (r.guestName || 'GUEST').toUpperCase(),
             roomNumber: r.roomNumber,
             entryNumber: r.advanceReceiptNumber || String(entryCounter--),
             billItems: 'Advance Paid',
-            paymentMode: r.advancePaymentMethod || (isDirectBookingSource(r.bookingSource) ? 'Cash' : 'Prepaid'),
+            paymentMode: resolvedMode,
             amount: Number(r.advancePaid),
             orderDateTime: `${d}-${m}-${y} ${formatTime24h(r.checkInTime || '12:00')}`
           });
@@ -375,13 +378,16 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
       if (payDate === reportDate && pb.advancePaid && pb.advancePaid > 0) {
         if (!list.some(item => item.roomNumber === pb.roomNumber && item.amount === pb.advancePaid)) {
           const [y, m, d] = reportDate.split('-');
+          const isDirect = isDirectBookingSource(pb.bookingSource);
+          const rawMethod = pb.advancePaymentMethod || (isDirect ? 'Cash' : 'Prepaid');
+          const resolvedMode = !isDirect && rawMethod.toLowerCase().includes('cash') ? 'Prepaid' : rawMethod;
           list.push({
             sNo: 0,
             customerName: (pb.guestName || pb.occupantName || 'GUEST').toUpperCase(),
             roomNumber: pb.roomNumber || '—',
             entryNumber: pb.advanceReceiptNumber || String(entryCounter--),
             billItems: 'Advance Paid',
-            paymentMode: pb.advancePaymentMethod || (isDirectBookingSource(pb.bookingSource) ? 'Cash' : 'Prepaid'),
+            paymentMode: resolvedMode,
             amount: Number(pb.advancePaid),
             orderDateTime: `${d}-${m}-${y} ${formatTime24h(pb.checkInTime || '12:00')}`
           });
@@ -705,7 +711,9 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
 
     // Room cash advances prior to reportDate
     tenantRooms.forEach(r => {
-      const isCash = !r.advancePaymentMethod || r.advancePaymentMethod === 'Cash';
+      if (!isDirectBookingSource(r.bookingSource)) return;
+      const method = (r.advancePaymentMethod || 'Cash').toLowerCase().trim();
+      const isCash = method === 'cash' || (method.includes('cash') && !method.includes('upi') && !method.includes('card') && !method.includes('prepaid') && !method.includes('bank'));
       const advDate = r.advancePaymentDate || r.checkInDate;
       const isAfterBaseline = !startDate || (advDate && advDate >= startDate);
       if (isCash && advDate && isAfterBaseline && advDate < reportDate && Number(r.advancePaid || 0) > 0) {
@@ -714,7 +722,9 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
     });
 
     tenantPreBookings.forEach(pb => {
-      const isCash = !pb.advancePaymentMethod || pb.advancePaymentMethod === 'Cash';
+      if (!isDirectBookingSource(pb.bookingSource)) return;
+      const method = (pb.advancePaymentMethod || 'Cash').toLowerCase().trim();
+      const isCash = method === 'cash' || (method.includes('cash') && !method.includes('upi') && !method.includes('card') && !method.includes('prepaid') && !method.includes('bank'));
       const advDate = pb.advancePaymentDate || pb.checkInDate;
       const isAfterBaseline = !startDate || (advDate && advDate >= startDate);
       if (isCash && advDate && isAfterBaseline && advDate < reportDate && Number(pb.advancePaid || 0) > 0) {

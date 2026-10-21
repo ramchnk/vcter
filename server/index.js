@@ -299,7 +299,7 @@ const preBookingSchema = new mongoose.Schema({
   advancePaid: { type: Number, default: 0 },
   advanceReceiptNumber: { type: String, default: '' },
   advancePaymentDate: { type: String, default: '' },
-  advancePaymentMethod: { type: String, default: 'Cash' },
+  advancePaymentMethod: { type: String, default: '' },
   advanceReceivedBy: { type: String, default: 'Manager (Front Desk Manager)' },
   totalAmount: { type: Number, default: 0 },
   roomRentTotal: { type: Number, default: 0 },

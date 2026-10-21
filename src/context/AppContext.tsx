@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { api, socket } from '../api';
-import { formatTime12h, formatTime24h } from '../utils/dateUtils';
+import { formatTime12h, formatTime24h, isDirectBookingSource } from '../utils/dateUtils';
 
 // ==========================================
 // TYPES DEFINITIONS
@@ -1323,12 +1323,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           roomRentTotal: roomRent,
           totalAmount: totalFolio,
           advancePaid: room.advancePaid || matchingPre.advancePaid || 0,
+          advancePaymentMethod: room.advancePaymentMethod || matchingPre.advancePaymentMethod || (isDirectBookingSource(room.bookingSource || matchingPre.bookingSource) ? 'Cash' : 'Prepaid'),
+          advanceReceiptNumber: room.advanceReceiptNumber || matchingPre.advanceReceiptNumber || '',
           discount: paymentDetails.discount || 0
         };
         await api.put(`/pre-bookings/${matchingPre.id}?tenantId=${tId}`, updateData);
         setPreBookings(prev => prev.map(p => p.id === matchingPre.id ? { ...p, ...updateData } : p));
       } else {
         // Create completed stay record for walk-in guest so revenue & P&L are accurately recorded
+        const isDirect = isDirectBookingSource(room.bookingSource);
+        const resolvedMethod = room.advancePaymentMethod || (isDirect ? 'Cash' : 'Prepaid');
         const newCompletedStay: PreBooking = {
           id: 'pb_stay_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
           tenantId: tId,
@@ -1349,6 +1353,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           checkOutTime: currentTimeStr,
           noOfGuests: room.noOfGuests || 1,
           advancePaid: room.advancePaid || 0,
+          advancePaymentMethod: resolvedMethod,
+          advanceReceiptNumber: room.advanceReceiptNumber || '',
           roomRentTotal: roomRent,
           totalAmount: totalFolio,
           discount: paymentDetails.discount || 0,
