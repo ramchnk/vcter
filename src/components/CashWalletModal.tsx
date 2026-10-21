@@ -124,35 +124,43 @@ export const CashWalletModal: React.FC<CashWalletModalProps> = ({
     if (department === 'Rooms') {
       const countedBookings = new Set<string>();
 
-      const isCashAdvance = (bookingSource?: string, advancePaymentMethod?: string) => {
-        // Exclude online OTA / non-direct channels (Goibibo, MakeMyTrip, Agoda, Booking.com, Airbnb, etc.)
-        if (!isDirectBookingSource(bookingSource)) return false;
+      const getCashAdvanceAmount = (bookingSource?: string, advancePaymentMethod?: string, advancePaid?: number): number => {
+        if (!isDirectBookingSource(bookingSource)) return 0;
+        const total = Number(advancePaid || 0);
+        if (total <= 0) return 0;
         const method = (advancePaymentMethod || 'Cash').toLowerCase().trim();
-        return method === 'cash' || (method.includes('cash') && !method.includes('upi') && !method.includes('card') && !method.includes('prepaid') && !method.includes('bank'));
+
+        if (method.includes('split')) {
+          const cashMatch = method.match(/cash:\s*₹?([0-9.]+)/i);
+          return cashMatch ? parseFloat(cashMatch[1]) : 0;
+        }
+
+        const isCash = method === 'cash' || (method.includes('cash') && !method.includes('upi') && !method.includes('card') && !method.includes('prepaid') && !method.includes('bank'));
+        return isCash ? total : 0;
       };
 
       // 1. Advances paid in Cash from active rooms
       rooms.forEach(r => {
         if (effectiveTenantId && r.tenantId && r.tenantId !== effectiveTenantId) return;
-        const isCash = isCashAdvance(r.bookingSource, r.advancePaymentMethod);
+        const cashAmt = getCashAdvanceAmount(r.bookingSource, r.advancePaymentMethod, r.advancePaid);
         const advDate = r.advancePaymentDate || r.checkInDate;
-        if (isCash && advDate && Number(r.advancePaid || 0) > 0) {
+        if (cashAmt > 0 && advDate) {
           const key = `${r.roomNumber}_${r.advancePaid}_${advDate}`;
           countedBookings.add(key);
-          map.set(advDate, (map.get(advDate) || 0) + Number(r.advancePaid));
+          map.set(advDate, (map.get(advDate) || 0) + cashAmt);
         }
       });
 
       // Advances from checked-out / preBookings
       preBookings.forEach(pb => {
         if (effectiveTenantId && pb.tenantId && pb.tenantId !== effectiveTenantId) return;
-        const isCash = isCashAdvance(pb.bookingSource, pb.advancePaymentMethod);
+        const cashAmt = getCashAdvanceAmount(pb.bookingSource, pb.advancePaymentMethod, pb.advancePaid);
         const advDate = pb.advancePaymentDate || pb.checkInDate;
-        if (isCash && advDate && Number(pb.advancePaid || 0) > 0) {
+        if (cashAmt > 0 && advDate) {
           const key = `${pb.roomNumber}_${pb.advancePaid}_${advDate}`;
           if (!countedBookings.has(key)) {
             countedBookings.add(key);
-            map.set(advDate, (map.get(advDate) || 0) + Number(pb.advancePaid));
+            map.set(advDate, (map.get(advDate) || 0) + cashAmt);
           }
         }
       });

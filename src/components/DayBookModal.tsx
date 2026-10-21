@@ -709,26 +709,35 @@ export const DayBookModal: React.FC<DayBookModalProps> = ({
       }
     });
 
+    const getCashAdvAmt = (bookingSource?: string, advancePaymentMethod?: string, advancePaid?: number): number => {
+      if (!isDirectBookingSource(bookingSource)) return 0;
+      const total = Number(advancePaid || 0);
+      if (total <= 0) return 0;
+      const method = (advancePaymentMethod || 'Cash').toLowerCase().trim();
+      if (method.includes('split')) {
+        const cashMatch = method.match(/cash:\s*₹?([0-9.]+)/i);
+        return cashMatch ? parseFloat(cashMatch[1]) : 0;
+      }
+      const isCash = method === 'cash' || (method.includes('cash') && !method.includes('upi') && !method.includes('card') && !method.includes('prepaid') && !method.includes('bank'));
+      return isCash ? total : 0;
+    };
+
     // Room cash advances prior to reportDate
     tenantRooms.forEach(r => {
-      if (!isDirectBookingSource(r.bookingSource)) return;
-      const method = (r.advancePaymentMethod || 'Cash').toLowerCase().trim();
-      const isCash = method === 'cash' || (method.includes('cash') && !method.includes('upi') && !method.includes('card') && !method.includes('prepaid') && !method.includes('bank'));
+      const cashAmt = getCashAdvAmt(r.bookingSource, r.advancePaymentMethod, r.advancePaid);
       const advDate = r.advancePaymentDate || r.checkInDate;
       const isAfterBaseline = !startDate || (advDate && advDate >= startDate);
-      if (isCash && advDate && isAfterBaseline && advDate < reportDate && Number(r.advancePaid || 0) > 0) {
-        netCash += Number(r.advancePaid);
+      if (cashAmt > 0 && advDate && isAfterBaseline && advDate < reportDate) {
+        netCash += cashAmt;
       }
     });
 
     tenantPreBookings.forEach(pb => {
-      if (!isDirectBookingSource(pb.bookingSource)) return;
-      const method = (pb.advancePaymentMethod || 'Cash').toLowerCase().trim();
-      const isCash = method === 'cash' || (method.includes('cash') && !method.includes('upi') && !method.includes('card') && !method.includes('prepaid') && !method.includes('bank'));
+      const cashAmt = getCashAdvAmt(pb.bookingSource, pb.advancePaymentMethod, pb.advancePaid);
       const advDate = pb.advancePaymentDate || pb.checkInDate;
       const isAfterBaseline = !startDate || (advDate && advDate >= startDate);
-      if (isCash && advDate && isAfterBaseline && advDate < reportDate && Number(pb.advancePaid || 0) > 0) {
-        netCash += Number(pb.advancePaid);
+      if (cashAmt > 0 && advDate && isAfterBaseline && advDate < reportDate) {
+        netCash += cashAmt;
       }
     });
 
