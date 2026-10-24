@@ -108,6 +108,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [advanceReceivedByInput, setAdvanceReceivedByInput] = useState<string>('Manager (Front Desk Manager)');
   const [advanceNotesInput, setAdvanceNotesInput] = useState<string>('');
   const [isSubmittingAdvance, setIsSubmittingAdvance] = useState(false);
+  const [applyAdvanceToGroup, setApplyAdvanceToGroup] = useState(false);
 
   // Forms state
   const [guestName, setGuestName] = useState('');
@@ -420,6 +421,11 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     }
   };
 
+  const selectedRoomGroupMembers = useMemo(() => {
+    if (!selectedRoom?.groupBookingId) return [];
+    return rooms.filter(r => r.groupBookingId === selectedRoom.groupBookingId && r.status === 'Occupied');
+  }, [selectedRoom, rooms]);
+
   const handleOpenCollectAdvance = (room: Room) => {
     setSelectedRoom(room);
     setAdvanceAmountInput(1000);
@@ -428,6 +434,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     setAdvanceReceiptNoInput(nextNo);
     setAdvanceReceivedByInput('Manager (Front Desk Manager)');
     setAdvanceNotesInput('');
+    setApplyAdvanceToGroup(Boolean(room.groupBookingId));
     setShowCollectAdvanceModal(true);
   };
 
@@ -438,35 +445,78 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     try {
       const receiptNo = advanceReceiptNoInput.trim() || getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber));
       const payAmount = Number(advanceAmountInput);
-      await recordRoomAdvance(selectedRoom.id, {
-        amount: payAmount,
-        receiptNumber: receiptNo,
-        paymentDate: todayStr,
-        paymentMethod: advancePaymentMethod,
-        receivedBy: advanceReceivedByInput,
-        notes: advanceNotesInput
-      });
 
-      setShowCollectAdvanceModal(false);
+      if (applyAdvanceToGroup && selectedRoomGroupMembers.length > 1) {
+        const count = selectedRoomGroupMembers.length;
+        const totalCents = Math.round(payAmount * 100);
+        const baseCents = Math.floor(totalCents / count);
+        const remCents = totalCents - (baseCents * count);
 
-      setReceiptModalData({
-        receiptNumber: receiptNo,
-        guestName: selectedRoom.guestName || 'Guest',
-        roomNumber: selectedRoom.roomNumber,
-        roomCategory: selectedRoom.category,
-        amount: payAmount,
-        date: todayStr,
-        paymentMethod: advancePaymentMethod,
-        receivedBy: advanceReceivedByInput,
-        hotelName: settings.name || 'HOTEL SUBRA GRAND',
-        tagline: settings.tagline || 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
-        address: settings.address || '57, New street, near church corner , Karur - 01',
-        email: settings.email || 'jagodahospitality@gmail.com',
-        phone: settings.phone || '9991118512',
-        gstNumber: settings.gstNumber || '33AAHCJ3990L1Z5',
-        notes: advanceNotesInput
-      });
-      setShowAdvanceReceiptModal(true);
+        for (let idx = 0; idx < count; idx++) {
+          const rm = selectedRoomGroupMembers[idx];
+          const splitAmt = (baseCents + (idx < remCents ? 1 : 0)) / 100;
+          await recordRoomAdvance(rm.id, {
+            amount: splitAmt,
+            receiptNumber: receiptNo,
+            paymentDate: todayStr,
+            paymentMethod: advancePaymentMethod,
+            receivedBy: advanceReceivedByInput,
+            notes: advanceNotesInput ? `${advanceNotesInput} (Group ${selectedRoom.groupBookingId})` : `Group ${selectedRoom.groupBookingId} Equal Split`
+          });
+        }
+
+        setShowCollectAdvanceModal(false);
+
+        setReceiptModalData({
+          receiptNumber: receiptNo,
+          guestName: selectedRoom.groupBookingName || selectedRoom.guestName || 'Group Guest',
+          roomNumber: `Group: ${selectedRoom.groupBookingId} (${selectedRoomGroupMembers.map(r => r.roomNumber).join(', ')})`,
+          roomCategory: 'Group Booking',
+          amount: payAmount,
+          date: todayStr,
+          paymentMethod: advancePaymentMethod,
+          receivedBy: advanceReceivedByInput,
+          hotelName: settings.name || 'HOTEL SUBRA GRAND',
+          tagline: settings.tagline || 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
+          address: settings.address || '57, New street, near church corner , Karur - 01',
+          email: settings.email || 'jagodahospitality@gmail.com',
+          phone: settings.phone || '9991118512',
+          gstNumber: settings.gstNumber || '33AAHCJ3990L1Z5',
+          notes: advanceNotesInput,
+          isBulkGroup: true
+        });
+        setShowAdvanceReceiptModal(true);
+      } else {
+        await recordRoomAdvance(selectedRoom.id, {
+          amount: payAmount,
+          receiptNumber: receiptNo,
+          paymentDate: todayStr,
+          paymentMethod: advancePaymentMethod,
+          receivedBy: advanceReceivedByInput,
+          notes: advanceNotesInput
+        });
+
+        setShowCollectAdvanceModal(false);
+
+        setReceiptModalData({
+          receiptNumber: receiptNo,
+          guestName: selectedRoom.guestName || 'Guest',
+          roomNumber: selectedRoom.roomNumber,
+          roomCategory: selectedRoom.category,
+          amount: payAmount,
+          date: todayStr,
+          paymentMethod: advancePaymentMethod,
+          receivedBy: advanceReceivedByInput,
+          hotelName: settings.name || 'HOTEL SUBRA GRAND',
+          tagline: settings.tagline || 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
+          address: settings.address || '57, New street, near church corner , Karur - 01',
+          email: settings.email || 'jagodahospitality@gmail.com',
+          phone: settings.phone || '9991118512',
+          gstNumber: settings.gstNumber || '33AAHCJ3990L1Z5',
+          notes: advanceNotesInput
+        });
+        setShowAdvanceReceiptModal(true);
+      }
     } catch (err) {
       console.error(err);
       alert('Failed to record advance payment.');
@@ -2784,6 +2834,39 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                   />
                 </div>
               </div>
+
+              {/* Group Advance Equal Split Option */}
+              {selectedRoomGroupMembers.length > 1 && (
+                <div className="p-3 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/40 dark:to-indigo-950/30 rounded-xl border border-purple-200 dark:border-purple-800 space-y-2">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={applyAdvanceToGroup}
+                      onChange={e => setApplyAdvanceToGroup(e.target.checked)}
+                      className="mt-0.5 rounded text-purple-600 focus:ring-purple-500 w-4 h-4"
+                    />
+                    <div>
+                      <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
+                        👥 Split Advance equally across all {selectedRoomGroupMembers.length} rooms in Group {selectedRoom.groupBookingId}
+                      </span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-0.5">
+                        Group Rooms: {selectedRoomGroupMembers.map(r => `Room ${r.roomNumber}`).join(', ')}
+                      </span>
+                    </div>
+                  </label>
+
+                  {applyAdvanceToGroup && Number(advanceAmountInput) > 0 && (
+                    <div className="pt-2 border-t border-purple-200/60 dark:border-purple-800/60 flex items-center justify-between text-xs font-semibold text-purple-700 dark:text-purple-300">
+                      <span>
+                        Total ₹{Number(advanceAmountInput).toLocaleString()} ÷ {selectedRoomGroupMembers.length} Rooms
+                      </span>
+                      <span className="font-mono font-bold bg-white dark:bg-slate-900 px-2 py-0.5 rounded-lg border border-purple-300 dark:border-purple-700 text-emerald-600 dark:text-emerald-400">
+                        = ₹{(Number(advanceAmountInput) / selectedRoomGroupMembers.length).toFixed(2)} / room
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Payment Mode & Receipt Number */}
               <div className="grid grid-cols-2 gap-3">
