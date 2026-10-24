@@ -250,6 +250,13 @@ export const PreBookingView: React.FC = () => {
     return Math.max(0, batchAvailability.availableRooms - batchDraftCount);
   }, [batchAvailability, batchDraftCount]);
 
+  // Auto-clamp batchRoomCount whenever batchRemainingAvailable updates
+  useEffect(() => {
+    if (batchRemainingAvailable > 0 && batchRoomCount > batchRemainingAvailable) {
+      setBatchRoomCount(batchRemainingAvailable);
+    }
+  }, [batchRemainingAvailable, batchRoomCount]);
+
   // Calculate duration in nights
   const stayNights = useMemo(() => {
     if (!checkInDate || !checkOutDate || checkInDate >= checkOutDate) return 1;
@@ -447,6 +454,8 @@ export const PreBookingView: React.FC = () => {
       });
     }
     setBulkRooms(prev => [...prev, ...newItems]);
+    const remainingAfter = Math.max(0, batchRemainingAvailable - count);
+    setBatchRoomCount(remainingAfter > 0 ? 1 : 1);
   };
 
   const removeCategoryBatch = (category: RoomCategory, isNonAc: boolean) => {
@@ -1335,7 +1344,7 @@ export const PreBookingView: React.FC = () => {
               </form>
             ) : (
               /* ================= BULK / GROUP BOOKING FORM ================= */
-              <form onSubmit={handleBulkSubmit} className="space-y-4 text-xs">
+              <form onSubmit={handleBulkSubmit} noValidate className="space-y-4 text-xs">
                 {/* Master / Primary Organizer Information */}
                 <div className="p-3.5 bg-purple-50/60 dark:bg-purple-950/30 rounded-xl border border-purple-200/70 dark:border-purple-800/60 space-y-3">
                   <div className="flex items-center justify-between">
@@ -1575,14 +1584,15 @@ export const PreBookingView: React.FC = () => {
                         <input
                           type="number"
                           min={1}
-                          max={Math.max(1, batchRemainingAvailable)}
                           value={batchRoomCount}
                           onChange={e => {
-                            const val = Number(e.target.value);
-                            if (val > batchRemainingAvailable) {
-                              setBatchRoomCount(Math.max(1, batchRemainingAvailable));
+                            const val = parseInt(e.target.value, 10);
+                            if (isNaN(val) || val < 1) {
+                              setBatchRoomCount(1);
+                            } else if (batchRemainingAvailable > 0 && val > batchRemainingAvailable) {
+                              setBatchRoomCount(batchRemainingAvailable);
                             } else {
-                              setBatchRoomCount(Math.max(1, val));
+                              setBatchRoomCount(val);
                             }
                           }}
                           className="w-full h-8 text-center bg-white dark:bg-slate-900 border-y border-slate-200 dark:border-slate-800 font-bold font-mono text-xs"
