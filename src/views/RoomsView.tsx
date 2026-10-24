@@ -50,7 +50,8 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     preBookings,
     confirmPreBookingCheckIn,
     updatePreBookingStatus,
-    settings
+    settings,
+    addAudit
   } = useApp();
 
   // Real-time clock ticker to dynamically update checkout countdowns and blinkers every 15s
@@ -109,6 +110,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [advanceNotesInput, setAdvanceNotesInput] = useState<string>('');
   const [isSubmittingAdvance, setIsSubmittingAdvance] = useState(false);
   const [applyAdvanceToGroup, setApplyAdvanceToGroup] = useState(false);
+  const [advanceEntryMode, setAdvanceEntryMode] = useState<'add' | 'set'>('add');
 
   // Forms state
   const [guestName, setGuestName] = useState('');
@@ -435,6 +437,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     setAdvanceReceivedByInput('Manager (Front Desk Manager)');
     setAdvanceNotesInput('');
     setApplyAdvanceToGroup(Boolean(room.groupBookingId));
+    setAdvanceEntryMode('add');
     setShowCollectAdvanceModal(true);
   };
 
@@ -455,14 +458,28 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         for (let idx = 0; idx < count; idx++) {
           const rm = selectedRoomGroupMembers[idx];
           const splitAmt = (baseCents + (idx < remCents ? 1 : 0)) / 100;
-          await recordRoomAdvance(rm.id, {
-            amount: splitAmt,
-            receiptNumber: receiptNo,
-            paymentDate: todayStr,
-            paymentMethod: advancePaymentMethod,
-            receivedBy: advanceReceivedByInput,
-            notes: advanceNotesInput ? `${advanceNotesInput} (Group ${selectedRoom.groupBookingId})` : `Group ${selectedRoom.groupBookingId} Equal Split`
-          });
+          if (advanceEntryMode === 'set') {
+            await updateRoom(rm.id, {
+              advancePaid: splitAmt,
+              advanceReceiptNumber: receiptNo,
+              advancePaymentDate: todayStr,
+              advancePaymentMethod: advancePaymentMethod,
+              advanceReceivedBy: advanceReceivedByInput
+            });
+            addAudit(
+              'Advance Payment',
+              `Set group total advance to ₹${payAmount} (₹${splitAmt} for Room ${rm.roomNumber}) [Receipt #${receiptNo}]`
+            );
+          } else {
+            await recordRoomAdvance(rm.id, {
+              amount: splitAmt,
+              receiptNumber: receiptNo,
+              paymentDate: todayStr,
+              paymentMethod: advancePaymentMethod,
+              receivedBy: advanceReceivedByInput,
+              notes: advanceNotesInput ? `${advanceNotesInput} (Group ${selectedRoom.groupBookingId})` : `Group ${selectedRoom.groupBookingId} Equal Split`
+            });
+          }
         }
 
         setShowCollectAdvanceModal(false);
@@ -487,14 +504,28 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         });
         setShowAdvanceReceiptModal(true);
       } else {
-        await recordRoomAdvance(selectedRoom.id, {
-          amount: payAmount,
-          receiptNumber: receiptNo,
-          paymentDate: todayStr,
-          paymentMethod: advancePaymentMethod,
-          receivedBy: advanceReceivedByInput,
-          notes: advanceNotesInput
-        });
+        if (advanceEntryMode === 'set') {
+          await updateRoom(selectedRoom.id, {
+            advancePaid: payAmount,
+            advanceReceiptNumber: receiptNo,
+            advancePaymentDate: todayStr,
+            advancePaymentMethod: advancePaymentMethod,
+            advanceReceivedBy: advanceReceivedByInput
+          });
+          addAudit(
+            'Advance Payment',
+            `Set advance for Room ${selectedRoom.roomNumber} to ₹${payAmount} via ${advancePaymentMethod} [Receipt #${receiptNo}]`
+          );
+        } else {
+          await recordRoomAdvance(selectedRoom.id, {
+            amount: payAmount,
+            receiptNumber: receiptNo,
+            paymentDate: todayStr,
+            paymentMethod: advancePaymentMethod,
+            receivedBy: advanceReceivedByInput,
+            notes: advanceNotesInput
+          });
+        }
 
         setShowCollectAdvanceModal(false);
 
@@ -2814,10 +2845,45 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                 </div>
               </div>
 
+              {/* Action Mode (Add vs Set) if advance already exists */}
+              {(selectedRoom.advancePaid || 0) > 0 && (
+                <div className="space-y-1.5 p-2.5 bg-slate-100 dark:bg-slate-950/80 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
+                    Advance Action Mode:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAdvanceEntryMode('add')}
+                      className={`p-2 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${
+                        advanceEntryMode === 'add'
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'
+                      }`}
+                    >
+                      <span>➕ Add to Existing</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAdvanceEntryMode('set')}
+                      className={`p-2 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${
+                        advanceEntryMode === 'set'
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'
+                      }`}
+                    >
+                      <span>✏️ Set / Correct Total</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Advance Amount */}
               <div className="space-y-1">
                 <label className="font-bold text-slate-700 dark:text-slate-300 flex justify-between">
-                  <span>Advance Deposit Amount (₹) *</span>
+                  <span>
+                    {advanceEntryMode === 'set' ? 'New Total Advance Amount (₹) *' : 'Advance Deposit Amount (₹) *'}
+                  </span>
                 </label>
                 <div className="relative">
                   <span className="absolute left-3.5 top-2.5 text-slate-400 font-bold text-sm">₹</span>
@@ -2865,6 +2931,25 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                       </span>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Live Resulting Advance Summary */}
+              {Number(advanceAmountInput) > 0 && (
+                <div className="p-2.5 bg-emerald-50/70 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800/60 text-xs flex items-center justify-between">
+                  <span className="text-slate-600 dark:text-slate-300 font-medium">
+                    {advanceEntryMode === 'add' ? 'Resulting Total on Folio:' : 'Updated Total on Folio:'}
+                  </span>
+                  <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400 text-sm">
+                    {applyAdvanceToGroup && selectedRoomGroupMembers.length > 1
+                      ? advanceEntryMode === 'add'
+                        ? `₹${((selectedRoom.advancePaid || 0) + (Number(advanceAmountInput) / selectedRoomGroupMembers.length)).toLocaleString()} per room`
+                        : `₹${(Number(advanceAmountInput) / selectedRoomGroupMembers.length).toFixed(2)} per room`
+                      : advanceEntryMode === 'add'
+                        ? `₹${((selectedRoom.advancePaid || 0) + Number(advanceAmountInput)).toLocaleString()}`
+                        : `₹${Number(advanceAmountInput).toLocaleString()}`
+                    }
+                  </span>
                 </div>
               )}
 
