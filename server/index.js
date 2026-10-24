@@ -737,6 +737,126 @@ app.post('/api/rooms/:id/advance', async (req, res) => {
   }
 });
 
+app.post('/api/rooms/transfer', async (req, res) => {
+  const { tenantId, fromRoomId, toRoomId } = req.body;
+  try {
+    const filterFrom = tenantId ? { id: fromRoomId, tenantId } : { id: fromRoomId };
+    const filterTo = tenantId ? { id: toRoomId, tenantId } : { id: toRoomId };
+
+    const source = await Room.findOne(filterFrom);
+    const dest = await Room.findOne(filterTo);
+
+    if (!source || !dest) {
+      return res.status(404).json({ error: 'Source or destination room not found' });
+    }
+
+    // 1. Copy full guest, stay, price, booking, and payment details to destination room
+    dest.status = 'Occupied';
+    dest.guestName = source.guestName || '';
+    dest.guestPhone = source.guestPhone || '';
+    dest.guestEmail = source.guestEmail || '';
+    dest.guestAddress = source.guestAddress || '';
+    dest.guestIdProof = source.guestIdProof || '';
+    dest.gstNumber = source.gstNumber || '';
+    dest.companyName = source.companyName || '';
+    dest.checkInDate = source.checkInDate || '';
+    dest.checkInTime = source.checkInTime || '';
+    dest.checkOutDate = source.checkOutDate || '';
+    dest.noOfGuests = source.noOfGuests || 0;
+    dest.price = source.price || dest.price;
+    dest.bookingSource = source.bookingSource || 'Direct / Walk-In';
+    dest.bookingReference = source.bookingReference || '';
+    dest.isAcSwitchedOff = !!source.isAcSwitchedOff;
+    dest.groupBookingId = source.groupBookingId || '';
+    dest.groupBookingName = source.groupBookingName || '';
+
+    // Payment details transfer
+    dest.advancePaid = Number(source.advancePaid) || 0;
+    dest.advanceReceiptNumber = source.advanceReceiptNumber || '';
+    dest.advancePaymentDate = source.advancePaymentDate || source.checkInDate || '';
+    dest.advancePaymentMethod = source.advancePaymentMethod || 'Cash';
+    dest.advanceReceivedBy = source.advanceReceivedBy || 'Manager (Front Desk Manager)';
+
+    // Service charges transfer
+    dest.restaurantCharges = source.restaurantCharges || 0;
+    dest.barCharges = source.barCharges || 0;
+    dest.laundryCharges = source.laundryCharges || 0;
+    dest.hallCharges = source.hallCharges || 0;
+    dest.otherCharges = source.otherCharges || 0;
+    dest.otherChargesDescription = source.otherChargesDescription || '';
+
+    await dest.save();
+
+    // 2. Reset source room back to standard clean state
+    source.status = 'Cleaning';
+    source.guestName = '';
+    source.guestPhone = '';
+    source.guestEmail = '';
+    source.guestAddress = '';
+    source.guestIdProof = '';
+    source.gstNumber = '';
+    source.companyName = '';
+    source.checkInDate = '';
+    source.checkInTime = '';
+    source.checkOutDate = '';
+    source.noOfGuests = 0;
+    source.price = source.basePrice || source.price || 1500;
+    source.bookingSource = '';
+    source.bookingReference = '';
+    source.isAcSwitchedOff = false;
+    source.groupBookingId = '';
+    source.groupBookingName = '';
+    source.advancePaid = 0;
+    source.advanceReceiptNumber = '';
+    source.advancePaymentDate = '';
+    source.advancePaymentMethod = 'Cash';
+    source.advanceReceivedBy = '';
+    source.restaurantCharges = 0;
+    source.barCharges = 0;
+    source.laundryCharges = 0;
+    source.hallCharges = 0;
+    source.otherCharges = 0;
+    source.otherChargesDescription = '';
+
+    await source.save();
+
+    // 3. Update active matching preBooking / reservation to target room
+    const pbFilter = tenantId 
+      ? { tenantId, roomNumber: source.roomNumber, status: { $in: ['CheckedIn', 'Confirmed'] } }
+      : { roomNumber: source.roomNumber, status: { $in: ['CheckedIn', 'Confirmed'] } };
+    
+    await PreBooking.updateMany(pbFilter, {
+      $set: {
+        roomNumber: dest.roomNumber,
+        roomCategory: dest.category,
+        advancePaid: dest.advancePaid,
+        advancePaymentMethod: dest.advancePaymentMethod,
+        advanceReceiptNumber: dest.advanceReceiptNumber,
+        advancePaymentDate: dest.advancePaymentDate
+      }
+    });
+
+    // 4. Transfer posted restaurant & bar orders to target room
+    const orderFilter = tenantId 
+      ? { tenantId, roomNumber: source.roomNumber, status: 'PostedToRoom' }
+      : { roomNumber: source.roomNumber, status: 'PostedToRoom' };
+    await Order.updateMany(orderFilter, { $set: { roomNumber: dest.roomNumber } });
+
+    // 5. Transfer laundry orders to target room
+    const laundryFilter = tenantId 
+      ? { tenantId, roomNumber: source.roomNumber, status: { $ne: 'Delivered' } }
+      : { roomNumber: source.roomNumber, status: { $ne: 'Delivered' } };
+    await LaundryOrder.updateMany(laundryFilter, { $set: { roomNumber: dest.roomNumber } });
+
+    io.emit('room_updated', source);
+    io.emit('room_updated', dest);
+
+    res.json({ success: true, source, dest });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/rooms/:id', async (req, res) => {
   const { tenantId } = req.query;
   try {

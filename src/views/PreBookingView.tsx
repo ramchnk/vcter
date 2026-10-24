@@ -534,6 +534,41 @@ export const PreBookingView: React.FC = () => {
     return bulkRooms.reduce((sum, r) => sum + (Number(r.roomPrice) || 1500) * stayNights, 0);
   }, [bulkRooms, stayNights]);
 
+  // Live equal split calculation for advance payments across group rooms
+  const bulkAdvanceSplit = useMemo(() => {
+    const total = Number(bulkAdvancePaid) || 0;
+    const count = bulkRooms.length;
+    if (total <= 0 || count === 0) {
+      return {
+        total: 0,
+        count: 0,
+        basePerRoom: 0,
+        splits: []
+      };
+    }
+    const totalCents = Math.round(total * 100);
+    const baseCents = Math.floor(totalCents / count);
+    const remCents = totalCents - (baseCents * count);
+    const splits = bulkRooms.map((rm, idx) => {
+      const roomAdvance = (baseCents + (idx < remCents ? 1 : 0)) / 100;
+      return {
+        id: rm.id,
+        index: idx + 1,
+        category: rm.roomCategory,
+        roomNumber: rm.roomNumber,
+        occupantName: rm.occupantName || guestName || `Room #${idx + 1}`,
+        advanceAmount: roomAdvance,
+        percentage: ((roomAdvance / total) * 100).toFixed(1)
+      };
+    });
+    return {
+      total,
+      count,
+      basePerRoom: baseCents / 100,
+      splits
+    };
+  }, [bulkAdvancePaid, bulkRooms, guestName]);
+
   const handleBulkSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!guestName || !phone || !checkInDate || !checkOutDate) {
@@ -568,6 +603,10 @@ export const PreBookingView: React.FC = () => {
       return;
     }
 
+    const paidBulkAdv = Number(bulkAdvancePaid) || 0;
+    const existingNumbers = preBookings.map(p => p.advanceReceiptNumber);
+    const groupReceiptNo = paidBulkAdv > 0 ? getNextAdvanceReceiptNumber(existingNumbers) : undefined;
+
     const res = await addBulkPreBooking({
       guestName,
       phone,
@@ -580,8 +619,9 @@ export const PreBookingView: React.FC = () => {
       bookingReference: bulkBookingReference.trim() || undefined,
       checkInDate,
       checkOutDate,
-      totalAdvancePaid: Number(bulkAdvancePaid) || 0,
-      advancePaymentMethod: Number(bulkAdvancePaid) > 0 ? bulkPaymentMethod : undefined,
+      totalAdvancePaid: paidBulkAdv,
+      advancePaymentMethod: paidBulkAdv > 0 ? bulkPaymentMethod : undefined,
+      advanceReceiptNumber: groupReceiptNo,
       specialRequests: specialRequests || undefined,
       rooms: bulkRooms.map(r => ({
         roomCategory: r.roomCategory,
@@ -593,13 +633,10 @@ export const PreBookingView: React.FC = () => {
       }))
     });
 
-    const paidBulkAdv = Number(bulkAdvancePaid) || 0;
     if (res.createdCount > 0) {
-      if (paidBulkAdv > 0) {
-        const existingNumbers = preBookings.map(p => p.advanceReceiptNumber);
-        const receiptNo = getNextAdvanceReceiptNumber(existingNumbers);
+      if (paidBulkAdv > 0 && groupReceiptNo) {
         setReceiptModalData({
-          receiptNumber: receiptNo,
+          receiptNumber: groupReceiptNo,
           guestName: guestName.trim(),
           roomNumber: `Group: ${res.groupBookingId} (${res.createdCount} Rooms)`,
           roomCategory: 'Group Booking',
@@ -1860,6 +1897,67 @@ export const PreBookingView: React.FC = () => {
                       </select>
                     )}
                   </div>
+
+                  {/* Equal Split Live Breakdown Card */}
+                  {bulkAdvanceSplit.total > 0 && bulkAdvanceSplit.count > 0 && (
+                    <div className="p-3 bg-white/95 dark:bg-slate-900/95 rounded-xl border border-purple-200/90 dark:border-purple-700/60 space-y-2.5 shadow-xs">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-b pb-2 border-purple-100 dark:border-purple-900/50">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300">
+                            Automatic Equal Split Allocation
+                          </span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 self-start sm:self-auto">
+                          ✓ 100% Allocated (Sum: ₹{bulkAdvanceSplit.total.toLocaleString()})
+                        </span>
+                      </div>
+
+                      <div className="text-[11px] text-slate-600 dark:text-slate-300 flex items-center justify-between">
+                        <span>
+                          <strong className="font-mono text-purple-700 dark:text-purple-400">₹{bulkAdvanceSplit.total.toLocaleString()}</strong> ÷ {bulkAdvanceSplit.count} Rooms = <strong className="font-mono text-emerald-600 dark:text-emerald-400">₹{bulkAdvanceSplit.basePerRoom.toLocaleString()}/room</strong>
+                        </span>
+                        <span className="text-[10px] font-semibold text-slate-500">
+                          via {bulkPaymentMethod}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-40 overflow-y-auto pr-1">
+                        {bulkAdvanceSplit.splits.map(item => (
+                          <div
+                            key={item.id}
+                            className="p-2 bg-gradient-to-r from-purple-50/80 to-indigo-50/50 dark:from-purple-950/40 dark:to-indigo-950/30 rounded-lg border border-purple-100 dark:border-purple-900/40 flex items-center justify-between text-xs"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="w-5 h-5 rounded-full bg-purple-600 text-white flex items-center justify-center text-[10px] font-bold shrink-0">
+                                {item.index}
+                              </span>
+                              <div className="truncate">
+                                <span className="font-bold text-slate-800 dark:text-slate-200 truncate block text-[11px]">
+                                  {item.occupantName}
+                                </span>
+                                <span className="text-[10px] text-slate-400 block">
+                                  {item.roomNumber ? `Room ${item.roomNumber}` : item.category}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <span className="font-mono font-bold text-purple-700 dark:text-purple-300 block text-xs">
+                                ₹{item.advanceAmount.toLocaleString()}
+                              </span>
+                              <span className="text-[9px] text-slate-400 font-medium">
+                                Credited on check-in
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <p className="text-[10px] text-slate-400 italic pt-1 border-t border-purple-100/60 dark:border-purple-900/30">
+                        * When checking in, each individual room folio automatically reflects its equal share of advance deposit credited via {bulkPaymentMethod}.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-1">
@@ -2488,9 +2586,16 @@ export const PreBookingView: React.FC = () => {
                               {pb.roomCategory}
                             </span>
                           </div>
-                          <p className="text-[10px] text-slate-400 font-mono">
-                            Stay: {pb.checkInDate} → {pb.checkOutDate} • Rate: ₹{pb.roomPrice}/day
-                          </p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-[10px] text-slate-400 font-mono">
+                              Stay: {pb.checkInDate} → {pb.checkOutDate} • Rate: ₹{pb.roomPrice}/day
+                            </p>
+                            {(pb.advancePaid || 0) > 0 && (
+                              <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                                Advance: ₹{pb.advancePaid?.toLocaleString()} ({pb.advancePaymentMethod || 'Cash'})
+                              </span>
+                            )}
+                          </div>
                         </div>
 
                         <div className="w-full sm:w-64 space-y-1">

@@ -22,6 +22,7 @@ import {
   IndianRupee,
   Printer,
   Edit3,
+  CreditCard,
   WalletCards,
   BookOpen
 } from 'lucide-react';
@@ -127,6 +128,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [checkInTimeInput, setCheckInTimeInput] = useState<string>('');
 
   const [transferTargetRoomId, setTransferTargetRoomId] = useState('');
+  const [isSubmittingTransfer, setIsSubmittingTransfer] = useState(false);
 
   // Edit Check-In Details Modal state
   const [showEditCheckInModal, setShowEditCheckInModal] = useState(false);
@@ -146,7 +148,20 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [editCheckInDate, setEditCheckInDate] = useState<string>('');
   const [editCheckInTimeInput, setEditCheckInTimeInput] = useState<string>('');
   const [editCheckOutDate, setEditCheckOutDate] = useState<string>('');
+  const [editAdvancePaid, setEditAdvancePaid] = useState<number | string>(0);
+  const [editAdvancePaymentMethod, setEditAdvancePaymentMethod] = useState<string>('Cash');
+  const [editAdvanceReceiptNumber, setEditAdvanceReceiptNumber] = useState<string>('');
+  const [editAdvancePaymentDate, setEditAdvancePaymentDate] = useState<string>('');
   const [isSubmittingEditCheckIn, setIsSubmittingEditCheckIn] = useState(false);
+
+  // Quick Edit Payment Mode Modal state
+  const [showEditPaymentModeModal, setShowEditPaymentModeModal] = useState(false);
+  const [paymentModeEditRoom, setPaymentModeEditRoom] = useState<Room | null>(null);
+  const [quickPaymentMethod, setQuickPaymentMethod] = useState<string>('Cash');
+  const [quickAdvancePaid, setQuickAdvancePaid] = useState<number | string>(0);
+  const [quickReceiptNumber, setQuickReceiptNumber] = useState<string>('');
+  const [quickPaymentDate, setQuickPaymentDate] = useState<string>('');
+  const [isSubmittingPaymentMode, setIsSubmittingPaymentMode] = useState(false);
 
   // Pre-calculate real-time checkout alerts for all occupied rooms
   const roomAlertMap = useMemo(() => {
@@ -487,12 +502,24 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     setShowTransferModal(true);
   };
 
-  const handleTransferSubmit = (e: React.FormEvent) => {
+  const handleTransferSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRoom || !transferTargetRoomId) return;
 
-    transferRoom(selectedRoom.id, transferTargetRoomId);
-    setShowTransferModal(false);
+    const targetRoom = rooms.find(r => r.id === transferTargetRoomId);
+    if (!targetRoom) return;
+
+    setIsSubmittingTransfer(true);
+    try {
+      await transferRoom(selectedRoom.id, transferTargetRoomId);
+      setShowTransferModal(false);
+      alert(`Room transfer successful!\n\nGuest ${selectedRoom.guestName} and ₹${selectedRoom.advancePaid || 0} payment details (${selectedRoom.advancePaymentMethod || 'Cash'}) have been successfully transferred to Room ${targetRoom.roomNumber}.`);
+    } catch (err) {
+      console.error('Room transfer failed:', err);
+      alert('Failed to transfer room. Please try again.');
+    } finally {
+      setIsSubmittingTransfer(false);
+    }
   };
 
   const handleOpenExtend = (room: Room) => {
@@ -664,6 +691,10 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     setEditCheckInDate(room.checkInDate || todayStr);
     setEditCheckInTimeInput(room.checkInTime || formatTime12h({ hours: new Date().getHours(), minutes: new Date().getMinutes() }));
     setEditCheckOutDate(room.checkOutDate || new Date(Date.now() + 86400000).toISOString().split('T')[0]);
+    setEditAdvancePaid(room.advancePaid ?? 0);
+    setEditAdvancePaymentMethod(room.advancePaymentMethod || (isDirectBookingSource(room.bookingSource) ? 'Cash' : 'UPI'));
+    setEditAdvanceReceiptNumber(room.advanceReceiptNumber || '');
+    setEditAdvancePaymentDate(room.advancePaymentDate || room.checkInDate || todayStr);
     setShowEditCheckInModal(true);
   };
 
@@ -679,6 +710,12 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
 
     try {
       const finalPrice = Number(editCheckInPrice) > 0 ? Number(editCheckInPrice) : (editCheckInRoom.price || 1500);
+      const numAdv = Number(editAdvancePaid) || 0;
+      let recNo = editAdvanceReceiptNumber.trim();
+      if (numAdv > 0 && !recNo) {
+        recNo = editCheckInRoom.advanceReceiptNumber || getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber));
+      }
+
       const updates: Partial<Room> = {
         guestName: editGuestName.trim(),
         guestPhone: editGuestPhone.trim(),
@@ -694,7 +731,11 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
         isAcSwitchedOff: editIsAcSwitchedOff,
         checkInDate: editCheckInDate || editCheckInRoom.checkInDate,
         checkInTime: editCheckInTimeInput || editCheckInRoom.checkInTime,
-        checkOutDate: editCheckOutDate || editCheckInRoom.checkOutDate
+        checkOutDate: editCheckOutDate || editCheckInRoom.checkOutDate,
+        advancePaid: numAdv,
+        advancePaymentMethod: editAdvancePaymentMethod,
+        advanceReceiptNumber: recNo,
+        advancePaymentDate: editAdvancePaymentDate || editCheckInRoom.advancePaymentDate || todayStr
       };
 
       await updateRoom(editCheckInRoom.id, updates);
@@ -704,6 +745,42 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       alert('Failed to update check-in details. Please try again.');
     } finally {
       setIsSubmittingEditCheckIn(false);
+    }
+  };
+
+  const handleOpenQuickPaymentMode = (room: Room, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setPaymentModeEditRoom(room);
+    setQuickPaymentMethod(room.advancePaymentMethod || (isDirectBookingSource(room.bookingSource) ? 'Cash' : 'UPI'));
+    setQuickAdvancePaid(room.advancePaid ?? 0);
+    setQuickReceiptNumber(room.advanceReceiptNumber || '');
+    setQuickPaymentDate(room.advancePaymentDate || room.checkInDate || todayStr);
+    setShowEditPaymentModeModal(true);
+  };
+
+  const handleQuickPaymentModeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!paymentModeEditRoom) return;
+    setIsSubmittingPaymentMode(true);
+    try {
+      const numAdv = Number(quickAdvancePaid) || 0;
+      let recNo = quickReceiptNumber.trim() || paymentModeEditRoom.advanceReceiptNumber || '';
+      if (numAdv > 0 && !recNo) {
+        recNo = getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber));
+      }
+      const updates: Partial<Room> = {
+        advancePaymentMethod: quickPaymentMethod,
+        advancePaid: numAdv,
+        advanceReceiptNumber: recNo,
+        advancePaymentDate: quickPaymentDate || paymentModeEditRoom.advancePaymentDate || todayStr
+      };
+      await updateRoom(paymentModeEditRoom.id, updates);
+      setShowEditPaymentModeModal(false);
+    } catch (err) {
+      console.error('Failed to update payment mode:', err);
+      alert('Failed to update payment mode. Please try again.');
+    } finally {
+      setIsSubmittingPaymentMode(false);
     }
   };
 
@@ -1094,6 +1171,26 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                         ₹{activeBill ? activeBill.pendingAmount.toFixed(0) : '0'}
                       </span>
                     </div>
+
+                    {(room.advancePaid || 0) > 0 && (
+                      <div className="pt-1.5 border-t border-slate-200/30 flex items-center justify-between text-[10px]">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-slate-400 font-medium">Adv Paid:</span>
+                          <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">₹{room.advancePaid}</span>
+                          <span className="font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800/60 px-1.5 py-0.2 rounded text-[9px]">
+                            {room.advancePaymentMethod || 'Cash'}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => handleOpenQuickPaymentMode(room, e)}
+                          className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 font-bold hover:underline flex items-center gap-0.5"
+                          title="Edit Advance Payment Mode"
+                        >
+                          <Edit3 className="w-2.5 h-2.5" /> Edit Mode
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1194,14 +1291,24 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                       <span>+ Adv</span>
                     </button>
                     {(room.advancePaid || 0) > 0 && (
-                      <button
-                        onClick={() => handlePrintRoomAdvanceReceipt(room)}
-                        className="px-2 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 rounded-lg text-[10px] font-bold border border-indigo-200/60 dark:border-indigo-800/60 flex items-center gap-1 transition-colors"
-                        title="Print Advance Receipt"
-                      >
-                        <Printer className="w-3 h-3" />
-                        <span>Receipt</span>
-                      </button>
+                      <>
+                        <button
+                          onClick={() => handlePrintRoomAdvanceReceipt(room)}
+                          className="px-2 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 rounded-lg text-[10px] font-bold border border-indigo-200/60 dark:border-indigo-800/60 flex items-center gap-1 transition-colors"
+                          title="Print Advance Receipt"
+                        >
+                          <Printer className="w-3 h-3" />
+                          <span>Receipt</span>
+                        </button>
+                        <button
+                          onClick={() => handleOpenQuickPaymentMode(room)}
+                          className="px-2 py-1.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 rounded-lg text-[10px] font-bold border border-amber-200/60 dark:border-amber-800/60 flex items-center gap-1 transition-colors"
+                          title="Edit Advance Payment Mode (Cash, UPI, Card, etc.)"
+                        >
+                          <CreditCard className="w-3 h-3" />
+                          <span>Edit Mode</span>
+                        </button>
+                      </>
                     )}
                     <button
                       onClick={() => handleOpenBill(room)}
@@ -1705,40 +1812,95 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       {/* 2. TRANSFER ROOM MODAL */}
       {showTransferModal && selectedRoom && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-sm rounded-2xl shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b pb-2 border-slate-100 dark:border-slate-800">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 dark:text-slate-150">
-                Transfer Room {selectedRoom.roomNumber}
-              </h3>
-              <button onClick={() => setShowTransferModal(false)} className="text-slate-400 hover:text-slate-600 text-lg">×</button>
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-md rounded-2xl shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b pb-2.5 border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200/50 dark:border-indigo-800/50">
+                  <ArrowRightLeft className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 dark:text-slate-100">
+                    Transfer Room {selectedRoom.roomNumber}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Move guest & transfer all advance payments and folio bills
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setShowTransferModal(false)} className="text-slate-400 hover:text-slate-600 text-lg font-bold">×</button>
             </div>
             
             <form onSubmit={handleTransferSubmit} className="space-y-4 text-xs">
-              <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200/50 dark:border-slate-800/50">
-                <p className="font-semibold text-slate-700 dark:text-slate-300">Active Guest:</p>
-                <p className="text-sm font-bold text-indigo-500 mt-0.5">{selectedRoom.guestName}</p>
+              
+              {/* Active Guest & Current Stay Info */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200/60 dark:border-slate-800/60 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-medium">Active Guest</span>
+                    <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">
+                      {selectedRoom.guestName || 'In-House Guest'}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-400 font-medium">Current Room</span>
+                    <p className="font-bold text-indigo-600 dark:text-indigo-400 text-xs">
+                      Room {selectedRoom.roomNumber} ({selectedRoom.category})
+                    </p>
+                  </div>
+                </div>
+
+                {/* Transferred Payment Details Card */}
+                <div className="p-2.5 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/60 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-emerald-800 dark:text-emerald-300 text-[11px] flex items-center gap-1">
+                      <CreditCard className="w-3.5 h-3.5" /> Payment Details to Transfer:
+                    </span>
+                    <span className="font-mono font-black text-emerald-700 dark:text-emerald-300 text-xs">
+                      ₹{selectedRoom.advancePaid || 0}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-slate-600 dark:text-slate-300">
+                    <span>
+                      Mode: <strong className="text-emerald-800 dark:text-emerald-300">{selectedRoom.advancePaymentMethod || 'Cash'}</strong>
+                      {selectedRoom.advanceReceiptNumber ? ` • Receipt #${selectedRoom.advanceReceiptNumber}` : ''}
+                    </span>
+                    <span>Tariff: ₹{selectedRoom.price}/night</span>
+                  </div>
+                </div>
               </div>
 
+              {/* Target Room Selector */}
               <div className="space-y-1.5">
-                <label className="font-bold text-slate-500">Select Target Room *</label>
+                <label className="font-bold text-slate-700 dark:text-slate-300 text-xs flex items-center justify-between">
+                  <span>Select Target Room <span className="text-rose-500">*</span></span>
+                  <span className="text-[10px] text-slate-400">Available clean rooms</span>
+                </label>
                 <select
                   required
                   value={transferTargetRoomId}
                   onChange={e => setTransferTargetRoomId(e.target.value)}
-                  className="w-full p-2.5 border dark:border-slate-800 dark:bg-slate-950 rounded-xl font-medium"
+                  className="w-full p-2.5 border dark:border-slate-800 dark:bg-slate-950 rounded-xl font-bold text-xs focus:ring-2 focus:ring-indigo-500"
                 >
-                  <option value="">-- Choose Available Room --</option>
+                  <option value="">-- Choose Available Target Room --</option>
                   {rooms
-                    .filter(r => r.status === 'Available')
+                    .filter(r => r.status === 'Available' && r.id !== selectedRoom.id)
                     .map(r => (
                       <option key={r.id} value={r.id}>
-                        Room {r.roomNumber} ({r.category} - ₹{r.price})
+                        Room {r.roomNumber} ({r.category} • Base: ₹{r.price}/night)
                       </option>
                     ))}
                 </select>
               </div>
 
-              <div className="flex gap-2 justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
+              {/* Helpful assurance notice */}
+              <div className="p-2.5 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/60 text-[11px] text-blue-800 dark:text-blue-300 flex items-start gap-2">
+                <Info className="w-4 h-4 shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+                <span>
+                  The <strong>₹{selectedRoom.advancePaid || 0}</strong> payment, mode (<strong>{selectedRoom.advancePaymentMethod || 'Cash'}</strong>), and active stay will immediately transfer to the new room across Day Book, Front Office, and Unified Billing.
+                </span>
+              </div>
+
+              <div className="flex gap-2 justify-end pt-3 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={() => setShowTransferModal(false)}
@@ -1748,10 +1910,11 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                 </button>
                 <button
                   type="submit"
-                  disabled={!transferTargetRoomId}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold rounded-xl shadow-sm"
+                  disabled={!transferTargetRoomId || isSubmittingTransfer}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-sm flex items-center gap-1.5 transition-colors"
                 >
-                  Transfer Guest
+                  <ArrowRightLeft className="w-3.5 h-3.5" />
+                  <span>{isSubmittingTransfer ? 'Transferring...' : 'Confirm Room Transfer'}</span>
                 </button>
               </div>
             </form>
@@ -2235,20 +2398,36 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                       </div>
 
                       <div className="flex justify-between items-center text-slate-500 text-[10px]">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span>Advance Payments Paid</span>
                           {summary.advancePaid > 0 && selectedRoom && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowBillModal(false);
-                                handlePrintRoomAdvanceReceipt(selectedRoom);
-                              }}
-                              className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 font-bold underline flex items-center gap-0.5 ml-1"
-                              title="Print Advance Receipt"
-                            >
-                              <Printer className="w-3 h-3 inline" /> Print
-                            </button>
+                            <>
+                              <span className="text-[9px] font-bold px-1.5 py-0.2 bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 rounded border border-emerald-300/50 dark:border-emerald-700/50">
+                                {selectedRoom.advancePaymentMethod || 'Cash'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowBillModal(false);
+                                  handlePrintRoomAdvanceReceipt(selectedRoom);
+                                }}
+                                className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 font-bold underline flex items-center gap-0.5 ml-1"
+                                title="Print Advance Receipt"
+                              >
+                                <Printer className="w-3 h-3 inline" /> Print
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowBillModal(false);
+                                  handleOpenQuickPaymentMode(selectedRoom);
+                                }}
+                                className="text-amber-600 hover:text-amber-700 dark:text-amber-400 font-bold underline flex items-center gap-0.5 ml-1"
+                                title="Edit Mode of Payment"
+                              >
+                                <Edit3 className="w-2.5 h-2.5 inline" /> Edit Mode
+                              </button>
+                            </>
                           )}
                         </div>
                         <div className="flex items-center gap-1.5">
@@ -2970,6 +3149,89 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                 </div>
               </div>
 
+              {/* 5. Advance Deposit & Mode of Payment */}
+              <div className="p-3.5 bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/70 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5 text-xs">
+                    <CreditCard className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Advance Payment & Mode of Payment</span>
+                  </label>
+                  <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/60 px-2 py-0.5 rounded-full">
+                    Editable for Receptionist
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                      Advance Paid (₹)
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2 font-mono font-bold text-slate-400">₹</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={editAdvancePaid}
+                        onChange={e => setEditAdvancePaid(e.target.value)}
+                        className="w-full pl-7 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 rounded-lg font-bold font-mono text-emerald-600 dark:text-emerald-400 text-xs focus:ring-2 focus:ring-emerald-500"
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                      <span>Mode of Payment *</span>
+                      <span className="text-[9px] text-slate-400 font-normal">Collection method</span>
+                    </label>
+                    <select
+                      value={editAdvancePaymentMethod}
+                      onChange={e => setEditAdvancePaymentMethod(e.target.value)}
+                      className="w-full p-2 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 rounded-lg font-bold text-slate-800 dark:text-slate-200 text-xs focus:ring-2 focus:ring-emerald-500"
+                    >
+                      <option value="Cash">💵 Cash</option>
+                      <option value="UPI">📱 UPI / GPay / PhonePe</option>
+                      <option value="Card">💳 Debit / Credit Card</option>
+                      <option value="Bank Transfer">🏦 Bank Transfer / NEFT</option>
+                      <option value="Prepaid/OTI">🌐 Prepaid/OTI</option>
+                      <option value="Cheque">📄 Cheque</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                      Advance Receipt No.
+                    </label>
+                    <input
+                      type="text"
+                      value={editAdvanceReceiptNumber}
+                      onChange={e => setEditAdvanceReceiptNumber(e.target.value)}
+                      className="w-full p-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg font-mono text-xs"
+                      placeholder="Receipt / Entry No."
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                      Advance Payment Date
+                    </label>
+                    <input
+                      type="date"
+                      value={editAdvancePaymentDate}
+                      onChange={e => setEditAdvancePaymentDate(e.target.value)}
+                      className="w-full p-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg font-mono text-xs"
+                    />
+                  </div>
+                </div>
+
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                  💡 Correct the mode of payment here if mistakenly entered at check-in. Day Book reports and cash registers reflect this immediately.
+                </p>
+              </div>
+
               {/* Stay Dates & Timings */}
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1">
@@ -3018,6 +3280,165 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                   <Check className="w-3.5 h-3.5" />
                   <span>{isSubmittingEditCheckIn ? 'Saving...' : 'Save Changes'}</span>
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 9. QUICK EDIT PAYMENT MODE MODAL */}
+      {showEditPaymentModeModal && paymentModeEditRoom && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-lg rounded-2xl shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b pb-2.5 border-slate-100 dark:border-slate-800">
+              <div>
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <span className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400">
+                    <CreditCard className="w-4 h-4" />
+                  </span>
+                  <span>Edit Mode of Payment — Room {paymentModeEditRoom.roomNumber}</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Update payment method if wrongly selected by receptionist during check-in
+                </p>
+              </div>
+              <button 
+                onClick={() => setShowEditPaymentModeModal(false)} 
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl font-bold p-1 rounded-lg"
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleQuickPaymentModeSubmit} className="space-y-4 text-xs">
+              
+              {/* Room & Guest Summary Card */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800/80 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] text-slate-400 font-medium">Guest Name</span>
+                  <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">
+                    {paymentModeEditRoom.guestName || 'In-House Guest'}
+                  </p>
+                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+                    Checked In: {paymentModeEditRoom.checkInDate} ({paymentModeEditRoom.checkInTime || '12:00 PM'})
+                  </p>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-slate-400 font-medium">Current Mode</span>
+                  <p className="font-bold text-emerald-600 dark:text-emerald-400 text-xs flex items-center gap-1 justify-end">
+                    {paymentModeEditRoom.advancePaymentMethod || 'Cash'}
+                  </p>
+                  <span className="text-[10px] font-mono text-slate-500">
+                    Adv: ₹{paymentModeEditRoom.advancePaid || 0}
+                  </span>
+                </div>
+              </div>
+
+              {/* Mode of Payment Selection Grid */}
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-700 dark:text-slate-300 text-xs flex items-center justify-between">
+                  <span>Select Correct Mode of Payment <span className="text-rose-500">*</span></span>
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">Selected: {quickPaymentMethod}</span>
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {[
+                    { id: 'Cash', label: 'Cash', icon: '💵' },
+                    { id: 'UPI', label: 'UPI / GPay', icon: '📱' },
+                    { id: 'Card', label: 'Debit / Card', icon: '💳' },
+                    { id: 'Bank Transfer', label: 'Bank / NEFT', icon: '🏦' },
+                    { id: 'Prepaid/OTI', label: 'Prepaid / OTA', icon: '🌐' },
+                    { id: 'Cheque', label: 'Cheque', icon: '📄' }
+                  ].map(mode => {
+                    const isSelected = quickPaymentMethod.toLowerCase() === mode.id.toLowerCase() || 
+                      (mode.id === 'UPI' && quickPaymentMethod.toLowerCase().includes('upi')) ||
+                      (mode.id === 'Card' && quickPaymentMethod.toLowerCase().includes('card'));
+                    return (
+                      <button
+                        key={mode.id}
+                        type="button"
+                        onClick={() => setQuickPaymentMethod(mode.id)}
+                        className={`p-2.5 rounded-xl border text-left flex items-center gap-2 transition-all ${
+                          isSelected
+                            ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-500 ring-2 ring-emerald-500/30 text-emerald-950 dark:text-emerald-100 font-bold shadow-xs'
+                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-semibold hover:border-slate-300 dark:hover:border-slate-700'
+                        }`}
+                      >
+                        <span className="text-base">{mode.icon}</span>
+                        <div>
+                          <div className="text-xs leading-none">{mode.label}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Advance Amount & Receipt No */}
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                    Advance Amount (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={quickAdvancePaid}
+                    onChange={e => setQuickAdvancePaid(e.target.value)}
+                    className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg font-mono font-bold text-emerald-600 dark:text-emerald-400 text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                    Receipt / Entry No.
+                  </label>
+                  <input
+                    type="text"
+                    value={quickReceiptNumber}
+                    onChange={e => setQuickReceiptNumber(e.target.value)}
+                    placeholder="e.g. 1243"
+                    className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg font-mono text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Informative note */}
+              <div className="p-2.5 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/60 text-[11px] text-blue-800 dark:text-blue-300 flex items-start gap-2">
+                <Info className="w-4 h-4 shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+                <span>
+                  Changing the mode of payment will automatically update the <strong>Day Book report</strong>, <strong>Front-Office Cash in Hand</strong>, and room folio records.
+                </span>
+              </div>
+
+              {/* Buttons */}
+              <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditPaymentModeModal(false);
+                    handleOpenEditCheckIn(paymentModeEditRoom);
+                  }}
+                  className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline font-bold"
+                >
+                  Edit other stay details →
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowEditPaymentModeModal(false)}
+                    className="px-4 py-2 border dark:border-slate-800 text-slate-500 dark:text-slate-400 font-semibold rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingPaymentMode}
+                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-sm transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{isSubmittingPaymentMode ? 'Saving...' : 'Update Payment Mode'}</span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>

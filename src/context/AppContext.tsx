@@ -179,6 +179,8 @@ export interface BulkPreBookingPayload {
   checkOutDate: string;
   totalAdvancePaid: number;
   advancePaymentMethod?: string;
+  advanceReceiptNumber?: string;
+  advancePaymentDate?: string;
   specialRequests?: string;
   rooms: BulkRoomItem[];
 }
@@ -1179,7 +1181,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const res = await api.put(`/rooms/${roomId}?tenantId=${tId}`, updates);
       const updated = res.data || updates;
       setRooms(prev => prev.map(r => r.id === roomId ? { ...r, ...updated } : r));
-      addAudit('Room Details Updated', `Updated details for Room ${updates.roomNumber || roomId}`);
+
+      const targetRoom = rooms.find(r => r.id === roomId);
+      const roomNum = updates.roomNumber || targetRoom?.roomNumber || roomId;
+
+      if (updates.advancePaymentMethod !== undefined) {
+        addAudit('Payment Mode Updated', `Updated advance payment mode to "${updates.advancePaymentMethod}" for Room ${roomNum}`);
+      } else {
+        addAudit('Room Details Updated', `Updated details for Room ${roomNum}`);
+      }
+
+      // Keep matching checked-in / confirmed preBooking in sync with advance updates
+      if (targetRoom && (updates.advancePaymentMethod !== undefined || updates.advancePaid !== undefined)) {
+        const matchingPre = preBookings.find(pb => 
+          (pb.roomNumber === targetRoom.roomNumber || (pb.phone && pb.phone === targetRoom.guestPhone)) &&
+          (pb.status === 'CheckedIn' || pb.status === 'Confirmed')
+        );
+        if (matchingPre) {
+          const pbUpdates: Partial<PreBooking> = {};
+          if (updates.advancePaymentMethod !== undefined) pbUpdates.advancePaymentMethod = updates.advancePaymentMethod;
+          if (updates.advancePaid !== undefined) pbUpdates.advancePaid = updates.advancePaid;
+          if (updates.advanceReceiptNumber !== undefined) pbUpdates.advanceReceiptNumber = updates.advanceReceiptNumber;
+          try {
+            await api.put(`/pre-bookings/${matchingPre.id}?tenantId=${tId}`, pbUpdates);
+            setPreBookings(prev => prev.map(p => p.id === matchingPre.id ? { ...p, ...pbUpdates } : p));
+          } catch (err) {
+            console.error('Failed to sync matching pre-booking advance details:', err);
+          }
+        }
+      }
     } catch (e) {
       console.error(e);
       throw e;
@@ -1404,7 +1434,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         checkInTime: '',
         checkOutDate: '',
         noOfGuests: 0,
+        price: source.basePrice || source.price || 1500,
+        bookingSource: undefined,
+        bookingReference: '',
+        isAcSwitchedOff: false,
+        groupBookingId: '',
+        groupBookingName: '',
         advancePaid: 0,
+        advanceReceiptNumber: '',
+        advancePaymentDate: '',
+        advancePaymentMethod: 'Cash',
+        advanceReceivedBy: '',
         restaurantCharges: 0,
         barCharges: 0,
         laundryCharges: 0,
@@ -1425,7 +1465,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         checkInTime: source.checkInTime || '',
         checkOutDate: source.checkOutDate || '',
         noOfGuests: source.noOfGuests || 0,
-        advancePaid: source.advancePaid || 0,
+        price: source.price || dest.price,
+        basePrice: dest.basePrice || dest.price,
+        bookingSource: source.bookingSource || 'Direct / Walk-In',
+        bookingReference: source.bookingReference || '',
+        isAcSwitchedOff: !!source.isAcSwitchedOff,
+        groupBookingId: source.groupBookingId || '',
+        groupBookingName: source.groupBookingName || '',
+        // ALL PAYMENT DETAILS TRANSFERRED
+        advancePaid: Number(source.advancePaid) || 0,
+        advanceReceiptNumber: source.advanceReceiptNumber || '',
+        advancePaymentDate: source.advancePaymentDate || source.checkInDate || '',
+        advancePaymentMethod: source.advancePaymentMethod || 'Cash',
+        advanceReceivedBy: source.advanceReceivedBy || 'Manager (Front Desk Manager)',
+        // SERVICE CHARGES TRANSFERRED
         restaurantCharges: source.restaurantCharges || 0,
         barCharges: source.barCharges || 0,
         laundryCharges: source.laundryCharges || 0,
@@ -1433,12 +1486,72 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         otherCharges: source.otherCharges || 0,
         otherChargesDescription: source.otherChargesDescription || ''
       };
-      await api.put(`/rooms/${fromRoomId}?tenantId=${tId}`, cleanSource);
-      await api.put(`/rooms/${toRoomId}?tenantId=${tId}`, occupiedDest);
+
+      try {
+        await api.post('/rooms/transfer', { tenantId: tId, fromRoomId, toRoomId });
+      } catch (err) {
+        // Fallback to direct room updates if server endpoint encounters issue
+        await api.put(`/rooms/${fromRoomId}?tenantId=${tId}`, cleanSource);
+        await api.put(`/rooms/${toRoomId}?tenantId=${tId}`, occupiedDest);
+      }
+
       setRooms(prev => prev.map(r => r.id === fromRoomId ? { ...r, ...cleanSource } as Room : (r.id === toRoomId ? { ...r, ...occupiedDest } as Room : r)));
-      addAudit('Room Transfer', `Transferred guest ${source.guestName} from Room ${source.roomNumber} to Room ${dest.roomNumber}`);
+
+      // Sync matching reservation in preBookings
+      const matchingPre = preBookings.find(pb => 
+        (pb.roomNumber === source.roomNumber || (pb.phone && pb.phone === source.guestPhone)) &&
+        (pb.status === 'CheckedIn' || pb.status === 'Confirmed')
+      );
+      if (matchingPre) {
+        const pbUpdates: Partial<PreBooking> = {
+          roomNumber: dest.roomNumber,
+          roomCategory: dest.category,
+          advancePaid: Number(source.advancePaid) || Number(matchingPre.advancePaid) || 0,
+          advancePaymentMethod: source.advancePaymentMethod || matchingPre.advancePaymentMethod || 'Cash',
+          advanceReceiptNumber: source.advanceReceiptNumber || matchingPre.advanceReceiptNumber || '',
+          advancePaymentDate: source.advancePaymentDate || matchingPre.advancePaymentDate || source.checkInDate || ''
+        };
+        try {
+          await api.put(`/pre-bookings/${matchingPre.id}?tenantId=${tId}`, pbUpdates);
+        } catch (e) {
+          console.error(e);
+        }
+        setPreBookings(prev => prev.map(p => p.id === matchingPre.id ? { ...p, ...pbUpdates } : p));
+      }
+
+      // Transfer any restaurant & bar orders posted to source room
+      const pendingOrders = orders.filter(o => o.roomNumber === source.roomNumber && o.status === 'PostedToRoom');
+      if (pendingOrders.length > 0) {
+        setOrders(prev => prev.map(o => (o.roomNumber === source.roomNumber && o.status === 'PostedToRoom') ? { ...o, roomNumber: dest.roomNumber } : o));
+        for (const ord of pendingOrders) {
+          try {
+            await api.put(`/orders/${ord.id}?tenantId=${tId}`, { roomNumber: dest.roomNumber });
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+
+      // Transfer any laundry orders
+      const pendingLaundry = laundryOrders.filter(l => l.roomNumber === source.roomNumber && l.status !== 'Delivered');
+      if (pendingLaundry.length > 0) {
+        setLaundryOrders(prev => prev.map(l => (l.roomNumber === source.roomNumber && l.status !== 'Delivered') ? { ...l, roomNumber: dest.roomNumber } : l));
+        for (const lnd of pendingLaundry) {
+          try {
+            await api.put(`/laundry-orders/${lnd.id}?tenantId=${tId}`, { roomNumber: dest.roomNumber });
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+
+      addAudit(
+        'Room Transfer',
+        `Transferred guest ${source.guestName} from Room ${source.roomNumber} to Room ${dest.roomNumber} (Transferred Advance: ₹${source.advancePaid || 0} via ${source.advancePaymentMethod || 'Cash'})`
+      );
     } catch (e) {
       console.error(e);
+      throw e;
     }
   };
 
@@ -1871,13 +1984,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const e = new Date(payload.checkOutDate).getTime();
     const stayNights = Math.max(1, Math.ceil((e - s) / (1000 * 60 * 60 * 24)));
 
-    // Distribute advance evenly across rooms
+    // Distribute advance evenly across rooms with exact cent/paisa handling
     const totalAdvance = Number(payload.totalAdvancePaid) || 0;
-    const advancePerRoom = payload.rooms.length > 0 ? parseFloat((totalAdvance / payload.rooms.length).toFixed(2)) : 0;
+    const roomCount = payload.rooms.length;
+    const totalCents = Math.round(totalAdvance * 100);
+    const baseCents = roomCount > 0 ? Math.floor(totalCents / roomCount) : 0;
+    const remCents = roomCount > 0 ? totalCents - (baseCents * roomCount) : 0;
+
+    const groupReceiptNo = payload.advanceReceiptNumber || (totalAdvance > 0 ? ('REC-' + Date.now().toString().slice(-6)) : undefined);
 
     const newBookings: PreBooking[] = payload.rooms.map((rm, idx) => {
       const nightlyRate = Number(rm.roomPrice) || 1500;
       const totalAmount = nightlyRate * stayNights;
+      const roomAdvance = (baseCents + (idx < remCents ? 1 : 0)) / 100;
       return {
         id: 'pb_grp_' + Date.now() + '_' + idx + '_' + Math.floor(Math.random() * 1000),
         tenantId: tId,
@@ -1901,9 +2020,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         checkInDate: payload.checkInDate,
         checkOutDate: payload.checkOutDate,
         noOfGuests: rm.noOfGuests || 1,
-        advancePaid: advancePerRoom,
+        advancePaid: roomAdvance,
         advancePaymentMethod: payload.advancePaymentMethod || 'Cash',
-        advancePaymentDate: totalAdvance > 0 ? today : undefined,
+        advanceReceiptNumber: totalAdvance > 0 ? groupReceiptNo : undefined,
+        advancePaymentDate: totalAdvance > 0 ? (payload.advancePaymentDate || today) : undefined,
         totalAmount: totalAmount,
         roomRentTotal: totalAmount,
         specialRequests: payload.specialRequests,
@@ -1983,6 +2103,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         companyName: pb.companyName,
         noOfGuests: pb.noOfGuests || 1,
         advancePaid: pb.advancePaid || 0,
+        advancePaymentMethod: pb.advancePaymentMethod || (isDirectBookingSource(pb.bookingSource) ? 'Cash' : 'UPI'),
+        advanceReceiptNumber: pb.advanceReceiptNumber || '',
+        advancePaymentDate: pb.advancePaymentDate || pb.checkInDate || finalCheckInDate,
         price: stayPrice,
         bookingSource: pb.bookingSource || 'Pre-Booking / Online OTA',
         bookingReference: pb.bookingReference || '',
@@ -2058,6 +2181,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           companyName: pb.companyName,
           noOfGuests: pb.noOfGuests || 1,
           advancePaid: pb.advancePaid || 0,
+          advancePaymentMethod: pb.advancePaymentMethod || (isDirectBookingSource(pb.bookingSource) ? 'Cash' : 'UPI'),
+          advanceReceiptNumber: pb.advanceReceiptNumber || '',
+          advancePaymentDate: pb.advancePaymentDate || pb.checkInDate || finalCheckInDate,
           price: stayPrice,
           bookingSource: pb.bookingSource || 'Group / Bulk Booking',
           bookingReference: pb.bookingReference || '',
