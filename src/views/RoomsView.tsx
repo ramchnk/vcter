@@ -26,7 +26,7 @@ import {
   WalletCards,
   BookOpen
 } from 'lucide-react';
-import { getRoomCheckoutAlert, getEffectiveCheckoutTime, isDirectBookingSource, formatTime12h, formatTime24h, RoomCheckoutAlert, getNextAdvanceReceiptNumber, formatReceiptDate } from '../utils/dateUtils';
+import { getRoomCheckoutAlert, getEffectiveCheckoutTime, isDirectBookingSource, formatTime12h, formatTime24h, RoomCheckoutAlert, getNextAdvanceReceiptNumber, formatReceiptDate, getLocalTodayString } from '../utils/dateUtils';
 import { AdvanceReceiptModal, AdvanceReceiptData } from '../components/AdvanceReceiptModal';
 import { CashWalletModal } from '../components/CashWalletModal';
 import { DayBookModal } from '../components/DayBookModal';
@@ -170,14 +170,15 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const roomAlertMap = useMemo(() => {
     const map = new Map<string, RoomCheckoutAlert>();
     (rooms || []).forEach(room => {
-      if (room.status === 'Occupied' && room.checkOutDate) {
+      if (room.status === 'Occupied') {
         const alertInfo = getRoomCheckoutAlert(
           room.checkOutDate, 
           settings?.checkOutTime, 
           60, 
           currentTime,
           room.bookingSource,
-          room.checkInTime
+          room.checkInTime,
+          room.checkInDate
         );
         map.set(room.id, alertInfo);
       }
@@ -290,7 +291,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       setAdvancePaid(0);
       setCheckInPaymentMethod('Cash');
       setBookingReference('');
-      setCheckOutDate(new Date(Date.now() + 86400000).toISOString().split('T')[0]);
+      setCheckOutDate(getLocalTodayString(1, todayStr));
       setCheckInTimeInput(formatTime12h({ hours: new Date().getHours(), minutes: new Date().getMinutes() }));
       if (selectedRoom) {
         setCheckInPrice(selectedRoom.price || 1500);
@@ -1238,7 +1239,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                             ? 'font-bold text-amber-600 dark:text-amber-400'
                             : 'font-semibold text-slate-700 dark:text-slate-300'
                         }`}>
-                          {room.checkOutDate}{' '}
+                          {checkoutAlert?.effectiveCheckoutDate || room.checkOutDate}{' '}
                           <span className="text-[9px] opacity-75 font-normal">
                             ({checkoutAlert ? checkoutAlert.formattedCheckoutTime : getEffectiveCheckoutTime(room.bookingSource, room.checkInTime, settings.checkOutTime)})
                           </span>
@@ -1814,7 +1815,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                   <input
                     type="date"
                     required
-                    min={todayStr}
+                    min={isDirectBookingSource(bookingSource) ? getLocalTodayString(1, todayStr) : todayStr}
                     value={checkOutDate}
                     onChange={e => setCheckOutDate(e.target.value)}
                     className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg text-xs font-semibold"
@@ -3424,6 +3425,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                   <label className="font-bold text-slate-600 dark:text-slate-300">Expected Check-Out</label>
                   <input
                     type="date"
+                    min={isDirectBookingSource(editBookingSource) ? getLocalTodayString(1, editCheckInDate || todayStr) : (editCheckInDate || todayStr)}
                     value={editCheckOutDate}
                     onChange={e => setEditCheckOutDate(e.target.value)}
                     className="w-full p-2 border dark:border-slate-800 dark:bg-slate-950 rounded-lg text-xs font-semibold"

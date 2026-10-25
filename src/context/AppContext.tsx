@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { api, socket } from '../api';
-import { formatTime12h, formatTime24h, isDirectBookingSource } from '../utils/dateUtils';
+import { formatTime12h, formatTime24h, isDirectBookingSource, getLocalTodayString } from '../utils/dateUtils';
 
 // ==========================================
 // TYPES DEFINITIONS
@@ -1248,6 +1248,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ? Number(guestInfo.price) 
       : (room?.price || basePrice);
     const nowTimeStr = formatTime12h({ hours: new Date().getHours(), minutes: new Date().getMinutes() });
+    const checkInD = guestInfo.checkInDate || getLocalTodayString();
+    const isDirect = isDirectBookingSource(guestInfo.bookingSource);
+    let checkOutD = guestInfo.checkOutDate;
+    if (isDirect && (!checkOutD || checkOutD <= checkInD)) {
+      checkOutD = getLocalTodayString(1, checkInD);
+    } else if (!checkOutD) {
+      checkOutD = getLocalTodayString(1, checkInD);
+    }
 
     try {
       const roomUpdate: Partial<Room> = {
@@ -1266,9 +1274,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         guestIdProof: guestInfo.idProof || '',
         gstNumber: guestInfo.gstNumber || '',
         companyName: guestInfo.companyName || '',
-        checkInDate: guestInfo.checkInDate || new Date().toISOString().split('T')[0],
+        checkInDate: checkInD,
         checkInTime: guestInfo.checkInTime || nowTimeStr,
-        checkOutDate: guestInfo.checkOutDate || new Date(Date.now() + 86400000).toISOString().split('T')[0],
+        checkOutDate: checkOutD,
         noOfGuests: guestInfo.noOfGuests,
         advancePaid: guestInfo.advancePaid,
         advanceReceiptNumber: guestInfo.advanceReceiptNumber || '',

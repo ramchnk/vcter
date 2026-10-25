@@ -3,8 +3,14 @@
  * Provides timezone-safe date normalization, presets, and range matching.
  */
 
-export const getLocalTodayString = (offsetDays: number = 0): string => {
-  const d = new Date();
+export const getLocalTodayString = (offsetDays: number = 0, baseDateStr?: string): string => {
+  let d = new Date();
+  if (baseDateStr) {
+    const [y, m, day] = baseDateStr.split('-').map(Number);
+    if (!isNaN(y) && !isNaN(m) && !isNaN(day)) {
+      d = new Date(y, m - 1, day);
+    }
+  }
   if (offsetDays !== 0) {
     d.setDate(d.getDate() + offsetDays);
   }
@@ -173,6 +179,7 @@ export interface RoomCheckoutAlert {
   status: RoomCheckoutAlertStatus;
   diffMinutes: number;
   formattedCheckoutTime: string;
+  effectiveCheckoutDate?: string;
   label: string;
   isToday: boolean;
   isPastDate: boolean;
@@ -234,11 +241,12 @@ export const getRoomCheckoutAlert = (
   alertWindowMinutes: number = 60,
   referenceNow: Date = new Date(),
   bookingSource?: string,
-  checkInTime?: string
+  checkInTime?: string,
+  checkInDate?: string
 ): RoomCheckoutAlert => {
   const isDirect = isDirectBookingSource(bookingSource);
   const defaultTime = getEffectiveCheckoutTime(bookingSource, checkInTime, checkOutTimeConfig);
-  if (!checkOutDate) {
+  if (!checkOutDate && !checkInDate) {
     return {
       status: 'none',
       diffMinutes: 9999,
@@ -250,7 +258,15 @@ export const getRoomCheckoutAlert = (
     };
   }
 
-  const normCheckOut = normalizeDateString(checkOutDate);
+  let normCheckOut = normalizeDateString(checkOutDate);
+  const normCheckIn = normalizeDateString(checkInDate);
+
+  // For 24-hour cycle (Direct / Walk-In), a stay cannot logically end on or before the check-in date.
+  // If checkOutDate was entered as same day or earlier, the 24-hour cycle requires checkout to be the next day (checkInDate + 1 day).
+  if (isDirect && normCheckIn && (!normCheckOut || normCheckOut <= normCheckIn)) {
+    normCheckOut = getLocalTodayString(1, normCheckIn);
+  }
+
   if (!normCheckOut) {
     return {
       status: 'none',
@@ -294,6 +310,7 @@ export const getRoomCheckoutAlert = (
       status: 'overdue',
       diffMinutes,
       formattedCheckoutTime: defaultTime,
+      effectiveCheckoutDate: normCheckOut,
       label,
       isToday,
       isPastDate,
@@ -312,6 +329,7 @@ export const getRoomCheckoutAlert = (
       status: 'approaching',
       diffMinutes,
       formattedCheckoutTime: defaultTime,
+      effectiveCheckoutDate: normCheckOut,
       label,
       isToday: true,
       isPastDate: false,
@@ -323,6 +341,7 @@ export const getRoomCheckoutAlert = (
     status: 'none',
     diffMinutes,
     formattedCheckoutTime: defaultTime,
+    effectiveCheckoutDate: normCheckOut,
     label: isToday ? `Checkout due today at ${defaultTime}` : `Checkout ${normCheckOut}`,
     isToday,
     isPastDate: false,
