@@ -1595,7 +1595,7 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                     {/* Terms & Conditions */}
                     <div className="text-[9px] text-slate-500 space-y-0.5">
                       <p className="font-bold text-slate-700 uppercase">Terms & Conditions:</p>
-                      <p>1. Check-out time is 11:00 AM. Late check-out is subject to room availability and extra charges.</p>
+                      <p>1. Check-out time is 24 hours. Late check-out is subject to room availability and extra charges.</p>
                       <p>2. Goods once sold or services rendered will not be refunded.</p>
                       <p>3. This invoice is computer generated and valid for all GST input tax credit purposes.</p>
                     </div>
