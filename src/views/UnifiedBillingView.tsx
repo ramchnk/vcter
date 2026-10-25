@@ -177,7 +177,7 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
   const otherCharges = summary?.otherCharges || 0;
   
   const grossFolioTotal = roomRentTotal + restaurantTotal + barTotal + laundryTotal + hallTotal + otherCharges;
-  const taxRate = summary?.taxRate || 12;
+  const taxRate = summary?.taxRate ?? (settings?.taxRate !== undefined && settings?.taxRate !== null && !isNaN(Number(settings.taxRate)) ? Number(settings.taxRate) : 5);
   const taxableSubtotal = summary?.subtotal ?? (grossFolioTotal > 0 ? parseFloat((grossFolioTotal / (1 + taxRate / 100)).toFixed(2)) : 0);
   const taxAmount = summary?.taxAmount ?? (grossFolioTotal > 0 ? parseFloat((grossFolioTotal - taxableSubtotal).toFixed(2)) : 0);
   const grandTotal = grossFolioTotal;
@@ -382,7 +382,11 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
         const roomPrice = rm?.price || 2000;
         const roomRent = (pb as any).roomRentTotal || ((pb as any).totalAmount ? (pb as any).totalAmount : (stayNights * roomPrice));
         const grandTot = (pb as any).totalAmount || roomRent;
-        const taxR = 12;
+        const taxR = (pb as any).taxRate !== undefined && (pb as any).taxRate !== null && !isNaN(Number((pb as any).taxRate))
+          ? Number((pb as any).taxRate)
+          : (settings?.taxRate !== undefined && settings?.taxRate !== null && !isNaN(Number(settings.taxRate))
+            ? Number(settings.taxRate)
+            : 5);
         const taxableSubtotal = parseFloat((grandTot / (1 + taxR / 100)).toFixed(2));
         const taxAmt = parseFloat((grandTot - taxableSubtotal).toFixed(2));
         const advPaid = pb.advancePaid || 0;
@@ -447,7 +451,9 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
           const grandTot = folioMatch ? parseFloat(folioMatch[1]) : rent;
           const disc = discMatch ? parseFloat(discMatch[1]) : 0;
           const payMode = payMatch ? payMatch[1].trim() : 'UPI';
-          const taxR = 12;
+          const taxR = settings?.taxRate !== undefined && settings?.taxRate !== null && !isNaN(Number(settings.taxRate))
+            ? Number(settings.taxRate)
+            : 5;
           const taxableSubtotal = parseFloat((grandTot / (1 + taxR / 100)).toFixed(2));
           const taxAmt = parseFloat((grandTot - taxableSubtotal).toFixed(2));
           const netPay = Math.max(0, grandTot - disc);
@@ -489,7 +495,7 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
 
     // Sort newest first
     return list.sort((a, b) => new Date(b.dateOfIssue).getTime() - new Date(a.dateOfIssue).getTime());
-  }, [tenantPreBookings, tenantAuditLogs, tenantRooms, settings.invoicePrefix]);
+  }, [tenantPreBookings, tenantAuditLogs, tenantRooms, settings.invoicePrefix, settings.taxRate]);
 
   // Apply Date Presets for History
   const applyHistoryPreset = (preset: 'all' | 'today' | 'yesterday' | '7days' | 'month' | 'custom') => {

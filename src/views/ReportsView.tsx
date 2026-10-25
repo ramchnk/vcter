@@ -264,7 +264,7 @@ export const ReportsView: React.FC = () => {
   const netOperatingIncome = totalSales - totalOutflow;
 
   // GST calculations (Inclusive Model)
-  const generalTaxRate = settings?.taxRate || 18;
+  const generalTaxRate = settings?.taxRate !== undefined && settings?.taxRate !== null && !isNaN(Number(settings.taxRate)) ? Number(settings.taxRate) : 5;
   const barTaxRate = settings?.barTaxRate || 20;
 
   const generalGrossSales = roomRev + restSales + laundrySales + hallSales;
@@ -607,7 +607,7 @@ export const ReportsView: React.FC = () => {
         ['Filter Period', startDate && endDate ? `${startDate} to ${endDate}` : 'All Time'],
         [],
         ['Tax Component', 'Taxable Revenue (INR)', 'Tax Rate (%)', 'Tax Collected (INR)'],
-        ['General / Room GST (CGST 9% + SGST 9%)', generalTaxableBase, `${generalTaxRate}%`, generalGstTax.toFixed(2)],
+        [`General / Room GST (CGST ${(generalTaxRate / 2).toFixed(1)}% + SGST ${(generalTaxRate / 2).toFixed(1)}%)`, generalTaxableBase, `${generalTaxRate}%`, generalGstTax.toFixed(2)],
         ['Bar & Liquor VAT', barSales, `${barTaxRate}%`, barVatTax.toFixed(2)],
         [],
         ['TOTAL TAX LIABILITY', generalTaxableBase + barSales, '', totalTax.toFixed(2)]
