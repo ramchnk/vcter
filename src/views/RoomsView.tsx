@@ -110,6 +110,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [advanceNotesInput, setAdvanceNotesInput] = useState<string>('');
   const [isSubmittingAdvance, setIsSubmittingAdvance] = useState(false);
   const [applyAdvanceToGroup, setApplyAdvanceToGroup] = useState(false);
+  const [groupSplitMode, setGroupSplitMode] = useState<'tariff' | 'equal'>('tariff');
   const [advanceEntryMode, setAdvanceEntryMode] = useState<'add' | 'set'>('add');
 
   // Forms state
@@ -429,6 +430,47 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     return rooms.filter(r => r.groupBookingId === selectedRoom.groupBookingId && r.status === 'Occupied');
   }, [selectedRoom, rooms]);
 
+  // Calculate group advance split allocations (Tariff Proportional vs Equal)
+  const groupAllocationMap = useMemo(() => {
+    if (!applyAdvanceToGroup || selectedRoomGroupMembers.length <= 1) return new Map<string, number>();
+    const payAmount = Number(advanceAmountInput) || 0;
+    const map = new Map<string, number>();
+    if (payAmount <= 0) {
+      selectedRoomGroupMembers.forEach(rm => map.set(rm.id, 0));
+      return map;
+    }
+
+    if (groupSplitMode === 'tariff') {
+      const totalTariff = selectedRoomGroupMembers.reduce((sum, rm) => sum + (rm.price || rm.basePrice || 1500), 0);
+      if (totalTariff > 0) {
+        let allocatedTotal = 0;
+        selectedRoomGroupMembers.forEach((rm, idx) => {
+          if (idx === selectedRoomGroupMembers.length - 1) {
+            const lastShare = parseFloat((payAmount - allocatedTotal).toFixed(2));
+            map.set(rm.id, Math.max(0, lastShare));
+          } else {
+            const rmTariff = rm.price || rm.basePrice || 1500;
+            const share = parseFloat(((payAmount * rmTariff) / totalTariff).toFixed(2));
+            allocatedTotal += share;
+            map.set(rm.id, share);
+          }
+        });
+        return map;
+      }
+    }
+
+    // Default: equal split
+    const count = selectedRoomGroupMembers.length;
+    const totalCents = Math.round(payAmount * 100);
+    const baseCents = Math.floor(totalCents / count);
+    const remCents = totalCents - (baseCents * count);
+    selectedRoomGroupMembers.forEach((rm, idx) => {
+      const splitAmt = (baseCents + (idx < remCents ? 1 : 0)) / 100;
+      map.set(rm.id, splitAmt);
+    });
+    return map;
+  }, [applyAdvanceToGroup, selectedRoomGroupMembers, advanceAmountInput, groupSplitMode]);
+
   const handleOpenCollectAdvance = (room: Room) => {
     setSelectedRoom(room);
     setAdvanceAmountInput(1000);
@@ -437,7 +479,8 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     setAdvanceReceiptNoInput(nextNo);
     setAdvanceReceivedByInput('Manager (Front Desk Manager)');
     setAdvanceNotesInput('');
-    setApplyAdvanceToGroup(Boolean(room.groupBookingId));
+    setApplyAdvanceToGroup(false); // Default to current room so single payments/incidentals are not accidentally split
+    setGroupSplitMode('tariff');
     setAdvanceEntryMode('add');
     setShowCollectAdvanceModal(true);
   };
@@ -451,14 +494,9 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       const payAmount = Number(advanceAmountInput);
 
       if (applyAdvanceToGroup && selectedRoomGroupMembers.length > 1) {
-        const count = selectedRoomGroupMembers.length;
-        const totalCents = Math.round(payAmount * 100);
-        const baseCents = Math.floor(totalCents / count);
-        const remCents = totalCents - (baseCents * count);
-
-        for (let idx = 0; idx < count; idx++) {
+        for (let idx = 0; idx < selectedRoomGroupMembers.length; idx++) {
           const rm = selectedRoomGroupMembers[idx];
-          const splitAmt = (baseCents + (idx < remCents ? 1 : 0)) / 100;
+          const splitAmt = groupAllocationMap.get(rm.id) ?? (payAmount / selectedRoomGroupMembers.length);
           if (advanceEntryMode === 'set') {
             await updateRoom(rm.id, {
               advancePaid: splitAmt,
@@ -469,7 +507,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
             });
             addAudit(
               'Advance Payment',
-              `Set group total advance to ₹${payAmount} (₹${splitAmt} for Room ${rm.roomNumber}) [Receipt #${receiptNo}]`
+              `Set group total advance to ₹${payAmount} (₹${splitAmt} for Room ${rm.roomNumber} via ${groupSplitMode === 'tariff' ? 'Tariff Split' : 'Equal Split'}) [Receipt #${receiptNo}]`
             );
           } else {
             await recordRoomAdvance(rm.id, {
@@ -478,7 +516,9 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
               paymentDate: todayStr,
               paymentMethod: advancePaymentMethod,
               receivedBy: advanceReceivedByInput,
-              notes: advanceNotesInput ? `${advanceNotesInput} (Group ${selectedRoom.groupBookingId})` : `Group ${selectedRoom.groupBookingId} Equal Split`
+              notes: advanceNotesInput 
+                ? `${advanceNotesInput} (Group ${selectedRoom.groupBookingId})` 
+                : `Group ${selectedRoom.groupBookingId} ${groupSplitMode === 'tariff' ? 'Tariff Proportional' : 'Equal'} Split`
             });
           }
         }
@@ -613,6 +653,18 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     setExtraServicePaymentMode('Cash');
     setExtraServiceReceiptNo(getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber)));
     setExtendModalTab('service');
+    setShowExtendModal(true);
+  };
+
+  const handleOpenExtendStay = (room: Room) => {
+    setSelectedRoom(room);
+    setExtendDays(1);
+    setExtraServiceName('');
+    setExtraServiceAmount('');
+    setExtraServicePaymentOption('checkout');
+    setExtraServicePaymentMode('Cash');
+    setExtraServiceReceiptNo(getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber)));
+    setExtendModalTab('extend');
     setShowExtendModal(true);
   };
 
@@ -1355,6 +1407,14 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                       className="flex-1 py-1.5 text-center text-[10px] font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg flex items-center justify-center gap-1 shadow-sm"
                     >
                       <Receipt className="w-3 h-3" /> Unified Checkout
+                    </button>
+                    <button
+                      onClick={() => handleOpenExtendStay(room)}
+                      className="px-2 py-1.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 rounded-lg text-[10px] font-bold border border-amber-200/60 dark:border-amber-800/60 flex items-center gap-1 transition-colors shadow-xs"
+                      title="Extend Guest Stay (Add +1 or more days)"
+                    >
+                      <Clock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                      <span>+ Extend</span>
                     </button>
                     <button
                       onClick={() => handleOpenCharge(room)}
@@ -2902,9 +2962,9 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                 </div>
               </div>
 
-              {/* Group Advance Equal Split Option */}
+              {/* Group Advance Smart Split Option */}
               {selectedRoomGroupMembers.length > 1 && (
-                <div className="p-3 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/40 dark:to-indigo-950/30 rounded-xl border border-purple-200 dark:border-purple-800 space-y-2">
+                <div className="p-3 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/40 dark:to-indigo-950/30 rounded-xl border border-purple-200 dark:border-purple-800 space-y-2.5">
                   <label className="flex items-start gap-2.5 cursor-pointer">
                     <input
                       type="checkbox"
@@ -2914,22 +2974,62 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                     />
                     <div>
                       <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
-                        👥 Split Advance equally across all {selectedRoomGroupMembers.length} rooms in Group {selectedRoom.groupBookingId}
+                        👥 Apply advance across all {selectedRoomGroupMembers.length} rooms in Group {selectedRoom.groupBookingId}
                       </span>
                       <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-0.5">
-                        Group Rooms: {selectedRoomGroupMembers.map(r => `Room ${r.roomNumber}`).join(', ')}
+                        {applyAdvanceToGroup 
+                          ? `Splitting ₹${Number(advanceAmountInput || 0).toLocaleString()} across group rooms` 
+                          : `Unchecked: Applies ₹${Number(advanceAmountInput || 0).toLocaleString()} ONLY to Room ${selectedRoom.roomNumber}`}
                       </span>
                     </div>
                   </label>
 
                   {applyAdvanceToGroup && Number(advanceAmountInput) > 0 && (
-                    <div className="pt-2 border-t border-purple-200/60 dark:border-purple-800/60 flex items-center justify-between text-xs font-semibold text-purple-700 dark:text-purple-300">
-                      <span>
-                        Total ₹{Number(advanceAmountInput).toLocaleString()} ÷ {selectedRoomGroupMembers.length} Rooms
-                      </span>
-                      <span className="font-mono font-bold bg-white dark:bg-slate-900 px-2 py-0.5 rounded-lg border border-purple-300 dark:border-purple-700 text-emerald-600 dark:text-emerald-400">
-                        = ₹{(Number(advanceAmountInput) / selectedRoomGroupMembers.length).toFixed(2)} / room
-                      </span>
+                    <div className="pt-2 border-t border-purple-200/60 dark:border-purple-800/60 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-[11px] font-bold text-purple-900 dark:text-purple-200">Split Method:</span>
+                        <div className="flex gap-1 bg-white/80 dark:bg-slate-900/80 p-0.5 rounded-lg border border-purple-200 dark:border-purple-800 text-[10px]">
+                          <button
+                            type="button"
+                            onClick={() => setGroupSplitMode('tariff')}
+                            className={`px-2 py-0.5 rounded-md font-bold transition-all ${
+                              groupSplitMode === 'tariff'
+                                ? 'bg-purple-600 text-white shadow-xs'
+                                : 'text-slate-600 dark:text-slate-400 hover:text-purple-600'
+                            }`}
+                          >
+                            Tariff Proportional
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setGroupSplitMode('equal')}
+                            className={`px-2 py-0.5 rounded-md font-bold transition-all ${
+                              groupSplitMode === 'equal'
+                                ? 'bg-purple-600 text-white shadow-xs'
+                                : 'text-slate-600 dark:text-slate-400 hover:text-purple-600'
+                            }`}
+                          >
+                            Equal Split
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Room-by-room breakdown table */}
+                      <div className="space-y-1 bg-white/70 dark:bg-slate-900/60 p-2 rounded-lg border border-purple-100 dark:border-purple-900/40 text-[11px]">
+                        {selectedRoomGroupMembers.map(rm => {
+                          const allocated = groupAllocationMap.get(rm.id) || 0;
+                          return (
+                            <div key={rm.id} className="flex justify-between items-center text-slate-700 dark:text-slate-300">
+                              <span>
+                                Room <strong>{rm.roomNumber}</strong> ({rm.category} @ ₹{rm.price}/night):
+                              </span>
+                              <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                +₹{allocated.toLocaleString()}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2939,13 +3039,13 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
               {Number(advanceAmountInput) > 0 && (
                 <div className="p-2.5 bg-emerald-50/70 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800/60 text-xs flex items-center justify-between">
                   <span className="text-slate-600 dark:text-slate-300 font-medium">
-                    {advanceEntryMode === 'add' ? 'Resulting Total on Folio:' : 'Updated Total on Folio:'}
+                    {advanceEntryMode === 'add' ? 'Resulting Total on Room ' + selectedRoom.roomNumber + ' Folio:' : 'Updated Total on Room ' + selectedRoom.roomNumber + ' Folio:'}
                   </span>
                   <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400 text-sm">
                     {applyAdvanceToGroup && selectedRoomGroupMembers.length > 1
                       ? advanceEntryMode === 'add'
-                        ? `₹${((selectedRoom.advancePaid || 0) + (Number(advanceAmountInput) / selectedRoomGroupMembers.length)).toLocaleString()} per room`
-                        : `₹${(Number(advanceAmountInput) / selectedRoomGroupMembers.length).toFixed(2)} per room`
+                        ? `₹${((selectedRoom.advancePaid || 0) + (groupAllocationMap.get(selectedRoom.id) || 0)).toLocaleString()}`
+                        : `₹${(groupAllocationMap.get(selectedRoom.id) || 0).toLocaleString()}`
                       : advanceEntryMode === 'add'
                         ? `₹${((selectedRoom.advancePaid || 0) + Number(advanceAmountInput)).toLocaleString()}`
                         : `₹${Number(advanceAmountInput).toLocaleString()}`

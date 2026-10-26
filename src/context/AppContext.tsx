@@ -1586,7 +1586,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await api.put(`/rooms/${roomId}?tenantId=${tId}`, { checkOutDate: newCheckOut });
       setRooms(prev => prev.map(r => r.id === roomId ? { ...r, checkOutDate: newCheckOut } : r));
-      addAudit('Stay Extended', `Extended stay for Room ${room.roomNumber} by ${days} days`);
+      
+      // Sync active matching prebooking if exists
+      const matchingPre = preBookings.find(pb => 
+        (pb.roomNumber === room.roomNumber || (pb.phone && pb.phone === room.guestPhone)) &&
+        (pb.status === 'CheckedIn' || pb.status === 'Confirmed')
+      );
+      if (matchingPre) {
+        await api.put(`/pre-bookings/${matchingPre.id}?tenantId=${tId}`, { checkOutDate: newCheckOut });
+        setPreBookings(prev => prev.map(p => p.id === matchingPre.id ? { ...p, checkOutDate: newCheckOut } : p));
+      }
+
+      addAudit('Stay Extended', `Extended stay for Room ${room.roomNumber} (${room.guestName || 'Guest'}) by ${days} day(s) until ${newCheckOut}`);
     } catch (e) {
       console.error(e);
     }

@@ -75,6 +75,7 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
     auditLogs, 
     getBillSummary, 
     checkOutRoom, 
+    extendStay,
     settings, 
     addAudit, 
     orders, 
@@ -192,6 +193,10 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
   const handleCheckoutSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!matchedRoom || !summary) return;
+
+    if (!window.confirm(`⚠️ Confirm Check-Out for Room ${matchedRoom.roomNumber} (${summary.guestName || matchedRoom.guestName || 'Guest'})?\n\nThis will permanently settle folio & RELEASE Room ${matchedRoom.roomNumber} to Housekeeping.\n\n(If the guest is extending their stay, click Cancel and use the '+1 Day Extend' option instead)`)) {
+      return;
+    }
 
     let splitDetails = '';
     if (paymentMethod === 'Split') {
@@ -379,8 +384,8 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
         }
 
         const rm = tenantRooms.find(r => r.roomNumber === roomNo || r.category === pb.roomCategory);
-        const roomPrice = rm?.price || 2000;
-        const roomRent = (pb as any).roomRentTotal || ((pb as any).totalAmount ? (pb as any).totalAmount : (stayNights * roomPrice));
+        const roomRent = (pb as any).roomRentTotal || ((pb as any).totalAmount ? (pb as any).totalAmount : (stayNights * (rm?.price || 2000)));
+        const nightlyRate = stayNights > 0 ? parseFloat((roomRent / stayNights).toFixed(2)) : ((pb as any).roomPrice || (rm?.price || 2000));
         const grandTot = (pb as any).totalAmount || roomRent;
         const taxR = (pb as any).taxRate !== undefined && (pb as any).taxRate !== null && !isNaN(Number((pb as any).taxRate))
           ? Number((pb as any).taxRate)
@@ -409,7 +414,7 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
           checkInDate: checkIn,
           checkOutDate: checkOut,
           stayDuration: stayNights,
-          roomPrice: roomPrice,
+          roomPrice: nightlyRate,
           roomRentTotal: roomRent,
           restaurantTotal: 0,
           barTotal: 0,
@@ -472,7 +477,7 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
             checkInDate: dateStr,
             checkOutDate: dateStr,
             stayDuration: 1,
-            roomPrice: rm?.price || rent,
+            roomPrice: rent,
             roomRentTotal: rent,
             restaurantTotal: 0,
             barTotal: 0,
@@ -981,6 +986,31 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                   </div>
                 )}
 
+                {/* Stay Extension Quick Option */}
+                <div className="p-3 bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 rounded-xl flex items-center justify-between gap-2 text-xs">
+                  <div>
+                    <span className="font-bold text-amber-900 dark:text-amber-200 block text-xs flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                      Guest Continuing Stay?
+                    </span>
+                    <span className="text-[10px] text-amber-700 dark:text-amber-400 block mt-0.5">
+                      Extend checkout date without releasing room.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!matchedRoom) return;
+                      await extendStay(matchedRoom.id, 1);
+                      setSuccessAction(`Extended stay for Room ${matchedRoom.roomNumber} by +1 day!`);
+                      setTimeout(() => setSuccessAction(''), 5000);
+                    }}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold rounded-lg text-xs flex items-center gap-1 shadow-sm transition-all whitespace-nowrap"
+                  >
+                    <span>+1 Day Extend</span>
+                  </button>
+                </div>
+
                 <button
                   type="submit"
                   className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white font-extrabold rounded-xl shadow-lg flex items-center justify-center gap-1.5 transition-all text-xs"
@@ -1467,7 +1497,13 @@ export const UnifiedBillingView: React.FC<UnifiedBillingViewProps> = ({ selected
                           <p className="text-[10px] text-slate-500">Room {activePrintInvoice.roomNumber} ({activePrintInvoice.roomCategory}) • {activePrintInvoice.stayDuration} Night Stay</p>
                         </td>
                         <td className="p-2 text-center font-mono border-r border-slate-200">{activePrintInvoice.stayDuration}</td>
-                        <td className="p-2 text-right font-mono border-r border-slate-200">₹{(activePrintInvoice.roomPrice || 0).toLocaleString()}</td>
+                        <td className="p-2 text-right font-mono border-r border-slate-200">
+                          ₹{(
+                            activePrintInvoice.stayDuration > 0 && activePrintInvoice.roomRentTotal > 0
+                              ? Math.round(activePrintInvoice.roomRentTotal / activePrintInvoice.stayDuration)
+                              : (activePrintInvoice.roomPrice || 0)
+                          ).toLocaleString()}
+                        </td>
                         <td className="p-2 text-right font-mono font-bold text-slate-900">₹{activePrintInvoice.roomRentTotal.toLocaleString()}</td>
                       </tr>
 
