@@ -36,6 +36,12 @@ export const PreBookingView: React.FC = () => {
   const [receiptModalData, setReceiptModalData] = useState<AdvanceReceiptData | null>(null);
   const [showAdvanceReceiptModal, setShowAdvanceReceiptModal] = useState(false);
 
+  // All known advance receipt numbers across active rooms and booking history
+  const allKnownReceiptNumbers = useMemo(() => [
+    ...(rooms || []).map(r => r.advanceReceiptNumber),
+    ...(preBookings || []).map(p => p.advanceReceiptNumber)
+  ], [rooms, preBookings]);
+
   // Tab: 'bookings' (List + Form) vs 'matrix' (Visual 14-Day Availability Timeline)
   const [activeTab, setActiveTab] = useState<'bookings' | 'matrix'>('bookings');
 
@@ -337,8 +343,7 @@ export const PreBookingView: React.FC = () => {
     const nightlyRate = Number(roomPrice) || 1500;
     const estTotalFolio = stayNights * nightlyRate;
     const paidAdv = Number(advancePaid) || 0;
-    const existingNumbers = preBookings.map(p => p.advanceReceiptNumber);
-    const receiptNo = paidAdv > 0 ? getNextAdvanceReceiptNumber(existingNumbers) : '';
+    const receiptNo = paidAdv > 0 ? getNextAdvanceReceiptNumber(allKnownReceiptNumbers) : '';
 
     await addPreBooking({
       guestName,
@@ -613,8 +618,7 @@ export const PreBookingView: React.FC = () => {
     }
 
     const paidBulkAdv = Number(bulkAdvancePaid) || 0;
-    const existingNumbers = preBookings.map(p => p.advanceReceiptNumber);
-    const groupReceiptNo = paidBulkAdv > 0 ? getNextAdvanceReceiptNumber(existingNumbers) : undefined;
+    const groupReceiptNo = paidBulkAdv > 0 ? getNextAdvanceReceiptNumber(allKnownReceiptNumbers) : undefined;
 
     const res = await addBulkPreBooking({
       guestName,
@@ -682,7 +686,7 @@ export const PreBookingView: React.FC = () => {
   };
 
   const handlePrintPreBookingReceipt = (booking: PreBooking) => {
-    const receiptNo = booking.advanceReceiptNumber || getNextAdvanceReceiptNumber(preBookings.map(p => p.advanceReceiptNumber));
+    const receiptNo = booking.advanceReceiptNumber || getNextAdvanceReceiptNumber(allKnownReceiptNumbers);
     setReceiptModalData({
       receiptNumber: receiptNo,
       guestName: booking.guestName,

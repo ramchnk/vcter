@@ -167,6 +167,12 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const [quickPaymentDate, setQuickPaymentDate] = useState<string>('');
   const [isSubmittingPaymentMode, setIsSubmittingPaymentMode] = useState(false);
 
+  // All known advance receipt numbers across active rooms and booking history
+  const allKnownReceiptNumbers = useMemo(() => [
+    ...(rooms || []).map(r => r.advanceReceiptNumber),
+    ...(preBookings || []).map(p => p.advanceReceiptNumber)
+  ], [rooms, preBookings]);
+
   // Pre-calculate real-time checkout alerts for all occupied rooms
   const roomAlertMap = useMemo(() => {
     const map = new Map<string, RoomCheckoutAlert>();
@@ -345,10 +351,12 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     }
 
     const paidAdv = Number(advancePaid) || 0;
-    const existingAdvNo = selectedRoom.advanceReceiptNumber;
+    // Only inherit receipt number if checking in from a pre-booking that already had a receipt
+    const matchingPreForAdv = selectedPreBookingId ? preBookings.find(pb => pb.id === selectedPreBookingId) : undefined;
+    const existingAdvNo = matchingPreForAdv?.advanceReceiptNumber;
     let receiptNo = existingAdvNo || '';
     if (paidAdv > 0 && !receiptNo) {
-      receiptNo = getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber));
+      receiptNo = getNextAdvanceReceiptNumber(allKnownReceiptNumbers);
     }
 
     const finalCheckInTime = checkInTimeInput.trim() || formatTime12h({ hours: new Date().getHours(), minutes: new Date().getMinutes() });
@@ -475,7 +483,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     setSelectedRoom(room);
     setAdvanceAmountInput(1000);
     setAdvancePaymentMethod('Cash');
-    const nextNo = getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber));
+    const nextNo = getNextAdvanceReceiptNumber(allKnownReceiptNumbers);
     setAdvanceReceiptNoInput(nextNo);
     setAdvanceReceivedByInput('Manager (Front Desk Manager)');
     setAdvanceNotesInput('');
@@ -490,7 +498,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     if (!selectedRoom || Number(advanceAmountInput) <= 0) return;
     setIsSubmittingAdvance(true);
     try {
-      const receiptNo = advanceReceiptNoInput.trim() || getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber));
+      const receiptNo = advanceReceiptNoInput.trim() || getNextAdvanceReceiptNumber(allKnownReceiptNumbers);
       const payAmount = Number(advanceAmountInput);
 
       if (applyAdvanceToGroup && selectedRoomGroupMembers.length > 1) {
@@ -598,7 +606,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   };
 
   const handlePrintRoomAdvanceReceipt = (room: Room) => {
-    const receiptNo = room.advanceReceiptNumber || getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber));
+    const receiptNo = room.advanceReceiptNumber || getNextAdvanceReceiptNumber(allKnownReceiptNumbers);
     setReceiptModalData({
       receiptNumber: receiptNo,
       guestName: room.guestName || 'Guest',
@@ -651,7 +659,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     setExtraServiceAmount('');
     setExtraServicePaymentOption('checkout');
     setExtraServicePaymentMode('Cash');
-    setExtraServiceReceiptNo(getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber)));
+    setExtraServiceReceiptNo(getNextAdvanceReceiptNumber(allKnownReceiptNumbers));
     setExtendModalTab('service');
     setShowExtendModal(true);
   };
@@ -663,7 +671,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     setExtraServiceAmount('');
     setExtraServicePaymentOption('checkout');
     setExtraServicePaymentMode('Cash');
-    setExtraServiceReceiptNo(getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber)));
+    setExtraServiceReceiptNo(getNextAdvanceReceiptNumber(allKnownReceiptNumbers));
     setExtendModalTab('extend');
     setShowExtendModal(true);
   };
@@ -675,7 +683,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
     try {
       let auditMsgs: string[] = [];
       const isCollectNow = extraServicePaymentOption === 'collect_now';
-      const receiptNo = extraServiceReceiptNo.trim() || getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber));
+      const receiptNo = extraServiceReceiptNo.trim() || getNextAdvanceReceiptNumber(allKnownReceiptNumbers);
       const amountNum = Number(extraServiceAmount);
 
       if (extendModalTab === 'service') {
@@ -847,7 +855,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       const numAdv = Number(editAdvancePaid) || 0;
       let recNo = editAdvanceReceiptNumber.trim();
       if (numAdv > 0 && !recNo) {
-        recNo = editCheckInRoom.advanceReceiptNumber || getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber));
+        recNo = editCheckInRoom.advanceReceiptNumber || getNextAdvanceReceiptNumber(allKnownReceiptNumbers);
       }
 
       const updates: Partial<Room> = {
@@ -900,7 +908,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       const numAdv = Number(quickAdvancePaid) || 0;
       let recNo = quickReceiptNumber.trim() || paymentModeEditRoom.advanceReceiptNumber || '';
       if (numAdv > 0 && !recNo) {
-        recNo = getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber));
+        recNo = getNextAdvanceReceiptNumber(allKnownReceiptNumbers);
       }
       const updates: Partial<Room> = {
         advancePaymentMethod: quickPaymentMethod,
@@ -2239,7 +2247,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                         onClick={() => {
                           setExtraServicePaymentOption('collect_now');
                           if (!extraServiceReceiptNo) {
-                            setExtraServiceReceiptNo(getNextAdvanceReceiptNumber(rooms.map(r => r.advanceReceiptNumber)));
+                            setExtraServiceReceiptNo(getNextAdvanceReceiptNumber(allKnownReceiptNumbers));
                           }
                         }}
                         className={`p-2 rounded-xl border text-left flex items-center gap-2 transition-all ${

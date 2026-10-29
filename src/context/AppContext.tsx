@@ -1333,6 +1333,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         checkOutDate: '',
         noOfGuests: 0,
         advancePaid: 0,
+        advanceReceiptNumber: '',
+        advancePaymentDate: '',
+        advancePaymentMethod: 'Cash',
+        advanceReceivedBy: '',
         restaurantCharges: 0,
         barCharges: 0,
         laundryCharges: 0,
@@ -1347,7 +1351,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // Auto update or create matching reservation in preBookings to CheckedOut
       const matchingPre = preBookings.find(pb => 
-        (pb.roomNumber === room.roomNumber || (pb.phone && pb.phone === room.guestPhone)) &&
+        pb.roomNumber === room.roomNumber &&
+        (pb.status === 'CheckedIn' || pb.status === 'Confirmed')
+      ) || preBookings.find(pb => 
+        !pb.roomNumber && Boolean(pb.phone && pb.phone === room.guestPhone) &&
         (pb.status === 'CheckedIn' || pb.status === 'Confirmed')
       );
       const currentTimeStr = formatTime24h(new Date().toTimeString().slice(0, 5));
@@ -1589,7 +1596,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       
       // Sync active matching prebooking if exists
       const matchingPre = preBookings.find(pb => 
-        (pb.roomNumber === room.roomNumber || (pb.phone && pb.phone === room.guestPhone)) &&
+        pb.roomNumber === room.roomNumber &&
+        (pb.status === 'CheckedIn' || pb.status === 'Confirmed')
+      ) || preBookings.find(pb => 
+        !pb.roomNumber && Boolean(pb.phone && pb.phone === room.guestPhone) &&
         (pb.status === 'CheckedIn' || pb.status === 'Confirmed')
       );
       if (matchingPre) {
