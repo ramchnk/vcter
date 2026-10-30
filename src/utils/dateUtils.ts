@@ -378,20 +378,29 @@ export const formatReceiptDate = (val?: string | Date | null): string => {
 
 /**
  * Returns the next sequential advance receipt number (e.g. 1243, 1244...).
+ * Strictly guarantees a continuous unbroken sequence based on the highest existing receipt in the database.
  */
 export const getNextAdvanceReceiptNumber = (existingNumbers: (string | undefined | null)[] = []): string => {
-  const stored = localStorage.getItem('hv_advance_receipt_counter');
-  let currentNum = stored ? parseInt(stored, 10) : 1243;
-  if (isNaN(currentNum) || currentNum < 1) currentNum = 1243;
-
+  let maxExisting = 0;
   for (const numStr of existingNumbers) {
     if (!numStr) continue;
-    const n = parseInt(numStr.replace(/\D/g, ''), 10);
-    if (!isNaN(n) && n >= currentNum) {
-      currentNum = n + 1;
+    const n = parseInt(String(numStr).replace(/\D/g, ''), 10);
+    if (!isNaN(n) && n > maxExisting) {
+      maxExisting = n;
     }
   }
 
-  localStorage.setItem('hv_advance_receipt_counter', String(currentNum + 1));
-  return String(currentNum);
+  // Next receipt number is strictly the next sequential integer after the highest existing receipt
+  let nextNum = maxExisting > 0 ? maxExisting + 1 : 1243;
+
+  if (maxExisting === 0) {
+    const stored = localStorage.getItem('hv_advance_receipt_counter');
+    const storedNum = stored ? parseInt(stored, 10) : 1243;
+    if (!isNaN(storedNum) && storedNum >= 1243) {
+      nextNum = storedNum;
+    }
+  }
+
+  localStorage.setItem('hv_advance_receipt_counter', String(nextNum + 1));
+  return String(nextNum);
 };

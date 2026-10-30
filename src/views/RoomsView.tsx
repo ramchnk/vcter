@@ -70,6 +70,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   
   // Modals state
   const [showCheckInModal, setShowCheckInModal] = useState(false);
+  const [isSubmittingCheckIn, setIsSubmittingCheckIn] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showExtendModal, setShowExtendModal] = useState(false);
   const [showBillModal, setShowBillModal] = useState(false);
@@ -339,6 +340,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
   const handleCheckInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRoom || !guestName || !guestPhone) return;
+    if (isSubmittingCheckIn) return;
 
     if (isOnlineBookingSource(bookingSource) && !bookingReference.trim()) {
       alert(`Please enter the Online Booking Reference Number (e.g. OTA Confirmation / Voucher ID for ${bookingSource}).`);
@@ -350,86 +352,94 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
       return;
     }
 
-    const paidAdv = Number(advancePaid) || 0;
-    // Only inherit receipt number if checking in from a pre-booking that already had a receipt
-    const matchingPreForAdv = selectedPreBookingId ? preBookings.find(pb => pb.id === selectedPreBookingId) : undefined;
-    const existingAdvNo = matchingPreForAdv?.advanceReceiptNumber;
-    let receiptNo = existingAdvNo || '';
-    if (paidAdv > 0 && !receiptNo) {
-      receiptNo = getNextAdvanceReceiptNumber(allKnownReceiptNumbers);
-    }
+    setIsSubmittingCheckIn(true);
+    try {
+      const paidAdv = Number(advancePaid) || 0;
+      // Only inherit receipt number if checking in from a pre-booking that already had a receipt
+      const matchingPreForAdv = selectedPreBookingId ? preBookings.find(pb => pb.id === selectedPreBookingId) : undefined;
+      const existingAdvNo = matchingPreForAdv?.advanceReceiptNumber;
+      let receiptNo = existingAdvNo || '';
+      if (paidAdv > 0 && !receiptNo) {
+        receiptNo = getNextAdvanceReceiptNumber(allKnownReceiptNumbers);
+      }
 
-    const finalCheckInTime = checkInTimeInput.trim() || formatTime12h({ hours: new Date().getHours(), minutes: new Date().getMinutes() });
+      const finalCheckInTime = checkInTimeInput.trim() || formatTime12h({ hours: new Date().getHours(), minutes: new Date().getMinutes() });
 
-    if (selectedPreBookingId) {
-      await checkInRoom(selectedRoom.id, {
-        name: guestName,
-        phone: guestPhone,
-        email: guestEmail,
-        address: guestAddress,
-        idProof: guestIdProof,
-        gstNumber: guestGst.trim().toUpperCase(),
-        companyName: companyName.trim(),
-        noOfGuests: noOfGuests,
-        advancePaid: paidAdv,
-        advanceReceiptNumber: receiptNo,
-        advancePaymentDate: todayStr,
-        advancePaymentMethod: checkInPaymentMethod,
-        price: Number(checkInPrice),
-        bookingSource: bookingSource,
-        bookingReference: bookingReference.trim() || undefined,
-        isAcSwitchedOff: isAcSwitchedOff,
-        checkInDate: todayStr,
-        checkInTime: finalCheckInTime,
-        checkOutDate: checkOutDate || undefined
-      });
-      await updatePreBookingStatus(selectedPreBookingId, 'CheckedIn');
-    } else {
-      await checkInRoom(selectedRoom.id, {
-        name: guestName,
-        phone: guestPhone,
-        email: guestEmail,
-        address: guestAddress,
-        idProof: guestIdProof,
-        gstNumber: guestGst.trim().toUpperCase(),
-        companyName: companyName.trim(),
-        noOfGuests: noOfGuests,
-        advancePaid: paidAdv,
-        advanceReceiptNumber: receiptNo,
-        advancePaymentDate: todayStr,
-        advancePaymentMethod: checkInPaymentMethod,
-        price: Number(checkInPrice),
-        bookingSource: bookingSource,
-        bookingReference: bookingReference.trim() || undefined,
-        isAcSwitchedOff: isAcSwitchedOff,
-        checkInDate: todayStr,
-        checkInTime: finalCheckInTime,
-        checkOutDate: checkOutDate || undefined
-      });
-    }
-    
-    setShowCheckInModal(false);
-    setCompanyName('');
+      if (selectedPreBookingId) {
+        await checkInRoom(selectedRoom.id, {
+          name: guestName,
+          phone: guestPhone,
+          email: guestEmail,
+          address: guestAddress,
+          idProof: guestIdProof,
+          gstNumber: guestGst.trim().toUpperCase(),
+          companyName: companyName.trim(),
+          noOfGuests: noOfGuests,
+          advancePaid: paidAdv,
+          advanceReceiptNumber: receiptNo,
+          advancePaymentDate: todayStr,
+          advancePaymentMethod: checkInPaymentMethod,
+          price: Number(checkInPrice),
+          bookingSource: bookingSource,
+          bookingReference: bookingReference.trim() || undefined,
+          isAcSwitchedOff: isAcSwitchedOff,
+          checkInDate: todayStr,
+          checkInTime: finalCheckInTime,
+          checkOutDate: checkOutDate || undefined
+        });
+        await updatePreBookingStatus(selectedPreBookingId, 'CheckedIn');
+      } else {
+        await checkInRoom(selectedRoom.id, {
+          name: guestName,
+          phone: guestPhone,
+          email: guestEmail,
+          address: guestAddress,
+          idProof: guestIdProof,
+          gstNumber: guestGst.trim().toUpperCase(),
+          companyName: companyName.trim(),
+          noOfGuests: noOfGuests,
+          advancePaid: paidAdv,
+          advanceReceiptNumber: receiptNo,
+          advancePaymentDate: todayStr,
+          advancePaymentMethod: checkInPaymentMethod,
+          price: Number(checkInPrice),
+          bookingSource: bookingSource,
+          bookingReference: bookingReference.trim() || undefined,
+          isAcSwitchedOff: isAcSwitchedOff,
+          checkInDate: todayStr,
+          checkInTime: finalCheckInTime,
+          checkOutDate: checkOutDate || undefined
+        });
+      }
+      
+      setShowCheckInModal(false);
+      setCompanyName('');
 
-    // If advance was paid at check-in, automatically display the advance receipt
-    if (paidAdv > 0) {
-      setReceiptModalData({
-        receiptNumber: receiptNo || '1243',
-        guestName: guestName.trim(),
-        roomNumber: selectedRoom.roomNumber,
-        roomCategory: selectedRoom.category,
-        amount: paidAdv,
-        date: todayStr,
-        paymentMethod: checkInPaymentMethod,
-        receivedBy: 'Manager (Front Desk Manager)',
-        hotelName: settings.name || 'HOTEL SUBRA GRAND',
-        tagline: settings.tagline || 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
-        address: settings.address || '57, New street, near church corner , Karur - 01',
-        email: settings.email || 'jagodahospitality@gmail.com',
-        phone: settings.phone || '9991118512',
-        gstNumber: settings.gstNumber || '33AAHCJ3990L1Z5'
-      });
-      setShowAdvanceReceiptModal(true);
+      // If advance was paid at check-in, automatically display the advance receipt
+      if (paidAdv > 0) {
+        setReceiptModalData({
+          receiptNumber: receiptNo || '1243',
+          guestName: guestName.trim(),
+          roomNumber: selectedRoom.roomNumber,
+          roomCategory: selectedRoom.category,
+          amount: paidAdv,
+          date: todayStr,
+          paymentMethod: checkInPaymentMethod,
+          receivedBy: 'Manager (Front Desk Manager)',
+          hotelName: settings.name || 'HOTEL SUBRA GRAND',
+          tagline: settings.tagline || 'A Unit Of Jagoda Hospitality Pvt. Ltd.',
+          address: settings.address || '57, New street, near church corner , Karur - 01',
+          email: settings.email || 'jagodahospitality@gmail.com',
+          phone: settings.phone || '9991118512',
+          gstNumber: settings.gstNumber || '33AAHCJ3990L1Z5'
+        });
+        setShowAdvanceReceiptModal(true);
+      }
+    } catch (err) {
+      console.error('Check-in error:', err);
+      alert('Failed to complete check-in. Please try again.');
+    } finally {
+      setIsSubmittingCheckIn(false);
     }
   };
 
@@ -1949,9 +1959,10 @@ export const RoomsView: React.FC<RoomsViewProps> = ({ setTab, setSelectedRoomFor
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-sm transition-colors"
+                  disabled={isSubmittingCheckIn}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl shadow-sm transition-colors flex items-center gap-2"
                 >
-                  Confirm Check-In
+                  {isSubmittingCheckIn ? 'Checking In...' : 'Confirm Check-In'}
                 </button>
               </div>
             </form>
