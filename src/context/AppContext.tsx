@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { api, socket } from '../api';
+import { api } from '../api';
 import { formatTime12h, formatTime24h, isDirectBookingSource, getLocalTodayString } from '../utils/dateUtils';
 
 // ==========================================
@@ -832,115 +832,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [tenantId, fetchTenantData]);
 
-  // SOCKET.IO REAL-TIME LISTENERS
-  useEffect(() => {
-    socket.on('tenant_created', (t: TenantAccount) => setTenants(prev => [t, ...prev.filter(x => x.id !== t.id)]));
-    socket.on('tenant_updated', (t: TenantAccount) => setTenants(prev => prev.map(x => x.id === t.id ? t : x)));
-    socket.on('tenant_deleted', (id: string) => setTenants(prev => prev.filter(x => x.id !== id)));
-
-    socket.on('user_created', (u: ClientUserAccount) => setUserAccounts(prev => [u, ...prev.filter(x => x.id !== u.id)]));
-    socket.on('user_updated', (u: ClientUserAccount) => setUserAccounts(prev => prev.map(x => x.id === u.id ? u : x)));
-    socket.on('user_deleted', (id: string) => setUserAccounts(prev => prev.filter(x => x.id !== id)));
-
-    socket.on('room_created', (r: Room) => setRooms(prev => [...prev.filter(x => x.id !== r.id), r]));
-    socket.on('room_updated', (r: Room) => setRooms(prev => prev.map(x => x.id === r.id ? r : x)));
-    socket.on('room_deleted', ({ id }) => setRooms(prev => prev.filter(x => x.id !== id)));
-
-    socket.on('order_created', (o: Order) => setOrders(prev => [o, ...prev.filter(x => x.id !== o.id)]));
-    socket.on('orders_bulk_updated', (updated: Order[]) => setOrders(updated));
-    socket.on('order_deleted', (id: string) => setOrders(prev => prev.filter(x => x.id !== id)));
-
-    socket.on('table_created', (t: RestaurantTable) => setTables(prev => [...prev.filter(x => x.id !== t.id), t]));
-    socket.on('table_updated', (t: RestaurantTable) => setTables(prev => prev.map(x => x.id === t.id ? t : x)));
-    socket.on('table_deleted', ({ id }: { id: string }) => setTables(prev => prev.filter(x => x.id !== id)));
-
-    socket.on('menu_item_created', (m: MenuItem) => setMenuItems(prev => [...prev.filter(x => x.id !== m.id), m]));
-    socket.on('menu_item_updated', (m: MenuItem) => setMenuItems(prev => prev.map(x => x.id === m.id ? m : x)));
-    socket.on('menu_item_deleted', ({ id }) => setMenuItems(prev => prev.filter(x => x.id !== id)));
-    socket.on('menu_items_batch_deleted', ({ ids }: { ids: string[] }) => setMenuItems(prev => prev.filter(x => !ids.includes(x.id))));
-    socket.on('menu_items_bulk_created', (items: MenuItem[]) => {
-      setMenuItems(prev => {
-        const itemIds = items.map(i => i.id);
-        return [...prev.filter(x => !itemIds.includes(x.id)), ...items];
-      });
-    });
-
-    socket.on('inventory_created', (i: InventoryItem) => setInventory(prev => [...prev.filter(x => x.id !== i.id), i]));
-    socket.on('inventory_updated', (i: InventoryItem) => setInventory(prev => prev.map(x => x.id === i.id ? i : x)));
-    socket.on('inventory_deleted', ({ id }) => setInventory(prev => prev.filter(x => x.id !== id)));
-
-    socket.on('purchase_log_created', (p: PurchaseLog) => setPurchaseLogs(prev => [p, ...prev.filter(x => x.id !== p.id)]));
-    socket.on('stock_adjustment_created', (s: StockAdjustmentLog) => setStockAdjustmentLogs(prev => [s, ...prev.filter(x => x.id !== s.id)]));
-
-    socket.on('expense_created', (e: Expense) => setExpenses(prev => [e, ...prev.filter(x => x.id !== e.id)]));
-    socket.on('expense_updated', (e: Expense) => setExpenses(prev => prev.map(x => x.id === e.id ? e : x)));
-    socket.on('expense_deleted', ({ id }: { id: string }) => setExpenses(prev => prev.filter(x => x.id !== id)));
-
-    socket.on('cash_wallet_transaction_created', (tx: CashWalletTransaction) => setCashWalletTransactions(prev => [...prev.filter(x => x.id !== tx.id), tx]));
-    socket.on('cash_wallet_transaction_deleted', ({ id }: { id: string }) => setCashWalletTransactions(prev => prev.filter(x => x.id !== id)));
-
-    socket.on('laundry_order_created', (l: LaundryOrder) => setLaundryOrders(prev => [l, ...prev.filter(x => x.id !== l.id)]));
-    socket.on('laundry_order_updated', (l: LaundryOrder) => setLaundryOrders(prev => prev.map(x => x.id === l.id ? l : x)));
-    socket.on('laundry_order_deleted', ({ id }) => setLaundryOrders(prev => prev.filter(x => x.id !== id)));
-
-    socket.on('hall_booking_created', (h: HallBooking) => setHallBookings(prev => [h, ...prev.filter(x => x.id !== h.id)]));
-    socket.on('hall_booking_updated', (h: HallBooking) => setHallBookings(prev => prev.map(x => x.id === h.id ? h : x)));
-    socket.on('hall_booking_deleted', ({ id }) => setHallBookings(prev => prev.filter(x => x.id !== id)));
-
-    socket.on('pre_booking_created', (p: PreBooking) => setPreBookings(prev => [p, ...prev.filter(x => x.id !== p.id)]));
-    socket.on('pre_booking_updated', (p: PreBooking) => setPreBookings(prev => prev.map(x => x.id === p.id ? p : x)));
-    socket.on('pre_booking_deleted', ({ id }) => setPreBookings(prev => prev.filter(x => x.id !== id)));
-
-    socket.on('audit_log_created', (a: AuditLog) => setAuditLogs(prev => [a, ...prev.filter(x => x.id !== a.id)]));
-    socket.on('settings_updated', (s: HotelSettings) => setSettings(s));
-    socket.on('notification_created', (n: AppNotification) => setNotifications(prev => [n, ...prev.filter(x => x.id !== n.id)]));
-    socket.on('notification_updated', (n: AppNotification) => setNotifications(prev => prev.map(x => x.id === n.id ? n : x)));
-
-    socket.on('tenant_data_reset', (tId: string) => {
-      if (tenantId === tId) {
-        fetchTenantData(tId);
-      }
-    });
-
-    return () => {
-      socket.off('tenant_created');
-      socket.off('tenant_updated');
-      socket.off('tenant_deleted');
-      socket.off('user_created');
-      socket.off('user_updated');
-      socket.off('user_deleted');
-      socket.off('room_created');
-      socket.off('room_updated');
-      socket.off('room_deleted');
-      socket.off('order_created');
-      socket.off('order_deleted');
-      socket.off('menu_item_created');
-      socket.off('menu_item_updated');
-      socket.off('menu_item_deleted');
-      socket.off('inventory_created');
-      socket.off('inventory_updated');
-      socket.off('inventory_deleted');
-      socket.off('purchase_log_created');
-      socket.off('stock_adjustment_created');
-      socket.off('expense_created');
-      socket.off('expense_updated');
-      socket.off('expense_deleted');
-      socket.off('laundry_order_created');
-      socket.off('laundry_order_updated');
-      socket.off('laundry_order_deleted');
-      socket.off('hall_booking_created');
-      socket.off('hall_booking_updated');
-      socket.off('hall_booking_deleted');
-      socket.off('pre_booking_created');
-      socket.off('pre_booking_updated');
-      socket.off('pre_booking_deleted');
-      socket.off('audit_log_created');
-      socket.off('settings_updated');
-      socket.off('notification_created');
-      socket.off('notification_updated');
-      socket.off('tenant_data_reset');
-    };
-  }, [tenantId, fetchTenantData]);
 
   // AUDIT LOG
   const addAudit = async (action: string, details: string, oldValue?: string, newValue?: string) => {

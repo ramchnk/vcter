@@ -1,6 +1,5 @@
 import express from 'express';
 import http from 'http';
-import { Server } from 'socket.io';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -9,12 +8,12 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']
-  }
-});
+
+// WebSocket real-time sync disabled for single-device operation
+const io = {
+  emit: () => {},
+  on: () => {}
+};
 
 const PORT = process.env.PORT || 5001;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://vcter:livedb@cluster0.uxuamo6.mongodb.net/vcter?retryWrites=true&w=majority';
@@ -2289,16 +2288,6 @@ setInterval(async () => {
 }, 60000);
 
 // ==========================================
-// SOCKET.IO CONNECTION
-// ==========================================
-io.on('connection', (socket) => {
-  console.log('Client connected to real-time MongoDB Socket:', socket.id);
-  socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
-  });
-});
-
-// ==========================================
 // START SERVER (LOCAL / NON-SERVERLESS)
 // ==========================================
 if (!process.env.VERCEL) {
@@ -2307,7 +2296,7 @@ if (!process.env.VERCEL) {
       console.log(' Connected to MongoDB Atlas:', MONGODB_URI.split('@')[1] || MONGODB_URI);
       await seedDefaultData();
       server.listen(PORT, () => {
-        console.log(` HotelVista MongoDB REST & Socket.io Server running on port ${PORT}`);
+        console.log(` HotelVista MongoDB REST Server running on port ${PORT}`);
       });
     })
     .catch((err) => {
